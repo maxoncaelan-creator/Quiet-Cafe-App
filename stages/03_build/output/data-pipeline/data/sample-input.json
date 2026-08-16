@@ -1,0 +1,84 @@
+[
+  {
+    "placeId": "sample-001",
+    "yelpId": "sample-yelp-001",
+    "name": "The Quiet Fork",
+    "cuisine": "Modern Australian",
+    "priceLevel": 3,
+    "address": "12 Quiet St, Surry Hills NSW",
+    "suburb": "Surry Hills",
+    "lat": -33.8886,
+    "lng": 151.2094,
+    "googleRating": 4.6,
+    "yelpRating": 4.5,
+    "reviewTexts": [
+      "So quiet, we could actually talk the whole meal.",
+      "Great for conversation, loved the calm atmosphere.",
+      "A bit pricey but peaceful and relaxing.",
+      "Not loud at all, perfect for a work dinner."
+    ],
+    "busynessPercent": 35,
+    "micReadings": [
+      { "decibel": 58, "platform": "ios" },
+      { "decibel": 61, "platform": "ios" },
+      { "decibel": 63, "platform": "android" }
+    ]
+  },
+  {
+    "placeId": "sample-002",
+    "yelpId": "sample-yelp-002",
+    "name": "Roar & Grill",
+    "cuisine": "Steakhouse",
+    "priceLevel": 4,
+    "address": "88 Loud Ln, CBD NSW",
+    "suburb": "Sydney CBD",
+    "lat": -33.8688,
+    "lng": 151.2093,
+    "googleRating": 4.3,
+    "yelpRating": 4.1,
+    "reviewTexts": [
+      "So loud we had to shout across the table.",
+      "Great steak but way too noisy for a date.",
+      "Deafening on a Friday night, couldn't hear my friend at all."
+    ],
+    "busynessPercent": 88,
+    "micReadings": [
+      { "decibel": 84, "platform": "android" },
+      { "decibel": 86, "platform": "ios" }
+    ]
+  },
+  {
+    "placeId": "sample-003",
+    "yelpId": null,
+    "name": "Harbourside Bistro",
+    "cuisine": "Seafood",
+    "priceLevel": 3,
+    "address": "5 Wharf Rd, Walsh Bay NSW",
+    "suburb": "Walsh Bay",
+    "lat": -33.8567,
+    "lng": 151.2013,
+    "googleRating": 4.4,
+    "yelpRating": null,
+    "reviewTexts": [
+      "Lovely view, average noise level, nothing to complain about."
+    ],
+    "busynessPercent": 55,
+    "micReadings": []
+  },
+  {
+    "placeId": "sample-004",
+    "yelpId": "sample-yelp-004",
+    "name": "New Opening Cafe",
+    "cuisine": "Cafe",
+    "priceLevel": 2,
+    "address": "3 Fresh St, Newtown NSW",
+    "suburb": "Newtown",
+    "lat": -33.8981,
+    "lng": 151.1794,
+    "googleRating": null,
+    "yelpRating": null,
+    "reviewTexts": [],
+    "busynessPercent": null,
+    "micReadings": []
+  }
+]

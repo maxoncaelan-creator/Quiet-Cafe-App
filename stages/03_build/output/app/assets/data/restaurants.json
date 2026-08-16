@@ -1,0 +1,130 @@
+[
+  {
+    "placeId": "sample-001",
+    "yelpId": "sample-yelp-001",
+    "name": "The Quiet Fork",
+    "cuisine": "Modern Australian",
+    "priceLevel": 3,
+    "address": "12 Quiet St, Surry Hills NSW",
+    "suburb": "Surry Hills",
+    "lat": -33.8886,
+    "lng": 151.2094,
+    "googleRating": 4.6,
+    "yelpRating": 4.5,
+    "signals": {
+      "review": {
+        "positiveCount": 5,
+        "negativeCount": 1,
+        "subscore": 83.33333333333334
+      },
+      "popular": {
+        "busynessPercent": 35,
+        "subscore": 65
+      },
+      "mic": {
+        "readingCountIos": 2,
+        "readingCountAndroid": 1,
+        "subscore": 73.33333333333334
+      }
+    },
+    "quietnessScore": 74.66666666666667,
+    "confidence": "high",
+    "signalCount": 3
+  },
+  {
+    "placeId": "sample-002",
+    "yelpId": "sample-yelp-002",
+    "name": "Roar & Grill",
+    "cuisine": "Steakhouse",
+    "priceLevel": 4,
+    "address": "88 Loud Ln, CBD NSW",
+    "suburb": "Sydney CBD",
+    "lat": -33.8688,
+    "lng": 151.2093,
+    "googleRating": 4.3,
+    "yelpRating": 4.1,
+    "signals": {
+      "review": {
+        "positiveCount": 0,
+        "negativeCount": 5,
+        "subscore": 0
+      },
+      "popular": {
+        "busynessPercent": 88,
+        "subscore": 12
+      },
+      "mic": {
+        "readingCountIos": 1,
+        "readingCountAndroid": 1,
+        "subscore": 11.666666666666686
+      }
+    },
+    "quietnessScore": 8.233333333333343,
+    "confidence": "high",
+    "signalCount": 3
+  },
+  {
+    "placeId": "sample-003",
+    "yelpId": null,
+    "name": "Harbourside Bistro",
+    "cuisine": "Seafood",
+    "priceLevel": 3,
+    "address": "5 Wharf Rd, Walsh Bay NSW",
+    "suburb": "Walsh Bay",
+    "lat": -33.8567,
+    "lng": 151.2013,
+    "googleRating": 4.4,
+    "yelpRating": null,
+    "signals": {
+      "review": {
+        "positiveCount": 0,
+        "negativeCount": 0,
+        "subscore": null
+      },
+      "popular": {
+        "busynessPercent": 55,
+        "subscore": 45
+      },
+      "mic": {
+        "readingCountIos": 0,
+        "readingCountAndroid": 0,
+        "subscore": null
+      }
+    },
+    "quietnessScore": 45,
+    "confidence": "low",
+    "signalCount": 1
+  },
+  {
+    "placeId": "sample-004",
+    "yelpId": "sample-yelp-004",
+    "name": "New Opening Cafe",
+    "cuisine": "Cafe",
+    "priceLevel": 2,
+    "address": "3 Fresh St, Newtown NSW",
+    "suburb": "Newtown",
+    "lat": -33.8981,
+    "lng": 151.1794,
+    "googleRating": null,
+    "yelpRating": null,
+    "signals": {
+      "review": {
+        "positiveCount": 0,
+        "negativeCount": 0,
+        "subscore": null
+      },
+      "popular": {
+        "busynessPercent": null,
+        "subscore": null
+      },
+      "mic": {
+        "readingCountIos": 0,
+        "readingCountAndroid": 0,
+        "subscore": null
+      }
+    },
+    "quietnessScore": null,
+    "confidence": null,
+    "signalCount": 0
+  }
+]

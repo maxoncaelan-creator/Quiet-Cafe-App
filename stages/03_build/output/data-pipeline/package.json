@@ -1,0 +1,19 @@
+{
+  "name": "quiet-restaurant-finder-pipeline",
+  "version": "0.1.0",
+  "description": "Data pipeline for Quiet Restaurant Finder: fetches restaurant + noise-signal data and computes quietness scores per the stage 2 ranking spec.",
+  "type": "module",
+  "main": "src/pipeline.js",
+  "scripts": {
+    "start": "node src/pipeline.js",
+    "test": "node --test \"test/**/*.test.js\""
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "outscraper": "^2.2.2",
+    "pg": "^8.23.0"
+  }
+}

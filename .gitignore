@@ -1,0 +1,9 @@
+# Repo-wide safety net, in addition to the nested .gitignore files under
+# stages/03_build/output/{data-pipeline,app}/. Never commit secrets.
+**/.env
+!**/.env.example
+**/node_modules/
+
+# OS/editor cruft
+.DS_Store
+Thumbs.db

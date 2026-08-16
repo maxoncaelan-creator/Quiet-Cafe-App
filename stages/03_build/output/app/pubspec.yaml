@@ -1,0 +1,27 @@
+name: quiet_restaurant_finder
+description: Ranks Sydney restaurants by how quiet they are.
+publish_to: 'none'
+version: 0.1.0
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  noise_meter: ^5.0.0
+  permission_handler: ^11.3.0
+  supabase_flutter: ^2.5.0
+  google_sign_in: ^7.2.0
+  sign_in_with_apple: ^8.1.0
+  crypto: ^3.0.5
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/data/restaurants.json
