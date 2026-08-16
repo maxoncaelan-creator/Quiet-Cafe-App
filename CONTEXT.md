@@ -5,6 +5,8 @@ Root: [[Vault-root/CONTEXT|Vault-root]]
 ## What this workspace builds
 An app that ranks restaurants by how quiet they are.
 
+Code: [github.com/maxoncaelan-creator/Quiet-Cafe-App](https://github.com/maxoncaelan-creator/Quiet-Cafe-App), pushed 2026-08-16. This workspace stays the source of truth for research/design decisions and the build log — see [[quiet-restaurant-finder/stages/03_build/output/README|stage 3 README]].
+
 ## Scope
 One city: Sydney, NSW. Confirmed with Caelan.
 Platform: iOS and Android. Confirmed with Caelan.
