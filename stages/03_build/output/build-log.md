@@ -1349,6 +1349,23 @@ error in the Flutter run log, unaffected by any code in this session) —
 resolved with a force-stop + relaunch, unrelated to and not caused by any
 of these changes.
 
+## Session — 2026-08-18 (yet another continuation): full-conversation mistake review
+
+Caelan asked for a review of the whole conversation for mistakes that should
+have been logged, noting that failing to log a mistake is itself a mistake.
+Went through the session and recorded six in
+`workspaces/quiet-restaurant-finder/MISTAKES.md` via `bin/icm mistake`:
+`keyboard-overflow-unhandled`, `incomplete-verification-build-flags`,
+`raw-backend-error-shown-to-user` (all caught by Caelan), plus two smaller
+self-caught ones (`unscoped-filesystem-search`,
+`unintended-tool-call-not-disclosed`) and the meta one Caelan's framing
+pointed at directly — `mistakes-not-logged-contemporaneously`: none of the
+above were written down when they actually happened, despite this
+workspace's own `AGENTS.md` saying to. Recompiled `MasterMistakes.md` and
+ran `bin/icm doctor` clean afterward. Full detail lives in `MISTAKES.md`
+itself, not duplicated here — none of these are at the 3+ "approaching"
+threshold yet, so no `AGENTS.md` guard is required.
+
 ## Open items carried into further build work
 - ~~Decide what to do about Popular Times~~ — decided 2026-08-15: dropped for v1, code kept dormant.
 - ~~Decide whether mic readings need a user identity~~ — decided 2026-08-15: real accounts, submission-gated only. See "Account-gated mic readings" above.
