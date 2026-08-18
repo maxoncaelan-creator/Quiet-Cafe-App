@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/mic_reading.dart';
 import '../services/mic_service.dart';
@@ -95,6 +96,16 @@ class _TakeReadingScreenState extends State<TakeReadingScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Thanks! Reading of ${reading.decibelValue.round()} dB submitted.')),
       );
+    } on PostgrestException catch (error) {
+      // Server-side cooldown (supabase/migrations/0006_mic_reading_rate_limit.sql,
+      // `enforce_mic_reading_cooldown`) — raised as a plain Postgres
+      // exception, not a distinct error code, so it's matched by message
+      // prefix rather than a status/code check.
+      if (!mounted) return;
+      final message = error.message.startsWith('rate_limited:')
+          ? error.message.replaceFirst('rate_limited: ', '')
+          : 'Could not submit reading: ${error.message}';
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

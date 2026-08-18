@@ -802,13 +802,77 @@ compiled**: Account screen renders with the real signed-in email
 live Supabase with the correct empty state, Log out is present, and Donate
 now shows its own hamburger menu confirming it's a real top-level route.
 
+## Session — 2026-08-18 (continued): per-account rate limiting on mic readings
+
+Caelan's call, per this workspace's own rules (rate limiting was explicitly
+flagged as not something to decide silently). Asked directly: a 30-second
+cooldown between any two submissions from the same account, regardless of
+which restaurant.
+
+Also surfaced first: the direct-push-to-main incident from the previous
+session. No GitHub branch-protection rule got set up — the session had no
+authenticated path to github.com (Claude-in-Chrome extension needed
+re-auth and didn't come back up, no `gh` CLI installed, no token in env).
+Caelan chose to skip the GitHub settings change for now and rely on a
+standing rule instead: always branch + PR, never push straight to `main`.
+This and every session's work from here on happens on a feature branch
+(`feature/mic-reading-rate-limit` for this session).
+
+Also checked before touching `DEFAULT_WEIGHTS`/tier thresholds in
+`scoring.js` (the other open item, also flagged Caelan's call): queried the
+live `restaurants`/`mic_readings` tables first rather than assuming. Real
+signal is still too thin to tune against — 0 mic readings across all 23
+restaurants, and only 3 restaurants have any review-mention signal at all,
+each with exactly 1 mention. Flagged to Caelan rather than tuning against
+noise; he chose to hold off entirely rather than set new judgment-call
+values now. Weight tuning stays an open item.
+
+**New migration**: `supabase/migrations/0006_mic_reading_rate_limit.sql`.
+Enforced server-side via a `before insert` trigger on `mic_readings`
+(`enforce_mic_reading_cooldown`), not just client-side, so it can't be
+bypassed by a modified client. Added a new `submitted_at timestamptz`
+column, distinct from the existing `recorded_at` — `recorded_at` is
+client-supplied (the on-device capture time ranking-spec.md's time-of-day
+filtering needs) and so isn't trustworthy for a rate-limit check; the
+trigger unconditionally overwrites `submitted_at` with `now()` regardless
+of what the client sends. The check itself: look up the caller's own most
+recent `submitted_at` (covered by the existing "Users can read their own
+mic readings" RLS policy from `0003_auth_required_for_mic_readings.sql` —
+no `security definer` needed) and reject with a `rate_limited: ...` message
+if under 30 seconds have passed.
+
+Ran `get_advisors` (security) after applying the migration, per standard
+practice for any DDL change — caught `function_search_path_mutable` on the
+new trigger function immediately, fixed with a follow-up
+`alter function ... set search_path = public`, then re-ran advisors and
+confirmed clean (only the pre-existing, unrelated leaked-password-protection
+warning remains).
+
+**Verified live against the real database, not just reasoned about**: ran an
+actual insert/insert/rollback test against the live `mic_readings` table
+(inside a transaction, rolled back after) confirming a second insert from
+the same `user_id` within 30 seconds is rejected with the expected message,
+then confirmed the rollback left 0 rows behind.
+
+**Flutter side**: `take_reading_screen.dart` now catches `PostgrestException`
+specifically and shows the trigger's message (stripped of the
+`rate_limited:` prefix) in the snackbar instead of the raw error, so a
+throttled user sees "wait N more second(s)..." rather than a Postgres error
+string. `flutter analyze`: 0 issues. `flutter test`: 2/2 passed. Not yet
+verified live on-device (no real second reading was submitted within 30s
+through the actual UI this session) — the server-side behavior is proven,
+the client-side message path is reasoned-through from the code but not
+click-tested end to end.
+
 ## Open items carried into further build work
 - ~~Decide what to do about Popular Times~~ — decided 2026-08-15: dropped for v1, code kept dormant.
 - ~~Decide whether mic readings need a user identity~~ — decided 2026-08-15: real accounts, submission-gated only. See "Account-gated mic readings" above.
 - ~~Whether to add Google/Apple Sign-In~~ — decided 2026-08-15: yes to both. ~~Google~~ — resolved 2026-08-18: Web + Android OAuth clients created, confirmed working end to end on the emulator (real account picker, real credential entry, successful sign-in). iOS client ID still not created — Apple sign-in still waiting on a real device to test.
 - ~~Whether to add Facebook (and other) social logins~~ — decided 2026-08-16: Facebook, via `signInWithOAuth`, hidden behind `FACEBOOK_SIGN_IN_ENABLED` until Caelan configures the Facebook provider in Supabase. See "Facebook — free, added 2026-08-16" in `PLATFORM_SETUP.md`.
 - **Register `quietrestaurantfinder://login-callback` as an Additional Redirect URL in Supabase's Auth → URL Configuration.** Needed for Facebook sign-in and the fixed email-confirmation redirect to actually work — the code side is done, this dashboard step is Caelan's to do. See "Deep link redirect" in `PLATFORM_SETUP.md`.
-- Whether to add per-account rate limiting on readings, now that real identity exists.
+- ~~Whether to add per-account rate limiting on readings, now that real identity exists~~ — resolved 2026-08-18: 30-second cooldown between submissions from the same account, enforced server-side. See "per-account rate limiting on mic readings" above.
+- **GitHub branch protection on `main` still not set up as an actual repo setting** — no authenticated path to github.com in the 2026-08-18 session (Claude-in-Chrome needed re-auth, no `gh` CLI, no token). Caelan chose a standing behavioral rule (branch + PR, never push to `main` directly) instead for now; revisit setting the real GitHub setting when there's an authenticated path available.
+- **Rate-limit cooldown message not click-tested end to end on-device** — the server-side trigger is verified live against the database; the Flutter snackbar message path (`take_reading_screen.dart`'s `PostgrestException` handling) is reasoned-through from the code, not yet confirmed by actually triggering it twice within 30s through the real UI.
 - Exact score-weighting constants (`DEFAULT_WEIGHTS`, `PLATFORM_WEIGHT`, and now `REVIEW_MENTION_TIERS`/`MIC_READING_TIERS` in `scoring.js`) — starting values per ranking-spec.md, need tuning against real usage data.
 - ~~Flutter app not yet compiled~~ — resolved 2026-08-16: `flutter pub get`/`analyze`/`test` all ran clean, and `flutter run -d edge` confirmed the app renders live Supabase data correctly. ~~Android build/device run~~ — resolved 2026-08-17: full Android toolchain set up, real emulator created, app built and run on it, verified visually (see "first real run" above). Still needed: iOS build (needs a Mac — no workaround, unrelated to the Android work). ~~Completing a real sign-in + mic-reading submission through the UI on-device~~ — resolved 2026-08-17: full flow verified for real (signup → email confirmation → sign-in → mic capture → submission → pipeline aggregation), see "real sign-in + mic-reading verified on-device" above.
 - ~~Clear the 4 seeded demo rows from the live `restaurants` table~~ — done this session (2026-08-16, continued): confirmed the 4 rows were exactly the known sample set, then deleted. Table is at 0 rows now — needs real pipeline data before the app has anything to show.
