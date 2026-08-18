@@ -1482,10 +1482,41 @@ two label lines; captured two screenshots a second apart and confirmed the
 ripple ring's size/opacity differed between them, i.e. it's actually
 animating and not a static asset.
 
-Committed to `feature/confidence-label-and-reading-button`, branched fresh
-off `main` (not stacked on the still-open Google/password branch, to keep
-the two PRs independently reviewable). Not yet pushed/PR'd — pending
-Caelan's review.
+Committed and pushed to `feature/confidence-label-and-reading-button`,
+branched fresh off `main` (not stacked on the still-open Google/password
+branch, to keep the two PRs independently reviewable). Not yet PR'd —
+pending Caelan's review.
+
+## Session — 2026-08-18 (continuation): list-screen confidence removed, bar moved inline
+
+Caelan looked at the list screen after the previous change and asked for
+more: drop the confidence indication from list rows entirely (not just
+de-emphasize it to text), and put the quietness bar to the left of the
+"Silent"-style label instead of stacked above it.
+
+**`RestaurantTile`** (`widgets/restaurant_tile.dart`): removed the
+`ConfidenceIndicator` block and its now-unused import outright — list rows
+show only the bar + category label now, no confidence text at all. (The
+`showDots` flag added to `ConfidenceIndicator` earlier this session is
+unused now that its only caller is gone; left the widget itself alone
+since the detail screen still uses it and a future screen might want the
+list-style text-only form again.)
+
+**`NoiseLevelBar`**'s `compact` mode (`widgets/noise_level_bar.dart`): was
+a `Column` (bar above, label below, label width-constrained to stop long
+category names widening the tile). Changed to a `Row` (bar, then label)
+per Caelan's request — scoped to `compact` only, so the detail screen's
+full-width vertical layout (label above, centered, bar below) is untouched.
+
+`flutter analyze`: 0 issues. `flutter test`: 2/2 passed. **Verified live**
+on `emulator-5554`: List screen rows now read "[bar] Silent" on one line
+with no confidence text anywhere. Re-opened MuMu's detail screen and
+confirmed it still shows the full-width bar, "Very Low" + dots, and the
+pulsing mic button unchanged — the `compact` scoping held.
+
+Added as a follow-up commit on `feature/confidence-label-and-reading-button`
+rather than a new branch, since it's a direct continuation of the same
+list-screen work already open for review there.
 
 ## Open items carried into further build work
 - ~~Decide what to do about Popular Times~~ — decided 2026-08-15: dropped for v1, code kept dormant.

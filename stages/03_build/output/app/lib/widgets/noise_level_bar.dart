@@ -99,11 +99,11 @@ class NoiseLevelBar extends StatelessWidget {
     );
 
     if (compact) {
-      // Constrained to the bar's width — Column alone won't stop a longer
-      // category name (e.g. "Earsplitting") from widening the whole tile.
-      return Column(
+      // Bar to the left of the label, not stacked above it — list rows are
+      // wide enough for this and it reads faster than two lines.
+      return Row(
         mainAxisSize: MainAxisSize.min,
-        children: [bar, const SizedBox(height: 4), SizedBox(width: width, child: label)],
+        children: [bar, const SizedBox(width: 6), label],
       );
     }
     return Column(mainAxisSize: MainAxisSize.min, children: [label, const SizedBox(height: 10), bar]);
