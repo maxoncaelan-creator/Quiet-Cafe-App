@@ -368,10 +368,16 @@ package). Store links (`lib/utils/store_links.dart`) are **placeholders**
 tracked as an open item in the workspace's `build-log.md`, not something
 to chase down speculatively.
 
-**Cloudflare Pages deployment** — `.github/workflows/deploy-web.yml`
-(this repo's first CI pipeline) builds and deploys on every push to
-`main`. None of the following is done — dashboard/account access wasn't
-available in the session that added this:
+**Cloudflare Pages deployment** — `.github/workflows/deploy-web.yml`,
+at the **repo root** (not inside `app/` — GitHub Actions only ever looks
+for workflow files at the true repository root's `.github/workflows/`,
+which is one level above this `stages/03_build/output/app/` directory
+since this ICM workspace and the app share one git repo; a first attempt
+placed the file inside `app/.github/workflows/` and GitHub silently never
+saw it, caught 2026-08-19 via the Actions tab showing the onboarding page
+instead of the workflow). This repo's first CI pipeline, builds and
+deploys on every push to `main`. None of the following is done —
+dashboard/account access wasn't available in the session that added this:
 1. Cloudflare → API Tokens → create one scoped to `Pages: Edit`.
 2. Note the Cloudflare Account ID (Workers & Pages → Overview).
 3. GitHub repo → Settings → Secrets → Actions → add `CLOUDFLARE_API_TOKEN`,

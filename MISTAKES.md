@@ -79,3 +79,13 @@ Called Geolocator.getCurrentPosition() for the venue-guess feature with only a D
 Called Geolocator.getCurrentPosition() for the venue-guess feature with only a Dart-side .timeout() wrapper, no platform-level time bound. Live-tested on the emulator: the default FusedLocationProvider path could retry a network-based fix indefinitely; an interim fix attempt (forceLocationManager: true, tried without researching it first) hung even harder, producing a real Android ANR (confirmed via adb logcat: 'ANR in system', 80-100%+ kernel CPU) that required force-closing the app.
 **Standard:** An async platform-channel call to a service that can genuinely stall (network-based location resolution) needs its bound set at the native/platform level (geolocator's own timeLimit), not just wrapped in a Dart Future.timeout() that can't interrupt work already in flight on the platform side.
 **Fix:** Reverted forceLocationManager. Added timeLimit: Duration(seconds: 8) directly to LocationSettings. Re-tested live: the same underlying system dialog reappeared but the app stayed fully responsive, confirming the native bound was the actual fix.
+
+## workflow-file-placed-in-wrong-repo-root
+
+Placed .github/workflows/deploy-web.yml inside app/.github/workflows/ instead of the true git repo root's .github/workflows/. This workspace and the app share one git repository (the outer ICM workspace is the actual repo root, app/ is a subdirectory several levels down), so GitHub Actions never saw the workflow file at all -- the Actions tab showed the 'Get started' onboarding page instead of the workflow, which is how Caelan caught it.
+
+### 2026-08-18 | 03_build | caught: user
+Placed .github/workflows/deploy-web.yml inside app/.github/workflows/ instead of the true git repo root's .github/workflows/. This workspace and the app share one git repository (the outer ICM workspace is the actual repo root, app/ is a subdirectory several levels down), so GitHub Actions never saw the workflow file at all -- the Actions tab showed the 'Get started' onboarding page instead of the workflow, which is how Caelan caught it.
+**Standard:** Before adding any repo-root-relative config file (.github/workflows, .gitignore-adjacent tooling, etc.) to a nested project directory, verify where the actual git repository root is (git rev-parse --show-toplevel) rather than assuming the project directory (app/) is the repo root.
+**Fix:** Moved deploy-web.yml to the true root .github/workflows/, added a job-level working-directory default (stages/03_build/output/app) for the run: steps, and kept the wrangler-action's build/web path as a full path from repo root since 'uses:' steps don't inherit the working-directory default. Documented the correct location explicitly in PLATFORM_SETUP.md.
+

@@ -1,0 +1,42 @@
+name: Deploy web
+
+# Needs 4 GitHub Actions secrets before the deploy step will succeed —
+# CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, SUPABASE_URL,
+# SUPABASE_ANON_KEY. See PLATFORM_SETUP.md's "Web" section (in
+# stages/03_build/output/app/) for where each comes from.
+#
+# This file must live at the repo root's .github/workflows/ — GitHub
+# Actions never looks inside subdirectories for workflow files. The
+# Flutter app itself lives at stages/03_build/output/app/, several
+# levels below this repo's root, hence the working-directory below.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+defaults:
+  run:
+    working-directory: stages/03_build/output/app
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - run: flutter pub get
+
+      - run: |
+          flutter build web --release \
+            --dart-define=SUPABASE_URL=${{ secrets.SUPABASE_URL }} \
+            --dart-define=SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
+
+      - uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy stages/03_build/output/app/build/web --project-name=quiet-restaurant-finder --branch=main
