@@ -56,6 +56,22 @@ Links (iOS) / App Links (Android) once real hosting + an Apple Developer
 Team ID + an Android signing key all exist — see `PLATFORM_SETUP.md`
 "Universal Links / App Links."
 
+## Email delivery
+
+**Moving off Supabase Auth's built-in email sender to Resend (custom
+SMTP)**, decided 2026-08-18 (yet another continuation) after Supabase's
+shared per-hour rate limit blocked live testing of the forgot-password
+flow twice in one session. Caelan created a Resend account and generated
+an API key. Two dashboard-only steps remain, both Caelan's: verifying
+`cafequiet.com` as a sending domain in Resend (SPF/DKIM records added to
+Cloudflare DNS, currently propagating), then entering Resend's SMTP
+credentials into Supabase Dashboard → Authentication → Emails → SMTP
+Settings. See [[quiet-restaurant-finder/stages/03_build/output/build-log|build log]]
+"Move Supabase Auth off its built-in email sender to Resend" for the full
+credentials/steps breakdown. Domain verification is required, not
+optional — Resend won't deliver to real recipients from an unverified
+domain.
+
 ## Account & Search Assistant access
 
 **Search Assistant requires sign-in**, decided with Caelan 2026-08-18 — same
