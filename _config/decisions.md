@@ -48,6 +48,22 @@ Links (iOS) / App Links (Android) once real hosting + an Apple Developer
 Team ID + an Android signing key all exist — see `PLATFORM_SETUP.md`
 "Universal Links / App Links."
 
+## Git tracking
+
+**Found and fixed 2026-08-18**: this workspace folder had no `.git` at all,
+and no other clone of the repo existed anywhere on this machine — every
+code change since the one-time push on 2026-08-16 (which covers almost
+everything: the real data pipeline, the confidence system, the noise-level
+bar redesign, Google Sign-In, the Account screen, and more) existed only as
+local files with no backup. Fixed by wiring this exact folder
+(`ICM/workspaces/quiet-restaurant-finder/`) to the existing GitHub history
+and pushing everything (commit `ee7efb1`). **This folder is now the real
+git working tree** — future sessions should commit and push from here
+directly rather than assuming a separate clone exists. Needed
+`git config --global core.longpaths true` on Windows first — the generated
+Android/Kotlin paths are long enough to hit the default path-length limit
+on clone/checkout.
+
 ## Source of truth
 
 The app's code is mirrored at
