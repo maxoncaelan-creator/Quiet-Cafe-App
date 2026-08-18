@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../services/oauth_service.dart';
+import '../widgets/centered_scroll_form.dart';
 
 class CreateAccountPasswordScreen extends StatefulWidget {
   final String email;
@@ -84,11 +85,8 @@ class _CreateAccountPasswordScreenState extends State<CreateAccountPasswordScree
     return Scaffold(
       appBar: AppBar(title: const Text('Set a password')),
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
+        child: CenteredScrollForm(
+          children: [
               Text('Choose a password for ${widget.email}.', textAlign: TextAlign.center),
               const SizedBox(height: 24),
               TextField(
@@ -111,8 +109,7 @@ class _CreateAccountPasswordScreenState extends State<CreateAccountPasswordScree
                 onPressed: _submitting ? null : _submit,
                 child: Text(_submitting ? 'Please wait…' : 'Create account'),
               ),
-            ],
-          ),
+          ],
         ),
       ),
     );

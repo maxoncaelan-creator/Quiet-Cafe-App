@@ -7,6 +7,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../widgets/centered_scroll_form.dart';
 import 'forgot_password_screen.dart';
 
 class SignInEmailScreen extends StatefulWidget {
@@ -56,11 +57,8 @@ class _SignInEmailScreenState extends State<SignInEmailScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('Sign in with email')),
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
+        child: CenteredScrollForm(
+          children: [
               TextField(
                 controller: _emailController,
                 keyboardType: TextInputType.emailAddress,
@@ -94,8 +92,7 @@ class _SignInEmailScreenState extends State<SignInEmailScreen> {
                 onPressed: _submitting ? null : _submit,
                 child: Text(_submitting ? 'Please wait…' : 'Sign in'),
               ),
-            ],
-          ),
+          ],
         ),
       ),
     );

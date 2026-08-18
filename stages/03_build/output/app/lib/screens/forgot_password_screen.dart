@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../services/oauth_service.dart' show oauthRedirectUrl;
+import '../widgets/centered_scroll_form.dart';
 
 const _skeletonDuration = Duration(milliseconds: 500);
 
@@ -76,42 +77,32 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Reset password')),
-      body: Padding(
-        padding: const EdgeInsets.all(24),
-        child: _showSkeleton ? const _ForgotPasswordSkeleton() : _buildForm(context),
-      ),
-    );
-  }
-
-  Widget _buildForm(BuildContext context) {
-    return SingleChildScrollView(child: _buildFormColumn(context));
-  }
-
-  Widget _buildFormColumn(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        const Text(
-          "Enter your account's email and we'll send you a link to reset your password.",
-          textAlign: TextAlign.center,
-        ),
-        const SizedBox(height: 24),
-        TextField(
-          controller: _emailController,
-          keyboardType: TextInputType.emailAddress,
-          autofocus: widget.initialEmail.isEmpty,
-          decoration: const InputDecoration(labelText: 'Email'),
-          onSubmitted: (_) => _submitting ? null : _submit(),
-        ),
-        const SizedBox(height: 20),
-        if (_error != null) Text(_error!, style: const TextStyle(color: Colors.red)),
-        if (_info != null) Text(_info!, style: const TextStyle(color: Colors.green)),
-        const SizedBox(height: 12),
-        FilledButton(
-          onPressed: _submitting ? null : _submit,
-          child: Text(_submitting ? 'Please wait…' : 'Send reset link'),
-        ),
-      ],
+      body: _showSkeleton
+          ? const Padding(padding: EdgeInsets.all(24), child: _ForgotPasswordSkeleton())
+          : CenteredScrollForm(
+              children: [
+                const Text(
+                  "Enter your account's email and we'll send you a link to reset your password.",
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 24),
+                TextField(
+                  controller: _emailController,
+                  keyboardType: TextInputType.emailAddress,
+                  autofocus: widget.initialEmail.isEmpty,
+                  decoration: const InputDecoration(labelText: 'Email'),
+                  onSubmitted: (_) => _submitting ? null : _submit(),
+                ),
+                const SizedBox(height: 20),
+                if (_error != null) Text(_error!, style: const TextStyle(color: Colors.red)),
+                if (_info != null) Text(_info!, style: const TextStyle(color: Colors.green)),
+                const SizedBox(height: 12),
+                FilledButton(
+                  onPressed: _submitting ? null : _submit,
+                  child: Text(_submitting ? 'Please wait…' : 'Send reset link'),
+                ),
+              ],
+            ),
     );
   }
 }

@@ -27,6 +27,7 @@ import 'package:flutter/material.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
 import '../services/oauth_service.dart';
+import '../widgets/centered_scroll_form.dart';
 import '../widgets/email_option_button.dart';
 import '../widgets/google_sign_in_button.dart';
 import 'create_account_screen.dart';
@@ -93,11 +94,8 @@ class _AuthScreenState extends State<AuthScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('Sign in')),
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
+        child: CenteredScrollForm(
+          children: [
               if (OAuthService.googleConfigured) ...[
                 GoogleSignInButton(
                   label: 'Sign in with Google',
@@ -145,8 +143,7 @@ class _AuthScreenState extends State<AuthScreen> {
                 onPressed: _submitting ? null : _createAccount,
                 child: const Text("Don't have an account? Create one"),
               ),
-            ],
-          ),
+          ],
         ),
       ),
     );

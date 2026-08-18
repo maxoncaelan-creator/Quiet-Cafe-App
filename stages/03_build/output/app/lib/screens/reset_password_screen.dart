@@ -9,6 +9,7 @@
 import 'package:flutter/material.dart';
 
 import '../services/supabase_service.dart';
+import '../widgets/centered_scroll_form.dart';
 
 class ResetPasswordScreen extends StatefulWidget {
   const ResetPasswordScreen({super.key});
@@ -65,11 +66,8 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Reset password'), automaticallyImplyLeading: false),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
+      body: CenteredScrollForm(
+        children: [
             const Text('Choose a new password for your account.', textAlign: TextAlign.center),
             const SizedBox(height: 24),
             TextField(
@@ -91,8 +89,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
               onPressed: _submitting ? null : _submit,
               child: Text(_submitting ? 'Please wait…' : 'Save new password'),
             ),
-          ],
-        ),
+        ],
       ),
     );
   }

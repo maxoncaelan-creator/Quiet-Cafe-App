@@ -6,6 +6,7 @@
 
 import 'package:flutter/material.dart';
 
+import '../widgets/centered_scroll_form.dart';
 import 'create_account_password_screen.dart';
 
 class CreateAccountEmailScreen extends StatefulWidget {
@@ -64,11 +65,8 @@ class _CreateAccountEmailScreenState extends State<CreateAccountEmailScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('Create account')),
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
+        child: CenteredScrollForm(
+          children: [
               TextField(
                 controller: _emailController,
                 keyboardType: TextInputType.emailAddress,
@@ -83,8 +81,7 @@ class _CreateAccountEmailScreenState extends State<CreateAccountEmailScreen> {
                 onPressed: _submitting ? null : _continue,
                 child: Text(_submitting ? 'Please wait…' : 'Continue'),
               ),
-            ],
-          ),
+          ],
         ),
       ),
     );

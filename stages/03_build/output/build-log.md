@@ -1150,6 +1150,36 @@ not independently re-verified this pass beyond what the visual check above
 covers — no reason to expect it broke given it's the same pop pattern used
 one level up, but flagging the distinction honestly.
 
+## Session — 2026-08-18 (yet another continuation): auth screens' content vertically centered
+
+Caelan: "move all of that more to the centre of the screens" — the chooser
+and email/password screens from the last two sessions all had their content
+packed at the top with a lot of empty space below, a side effect of the
+keyboard-overflow fix (`SingleChildScrollView` sizes its child to content,
+so `mainAxisAlignment: center` on the inner `Column` was already dead —
+removed when that fix landed, silently leaving everything top-aligned).
+
+**New `widgets/centered_scroll_form.dart`** — the same
+`LayoutBuilder → SingleChildScrollView → ConstrainedBox(minHeight) →
+IntrinsicHeight → Column(mainAxisAlignment: center)` recipe was about to be
+copy-pasted into all 7 screens with this shape, so extracted once instead.
+The `minHeight` comes from the `LayoutBuilder`'s own reported constraints,
+which the `Scaffold` already shrinks when the keyboard opens — so this
+centers content only when there's slack, and still scrolls normally when
+there isn't (the keyboard-overflow fix from two sessions ago stays intact,
+not re-broken by this).
+
+Applied to all 7: `auth_screen.dart`, `create_account_screen.dart`,
+`sign_in_email_screen.dart`, `create_account_email_screen.dart`,
+`create_account_password_screen.dart`, `forgot_password_screen.dart` (only
+the real-form branch — the skeleton placeholder already centered correctly
+on its own, since it's outside the scroll view), `reset_password_screen.dart`.
+
+`flutter analyze`: 0 issues. `flutter test`: 2/2 passed. **Verified live on
+the emulator**: rebuilt, screenshotted the Sign in chooser and the "Sign in
+with email" page — both now show content centered in the available space
+rather than pinned to the top.
+
 ## Open items carried into further build work
 - ~~Decide what to do about Popular Times~~ — decided 2026-08-15: dropped for v1, code kept dormant.
 - ~~Decide whether mic readings need a user identity~~ — decided 2026-08-15: real accounts, submission-gated only. See "Account-gated mic readings" above.
