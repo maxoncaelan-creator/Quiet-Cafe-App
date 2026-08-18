@@ -2,12 +2,24 @@
 // supabase/functions/search-assistant) — no Anthropic key in this file or
 // anywhere in this app. Empty state (illustration + prompt) shows before
 // the first message; once a conversation starts, it's a normal thread.
+//
+// Sign-in required + per-account rate limiting added 2026-08-18, per
+// Caelan. Both are enforced server-side (the Edge Function itself rejects a
+// signed-out or over-limit caller — see its file header); what's here is
+// just the matching UI: a signed-out user sees a message instead of the
+// composer, and a rate-limited user sees a "back soon" message with the
+// reset time instead. Checked on load (fetchSearchAssistantUsage, a plain
+// table read under RLS — costs no tokens) and again reactively if a
+// message attempt comes back 429.
+
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 
 import '../services/supabase_service.dart';
 import '../widgets/app_drawer.dart';
+import 'auth_screen.dart';
 
 class _ChatMessage {
   final String role; // 'user' | 'assistant'
@@ -29,17 +41,69 @@ class _SearchAssistantScreenState extends State<SearchAssistantScreen> {
   final List<_ChatMessage> _messages = [];
   bool _sending = false;
 
+  StreamSubscription? _authSubscription;
+  bool _signedIn = false;
+  DateTime? _rateLimitedUntil;
+  Timer? _rateLimitRefreshTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    if (SupabaseService.isConfigured) {
+      _signedIn = _supabaseService.isSignedIn;
+      if (_signedIn) _checkRateLimitStatus();
+      _authSubscription = _supabaseService.authStateChanges.listen((_) {
+        if (!mounted) return;
+        final signedIn = _supabaseService.isSignedIn;
+        setState(() => _signedIn = signedIn);
+        if (signedIn) {
+          _checkRateLimitStatus();
+        } else {
+          _rateLimitRefreshTimer?.cancel();
+          setState(() => _rateLimitedUntil = null);
+        }
+      });
+    }
+  }
+
+  /// A plain table read under RLS (search_assistant_usage's own-row SELECT
+  /// policy) — costs no tokens, doesn't touch the assistant itself. Lets
+  /// the screen show "on a break" immediately on load if the account was
+  /// already at its limit from an earlier session, not just after a fresh
+  /// attempt comes back 429.
+  Future<void> _checkRateLimitStatus() async {
+    final usage = await _supabaseService.fetchSearchAssistantUsage();
+    if (!mounted || usage == null) return;
+    if (usage.isRateLimited) {
+      setState(() => _rateLimitedUntil = usage.resetAt);
+      _scheduleRateLimitRefresh();
+    }
+  }
+
+  /// Keeps the displayed countdown accurate and clears the gate on its own
+  /// once time's up, rather than leaving a stale "X hours" on screen for
+  /// however long the user happens to sit on this screen.
+  void _scheduleRateLimitRefresh() {
+    _rateLimitRefreshTimer?.cancel();
+    _rateLimitRefreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (!mounted) return;
+      final until = _rateLimitedUntil;
+      if (until == null || !until.isAfter(DateTime.now())) {
+        _rateLimitRefreshTimer?.cancel();
+        setState(() => _rateLimitedUntil = null);
+      } else {
+        setState(() {}); // just to re-render the countdown text
+      }
+    });
+  }
+
   Future<void> _send() async {
     final text = _controller.text.trim();
     if (text.isEmpty || _sending) return;
 
-    if (!SupabaseService.isConfigured) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Search Assistant needs a configured backend to work.')),
-      );
-      return;
-    }
-
+    // Reachable only once the composer itself is showing (see build()'s
+    // gate above), which already requires isConfigured/_signedIn/not rate
+    // limited — no need to re-check any of that here.
     final history = _messages.map((m) => {'role': m.role, 'content': m.content}).toList();
 
     setState(() {
@@ -53,6 +117,10 @@ class _SearchAssistantScreenState extends State<SearchAssistantScreen> {
       final reply = await _supabaseService.askSearchAssistant(text, history);
       if (!mounted) return;
       setState(() => _messages.add(_ChatMessage(role: 'assistant', content: reply)));
+    } on SearchAssistantRateLimited catch (e) {
+      if (!mounted) return;
+      setState(() => _rateLimitedUntil = e.resetAt);
+      _scheduleRateLimitRefresh();
     } catch (e) {
       if (!mounted) return;
       setState(() => _messages.add(const _ChatMessage(
@@ -80,25 +148,125 @@ class _SearchAssistantScreenState extends State<SearchAssistantScreen> {
   void dispose() {
     _controller.dispose();
     _scrollController.dispose();
+    _authSubscription?.cancel();
+    _rateLimitRefreshTimer?.cancel();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final rateLimitedUntil = _rateLimitedUntil;
     return Scaffold(
       appBar: AppBar(title: const Text('Search Assistant')),
       drawer: const AppDrawer(currentRoute: AppRoute.searchAssistant),
       body: SafeArea(
+        child: !SupabaseService.isConfigured
+            ? const Center(child: Text('Search Assistant needs a configured backend to work.'))
+            : !_signedIn
+            ? const _SignInRequiredMessage()
+            : rateLimitedUntil != null
+                ? _RateLimitedMessage(resetAt: rateLimitedUntil)
+                : Column(
+                    children: [
+                      Expanded(
+                        child: _messages.isEmpty
+                            ? const _EmptyState()
+                            : _MessageList(
+                                messages: _messages,
+                                sending: _sending,
+                                scrollController: _scrollController,
+                              ),
+                      ),
+                      _Composer(controller: _controller, sending: _sending, onSend: _send),
+                    ],
+                  ),
+      ),
+    );
+  }
+}
+
+class _SignInRequiredMessage extends StatelessWidget {
+  const _SignInRequiredMessage();
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 40),
         child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Expanded(
-              child: _messages.isEmpty ? const _EmptyState() : _MessageList(
-                messages: _messages,
-                sending: _sending,
-                scrollController: _scrollController,
-              ),
+            CircleAvatar(
+              radius: 40,
+              backgroundColor: scheme.primaryContainer,
+              child: Icon(Icons.lock_outline, color: scheme.onPrimaryContainer, size: 36),
             ),
-            _Composer(controller: _controller, sending: _sending, onSend: _send),
+            const SizedBox(height: 24),
+            Text(
+              'Search Assistant needs you to sign up or log in to work.',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 20),
+            FilledButton(
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const AuthScreen()),
+              ),
+              child: const Text('Sign in'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RateLimitedMessage extends StatelessWidget {
+  final DateTime resetAt;
+  const _RateLimitedMessage({required this.resetAt});
+
+  /// "X hours and Y minutes" / "Y minutes" (hours dropped under 1h, per
+  /// Caelan) / drops "and 0 minutes" when the remainder is exactly on the
+  /// hour. Rounds up to the nearest minute so this doesn't show a stale
+  /// "0 minutes" (or nothing) in the last seconds before the window
+  /// actually resets — see the 30s refresh timer that re-renders this.
+  static String _message(Duration remaining) {
+    final totalMinutes = remaining.inSeconds <= 0 ? 0 : (remaining.inSeconds / 60).ceil();
+    final hours = totalMinutes ~/ 60;
+    final minutes = totalMinutes % 60;
+    String plural(int n, String unit) => '$n $unit${n == 1 ? '' : 's'}';
+
+    final remainingText = hours < 1
+        ? plural(minutes, 'minute')
+        : minutes == 0
+            ? plural(hours, 'hour')
+            : '${plural(hours, 'hour')} and ${plural(minutes, 'minute')}';
+
+    return 'Search Assistant is on a break, it will be available again in $remainingText.';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final remaining = resetAt.difference(DateTime.now());
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 40),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircleAvatar(
+              radius: 40,
+              backgroundColor: scheme.primaryContainer,
+              child: Icon(Icons.hourglass_bottom, color: scheme.onPrimaryContainer, size: 36),
+            ),
+            const SizedBox(height: 24),
+            Text(
+              _message(remaining.isNegative ? Duration.zero : remaining),
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
           ],
         ),
       ),

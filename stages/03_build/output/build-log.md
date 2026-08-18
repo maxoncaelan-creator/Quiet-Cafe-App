@@ -1180,6 +1180,97 @@ the emulator**: rebuilt, screenshotted the Sign in chooser and the "Sign in
 with email" page — both now show content centered in the available space
 rather than pinned to the top.
 
+## Session — 2026-08-18 (yet another continuation): Search Assistant gated to signed-in users, per-account 10,000-token/5-hour rate limit
+
+Two asks from Caelan: Search Assistant only usable by signed-in accounts
+(signed-out sees an explanatory message instead), and a 10,000-token/5-hour
+budget per account to prevent misuse, with "on a break, available again in
+X" messaging once hit. Explicitly told not to test by actually burning
+10,000 tokens — see the testing section below for what was done instead.
+
+**Enforced server-side, not just in the Flutter UI** — same principle as
+every other gate in this app (mic reading auth, mic reading cooldown): the
+UI gate is the normal path, but `search-assistant`'s Edge Function has to
+reject an unauthenticated or over-limit caller on its own, since a client
+can always call the function directly.
+
+**New migration**: `0007_search_assistant_rate_limit.sql` —
+`search_assistant_usage` (user_id, window_start, tokens_used). Only a
+SELECT policy for `authenticated` (own row) — deliberately no
+insert/update policy, since only the Edge Function's service-role client
+should ever write to it; a user directly resetting their own tokens_used
+would defeat the whole point. The SELECT policy exists so the app can show
+current status via a plain table read, no round trip through the assistant
+or any token cost.
+
+**`search-assistant/index.ts` rewritten**: extracts the caller's JWT from
+the Authorization header and validates it via `auth.getUser()` — rejects
+with 401 `auth_required` if that fails (covers both "never signed in" and
+"session expired" the same way, since `functions.invoke` always sends
+*some* bearer token — the anon key if signed out — and `auth.getUser`
+rejects that the same as a missing one). Added a service-role client
+(`SUPABASE_SERVICE_ROLE_KEY` — auto-injected by the Edge Runtime, not a
+secret that needed setting) for the usage table, separate from the existing
+anon client that reads public restaurant data. Fixed 5-hour window per
+account, not sliding — simplest to reason about and to explain to the user.
+A blocked request never touches Anthropic; a request that goes through
+gets its real `usage.input_tokens + usage.output_tokens` from Anthropic's
+response added to the running total afterward (upsert, best-effort — a
+failed accounting write doesn't discard a reply already paid for). Deployed
+as version 6, `verify_jwt: true` kept as-is (already true; compatible since
+the anon key is itself a validly-signed JWT that passes the platform check
+before my own `auth.getUser` check correctly rejects it as not a real
+user).
+
+**Flutter side**: `SupabaseService` gained `SearchAssistantUsage` (+
+`isRateLimited`/`resetAt` helpers), `SearchAssistantRateLimited` (thrown by
+`askSearchAssistant` on a 429), and `fetchSearchAssistantUsage()` (the
+token-free status read). `TOKEN_LIMIT`/`WINDOW_MS` constants duplicated
+client-side (Dart) and server-side (Deno/TS) — no way to literally share a
+constant across those runtimes, flagged clearly in comments on both sides;
+the Edge Function's copy is the actual source of truth, the client's is
+only for showing status without spending a call.
+
+`search_assistant_screen.dart`: checks sign-in state and current usage on
+load (via `authStateChanges`, same subscription pattern `home_screen.dart`
+already uses) and shows one of three states in place of the normal
+chat — not configured (dev-only), signed out ("Search Assistant needs you
+to sign up or log in to work." + a Sign in button), or rate-limited
+("Search Assistant is on a break, it will be available again in
+[X hours and] Y minutes.", hours dropped under 1h per Caelan, "0 minutes"
+also dropped when remainder lands exactly on the hour). A 30-second
+`Timer.periodic` keeps the countdown accurate and clears the gate on its
+own once time's up, rather than leaving a stale "2 hours" on screen
+indefinitely. Also caught: a message that comes back 429 mid-conversation
+switches into the same gated state.
+
+**Testing — deliberately not by spending 10,000 tokens**, per Caelan's
+explicit instruction. What was done instead:
+- `curl`'d the deployed function directly with the anon key as the bearer
+  token (no real user) — confirmed 401 `auth_required`, zero tokens spent,
+  proves the server-side auth gate works independent of the Flutter UI.
+- Simulated the rate-limited state via direct SQL on
+  `search_assistant_usage` for the real account (`tokens_used: 10000`,
+  `window_start` backdated by a chosen amount) rather than actually
+  reaching the limit through real usage. Verified live on the emulator:
+  signed-out gate shows correctly with the exact requested wording;
+  signed in via Google, backdated the window by 2h30m → screen correctly
+  showed "available again in 2 hours and 29 minutes"; backdated by 4h15m
+  (45m remaining) → correctly showed "available again in 45 minutes" with
+  the hours part dropped, exactly per spec; deleted the row → composer
+  correctly reappeared.
+- Sent exactly one real message ("hi") to confirm the parts no SQL
+  simulation could prove on its own: that a real signed-in JWT actually
+  passes the function's `auth.getUser` check, and that a real Anthropic
+  response's actual token usage gets correctly parsed and upserted. Cost:
+  973 tokens (mostly the system prompt's restaurant context) — under 10% of
+  one account's 5-hour budget, nowhere near the 10,000-token ceiling this
+  session was told not to spend testing. Confirmed via SQL that the row
+  recorded exactly that, then deleted the test row to leave the real
+  account's usage clean.
+
+`flutter analyze`: 0 issues. `flutter test`: 2/2 passed.
+
 ## Open items carried into further build work
 - ~~Decide what to do about Popular Times~~ — decided 2026-08-15: dropped for v1, code kept dormant.
 - ~~Decide whether mic readings need a user identity~~ — decided 2026-08-15: real accounts, submission-gated only. See "Account-gated mic readings" above.
