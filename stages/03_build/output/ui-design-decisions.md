@@ -46,9 +46,16 @@ current category highlighted and the category name as the primary heading
 — no raw number shown anywhere in the main display. Same non-negotiable as
 above still holds: `quietness_score` itself is untouched, this is a display
 layer change only. See build-log.md "numbers replaced with a categorical
-noise bar" for the verification. Not yet extended to the Score breakdown
-sub-scores (Microphone readings, Review mentions, Popular times), which
-still show raw numbers — open question, not decided either way.
+noise bar" for the verification.
+
+**Superseded 2026-08-18: "Score breakdown" removed entirely, replaced by
+loudness votes.** Per Caelan, the detail screen no longer shows the
+per-signal breakdown (Microphone readings / Review mentions / Popular
+times, each with a raw 0–100 number) at all — the open question above about
+extending the categorical treatment to it is now moot. In its place: a
+"How loud is this venue?" heading with three vote buttons (Quiet/Normal/
+Loud), feeding the same quietness score a mic reading does. See "Loudness
+votes" and "Reading flow moved inline" below.
 
 **Google rating display.** `restaurants.google_rating` already exists in
 the schema and is already read into the `Restaurant` model
@@ -79,12 +86,13 @@ implementation, just using the standard widget rather than pushing a route.
 **Settings — Display, Location (UI only), Permissions (UI only), Log out.**
 All client-side:
 - Display: the dark-mode toggle above.
-- Location: city field + GPS toggle are UI only for now — **v1 is
-  hardcoded to Sydney, NSW per the PRD**, so the city field has nothing
-  real to change yet. GPS toggle should read/write the OS location
-  permission, but nothing in the app currently does proximity filtering —
-  wiring the toggle to an actual geo query is future work, not part of
-  this pass. Don't let the UI imply more than the backend does.
+- Location: the city field is still UI only — **v1 is hardcoded to Sydney,
+  NSW per the PRD**, so it has nothing real to change yet. The GPS
+  toggle itself is still not wired to anything. **Partially superseded
+  2026-08-18**: the app now does use real device location, just not via
+  this Settings toggle or for proximity filtering — see "GPS venue guess"
+  below. Wiring the Settings toggle to something (or removing it if the
+  venue-guess feature makes it redundant) is still open.
 - Permissions: microphone toggle reads/writes the OS mic permission
   (`permission_handler`, already a dependency). Notifications toggle is UI
   only until push infrastructure exists — see "Needs new backend work" below.
@@ -173,6 +181,9 @@ mockup ($5/$10/$25/Other) are placeholder values, not confirmed pricing.
 | Version number | Ready — needs one package added |
 | Search Assistant / Haiku | **Done, live-verified 2026-08-17** — Edge Function deployed, tested via curl and on a real Android emulator. Gated to signed-in accounts + 10k-token/5h rate limit added 2026-08-18. |
 | Sign-in/sign-up screens (cal.com-style rework) | **Done, live-verified 2026-08-18** — chooser screens + real Google logo + dedicated email/password screens; not part of the original Figma pass this doc otherwise covers |
+| Reading flow moved inline | **Done, live-verified 2026-08-18** — no more separate "Reading at X" screen; capture/submit happens on the detail screen via `MicReadingControl` |
+| Loudness votes | **Done, live-verified end to end 2026-08-18** — replaces "Score breakdown"; vote → database row → pipeline → confidence score, all confirmed live |
+| GPS venue guess | **Done, partially live-verified 2026-08-18** — permission flow and a found-and-fixed ANR risk confirmed live; the actual guess-resolves-to-a-venue path wasn't, see build-log.md |
 | Donate / Stripe | Blocked on Caelan's Stripe account + an Edge Function — explicitly paused until closer to launch |
 
 **Update, 2026-08-17:** Search Assistant moved from "blocked" to shipped —
@@ -192,6 +203,41 @@ available again in X" instead. Both enforced server-side in the Edge
 Function, not just here. See `_config/decisions.md` "Account & Search
 Assistant access" and build-log.md for the implementation and how it was
 verified without spending the token budget on testing.
+
+**Also 2026-08-18: reading flow moved inline, "Score breakdown" replaced by
+loudness votes, and a GPS venue guess added.** Three related pieces from
+the same session, all per Caelan, none part of the original Figma pass:
+
+- **Reading flow moved inline.** The separate "Reading at X" screen
+  (`TakeReadingScreen`) is gone — the whole capture-and-submit interaction
+  now happens on the detail screen itself, via a new `MicReadingControl`.
+  Tapping the mic button starts a fixed 5-second capture automatically (no
+  manual "stop and save" step); the button's own color and pulsing state
+  carry the phase instead of navigating anywhere: teal and pulsing when
+  idle, solid red with the live dB number in place of the prompt text
+  while recording, then grey and non-pulsing with a result message (the
+  same success/rate-limit/error text the old screen showed, just inline
+  instead of a SnackBar) once done, before resetting to idle after a few
+  seconds. Verified live via a scripted rapid-screenshot sequence timed
+  around the 5-second auto-stop, since a single before/after screenshot
+  wasn't catching the transient states.
+- **Loudness votes.** "Score breakdown" removed (see above); the detail
+  screen now shows "How loud is this venue?" with three vote buttons
+  (Quiet/Normal/Loud), feeding the same quietness score a mic reading
+  does — see `_config/decisions.md` "Noise signals" and
+  `ranking-spec.md` "Signals" for the scoring side. Verified live, fully
+  end to end: voted, confirmed the row in `loudness_votes`, ran the
+  pipeline, confirmed the confidence score updated.
+- **GPS venue guess.** The Search Assistant screen's empty state (signed-in
+  users only) now checks whether the device's location is within 100m of a
+  loaded restaurant and, if so, shows "Are you at X?" instead of the normal
+  splash — Yes opens that restaurant's detail screen, No sets a 30-minute
+  "don't ask again" cooldown. Found and fixed a real crash risk while
+  testing live (an unbounded native location call could hang the whole app
+  hard enough to trigger an actual Android ANR); the "found a venue and
+  showed the prompt" path itself wasn't confirmed live, since the test
+  emulator's location backend never produced a real fix in that session —
+  see build-log.md for the full account and what's still open.
 
 **Also 2026-08-18: sign-in/sign-up screens redone**, this time from a
 cal.com screenshot Caelan gave directly rather than the original Figma

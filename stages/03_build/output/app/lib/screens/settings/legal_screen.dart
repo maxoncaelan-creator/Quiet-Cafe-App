@@ -6,6 +6,8 @@
 
 import 'package:flutter/material.dart';
 
+import '../../widgets/max_width_content.dart';
+
 class LegalScreen extends StatelessWidget {
   const LegalScreen({super.key});
 
@@ -13,20 +15,22 @@ class LegalScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Privacy Policy')),
-      body: ListView(
-        children: [
-          const _LegalRow(icon: Icons.privacy_tip_outlined, label: 'Privacy Policy'),
-          const _LegalRow(icon: Icons.description_outlined, label: 'Terms of Service'),
-          ListTile(
-            leading: const Icon(Icons.code),
-            title: const Text('Open Source Licenses'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => showLicensePage(
-              context: context,
-              applicationName: 'Quiet Restaurant Finder',
+      body: MaxWidthContent(
+        child: ListView(
+          children: [
+            const _LegalRow(icon: Icons.privacy_tip_outlined, label: 'Privacy Policy'),
+            const _LegalRow(icon: Icons.description_outlined, label: 'Terms of Service'),
+            ListTile(
+              leading: const Icon(Icons.code),
+              title: const Text('Open Source Licenses'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => showLicensePage(
+                context: context,
+                applicationName: 'Quiet Restaurant Finder',
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

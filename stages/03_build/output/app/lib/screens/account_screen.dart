@@ -6,10 +6,11 @@
 // mic readings — not invented profile fields this app has no data for.
 
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 import '../models/mic_reading.dart';
 import '../services/supabase_service.dart';
-import 'change_password_screen.dart';
+import '../widgets/max_width_content.dart';
 
 class AccountScreen extends StatefulWidget {
   const AccountScreen({super.key});
@@ -52,7 +53,7 @@ class _AccountScreenState extends State<AccountScreen> {
     );
     if (confirmed != true) return;
     await _supabaseService.signOut();
-    if (mounted) Navigator.of(context).pop();
+    if (mounted) context.pop();
   }
 
   String _formatDate(DateTime date) {
@@ -67,34 +68,34 @@ class _AccountScreenState extends State<AccountScreen> {
 
     return Scaffold(
       appBar: AppBar(title: const Text('Account')),
-      body: ListView(
-        children: [
-          const _SectionHeader('Personal details'),
-          ListTile(
-            leading: const Icon(Icons.email_outlined),
-            title: const Text('Email'),
-            subtitle: Text(email),
-          ),
-          const Divider(height: 32),
-          const _SectionHeader('Security'),
-          ListTile(
-            leading: const Icon(Icons.lock_outline),
-            title: const Text('Change password'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const ChangePasswordScreen()),
+      body: MaxWidthContent(
+        child: ListView(
+          children: [
+            const _SectionHeader('Personal details'),
+            ListTile(
+              leading: const Icon(Icons.email_outlined),
+              title: const Text('Email'),
+              subtitle: Text(email),
             ),
-          ),
-          const Divider(height: 32),
-          const _SectionHeader('Your activity'),
-          _ActivitySection(readings: _readings, error: _readingsError, formatDate: _formatDate),
-          const Divider(height: 32),
-          ListTile(
-            leading: Icon(Icons.logout, color: scheme.error),
-            title: Text('Log out', style: TextStyle(color: scheme.error)),
-            onTap: _confirmLogout,
-          ),
-        ],
+            const Divider(height: 32),
+            const _SectionHeader('Security'),
+            ListTile(
+              leading: const Icon(Icons.lock_outline),
+              title: const Text('Change password'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => context.push('/account/change-password'),
+            ),
+            const Divider(height: 32),
+            const _SectionHeader('Your activity'),
+            _ActivitySection(readings: _readings, error: _readingsError, formatDate: _formatDate),
+            const Divider(height: 32),
+            ListTile(
+              leading: Icon(Icons.logout, color: scheme.error),
+              title: Text('Log out', style: TextStyle(color: scheme.error)),
+              onTap: _confirmLogout,
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/mic_reading.dart';
 import '../services/mic_service.dart';
 import '../services/supabase_service.dart';
+import '../widgets/max_width_content.dart';
 
 class TakeReadingScreen extends StatefulWidget {
   final String placeId;
@@ -120,28 +121,30 @@ class _TakeReadingScreenState extends State<TakeReadingScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text('Reading at ${widget.name}')),
-      body: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Text(
-              'This measures ambient sound level only. No audio is recorded or stored.',
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 32),
-            Text(
-              _currentDb == null ? '—' : '${_currentDb!.round()} dB',
-              style: const TextStyle(fontSize: 56, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 24),
-            if (_error != null) Text(_error!, style: const TextStyle(color: Colors.red)),
-            const SizedBox(height: 24),
-            FilledButton(
-              onPressed: _saving ? null : (_listening ? _stopAndSave : _start),
-              child: Text(_saving ? 'Saving…' : (_listening ? 'Stop and save' : 'Start listening')),
-            ),
-          ],
+      body: MaxWidthContent(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Text(
+                'This measures ambient sound level only. No audio is recorded or stored.',
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 32),
+              Text(
+                _currentDb == null ? '—' : '${_currentDb!.round()} dB',
+                style: const TextStyle(fontSize: 56, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 24),
+              if (_error != null) Text(_error!, style: const TextStyle(color: Colors.red)),
+              const SizedBox(height: 24),
+              FilledButton(
+                onPressed: _saving ? null : (_listening ? _stopAndSave : _start),
+                child: Text(_saving ? 'Saving…' : (_listening ? 'Stop and save' : 'Start listening')),
+              ),
+            ],
+          ),
         ),
       ),
     );

@@ -107,6 +107,16 @@ class SupabaseService {
     return (rows as List).map((row) => _restaurantFromRow(row as Map<String, dynamic>)).toList();
   }
 
+  /// Used to load `/restaurant/:placeId` directly (a URL open or browser
+  /// refresh with no in-memory Restaurant already available) — see
+  /// router.dart's `_RestaurantByIdLoader`.
+  Future<Restaurant> fetchRestaurantByPlaceId(String placeId) async {
+    if (!isConfigured) throw SupabaseNotConfigured();
+
+    final row = await _client.from('restaurants').select().eq('place_id', placeId).single();
+    return _restaurantFromRow(row);
+  }
+
   /// Empty for a signed-out user — favoriting requires an account (same gate
   /// as mic readings, see 0004_favorites.sql), browsing doesn't.
   Future<Set<String>> fetchFavoritePlaceIds() async {

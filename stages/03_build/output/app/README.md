@@ -1,8 +1,10 @@
 # Quiet Restaurant Finder
 
-A Flutter app (iOS/Android) that ranks Sydney restaurants by how quiet they
-are, combining review-text mining with first-party decibel readings
-crowdsourced from users' phones.
+A Flutter app (iOS/Android/Web) that ranks Sydney restaurants by how quiet
+they are, combining review-text mining with first-party decibel readings
+crowdsourced from users' phones. The mic-reading feature is mobile-only —
+see `PLATFORM_SETUP.md`'s "Web" section for what's different on the web
+build.
 
 The full history of *why* this app is built the way it is — research,
 ranking design, and a running build log of every session's work — lives in
@@ -25,17 +27,21 @@ it. If you're picking this project back up, start with the workspace's
 
 - Ranked list of Sydney restaurants by quietness, with cuisine/suburb/price
   filters and voice search
-- Restaurant detail view with a per-signal score breakdown and a confidence
-  indicator
-- In-app microphone reading, submitted by signed-in users, rate-limited to
-  one submission per 30 seconds per account
+- Restaurant detail view with a confidence indicator; in-app microphone
+  reading (rate-limited to one submission per 30 seconds per account) and
+  a lightweight Quiet/Normal/Loud vote, both signed-in only and both
+  feeding the same quietness score — a mic reading from the same account
+  within 5 minutes of a vote takes precedence for scoring
+- GPS-based venue guess on the Search Assistant screen ("Are you at X?"),
+  signed-in only, with a 30-minute cooldown after declining
 - Favorites (sign-in required)
 - Search Assistant — a Claude-powered chat for finding a restaurant that
   matches what you're after, gated to signed-in accounts with a
   10,000-token/5-hour budget per account
 - Account management: email/password or Google/Apple/Facebook sign-in,
-  password reset and change (both re-verified, not just accepted), account
-  screen with your own reading history
+  password reset and change (both re-verified, not just accepted; hidden
+  entirely for Google-only accounts), account screen with your own reading
+  history
 
 ## Running it
 
@@ -51,6 +57,11 @@ data and reading submission is disabled — useful for UI work, not for
 anything that touches real data. For the real project's values, Google/
 Apple/Facebook sign-in setup, and everything else platform-specific, see
 [`PLATFORM_SETUP.md`](PLATFORM_SETUP.md).
+
+For web: `flutter run -d chrome --dart-define=...` (same dart-defines) for
+local dev, `flutter build web --release --dart-define=...` for a production
+build. Deployment (Cloudflare Pages, `app.cafequiet.com`) is documented in
+`PLATFORM_SETUP.md`'s "Web" section.
 
 ## Contributing changes
 

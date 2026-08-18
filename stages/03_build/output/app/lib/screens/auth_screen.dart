@@ -24,14 +24,13 @@ import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
 import '../services/oauth_service.dart';
 import '../widgets/centered_scroll_form.dart';
 import '../widgets/email_option_button.dart';
 import '../widgets/google_sign_in_button.dart';
-import 'create_account_screen.dart';
-import 'sign_in_email_screen.dart';
 
 class AuthScreen extends StatefulWidget {
   const AuthScreen({super.key});
@@ -53,7 +52,7 @@ class _AuthScreenState extends State<AuthScreen> {
     });
     try {
       await signIn();
-      if (popOnSuccess && mounted) Navigator.of(context).pop(true);
+      if (popOnSuccess && mounted) context.pop(true);
     } catch (e) {
       setState(() => _error = 'Sign-in failed: $e');
     } finally {
@@ -62,10 +61,8 @@ class _AuthScreenState extends State<AuthScreen> {
   }
 
   Future<void> _signInWithEmail() async {
-    final result = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(builder: (_) => const SignInEmailScreen()),
-    );
-    if (result == true && mounted) Navigator.of(context).pop(true);
+    final result = await context.push<bool>('/sign-in/email');
+    if (result == true && mounted) context.pop(true);
   }
 
   /// Pushes the create-account flow and relays its result: `true` means a
@@ -75,16 +72,13 @@ class _AuthScreenState extends State<AuthScreen> {
   /// `onPendingConfirmation` below — stay on this screen to show it), and
   /// `null` means the user backed out without finishing.
   Future<void> _createAccount() async {
-    final result = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(
-        builder: (_) => CreateAccountScreen(
-          onPendingConfirmation: (message) {
-            if (mounted) setState(() => _info = message);
-          },
-        ),
-      ),
+    final result = await context.push<bool>(
+      '/sign-up',
+      extra: (String message) {
+        if (mounted) setState(() => _info = message);
+      },
     );
-    if (result == true && mounted) Navigator.of(context).pop(true);
+    if (result == true && mounted) context.pop(true);
   }
 
   @override

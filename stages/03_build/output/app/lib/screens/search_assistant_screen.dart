@@ -15,11 +15,11 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 
 import '../services/supabase_service.dart';
 import '../widgets/app_drawer.dart';
-import 'auth_screen.dart';
 
 class _ChatMessage {
   final String role; // 'user' | 'assistant'
@@ -210,9 +210,7 @@ class _SignInRequiredMessage extends StatelessWidget {
             ),
             const SizedBox(height: 20),
             FilledButton(
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const AuthScreen()),
-              ),
+              onPressed: () => context.push('/sign-in'),
               child: const Text('Sign in'),
             ),
           ],

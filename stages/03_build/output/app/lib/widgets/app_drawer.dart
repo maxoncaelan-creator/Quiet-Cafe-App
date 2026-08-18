@@ -3,29 +3,24 @@
 // for that part. This widget is just the drawer's content.
 
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import '../screens/account_screen.dart';
-import '../screens/auth_screen.dart';
-import '../screens/favourites_screen.dart';
-import '../screens/home_screen.dart';
-import '../screens/search_assistant_screen.dart';
-import '../screens/settings/donate_screen.dart';
-import '../screens/settings/settings_screen.dart';
 import '../services/supabase_service.dart';
+import 'app_nav_destinations.dart';
 
-enum AppRoute { searchAssistant, list, favourites, login, settings, donate }
+export 'app_nav_destinations.dart' show AppRoute;
 
 class AppDrawer extends StatelessWidget {
   final AppRoute currentRoute;
 
   const AppDrawer({super.key, required this.currentRoute});
 
-  void _go(BuildContext context, AppRoute route, Widget Function() builder) {
+  void _go(BuildContext context, AppRoute route, String path) {
     Navigator.of(context).pop(); // close the drawer first
     if (route == currentRoute) return;
-    Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => builder()));
+    context.go(path);
   }
 
   Future<void> _reportProblem(BuildContext context) async {
@@ -55,27 +50,17 @@ class AppDrawer extends StatelessWidget {
                 child: Text('Quiet Restaurant Finder', style: Theme.of(context).textTheme.titleMedium),
               ),
             ),
-            _DrawerItem(
-              icon: Icons.forum_outlined,
-              selectedIcon: Icons.forum,
-              label: 'Search Assistant',
-              selected: currentRoute == AppRoute.searchAssistant,
-              onTap: () => _go(context, AppRoute.searchAssistant, () => const SearchAssistantScreen()),
-            ),
-            _DrawerItem(
-              icon: Icons.restaurant_outlined,
-              selectedIcon: Icons.restaurant,
-              label: 'List',
-              selected: currentRoute == AppRoute.list,
-              onTap: () => _go(context, AppRoute.list, () => const HomeScreen()),
-            ),
-            _DrawerItem(
-              icon: Icons.star_border_rounded,
-              selectedIcon: Icons.star_rounded,
-              label: 'Favourites',
-              selected: currentRoute == AppRoute.favourites,
-              onTap: () => _go(context, AppRoute.favourites, () => const FavouritesScreen()),
-            ),
+            // Original visual order (searchAssistant, list, favourites,
+            // login, settings, donate) preserved by splitting the shared
+            // destinations list around the special-cased login item.
+            for (final d in appNavDestinations.take(3))
+              _DrawerItem(
+                icon: d.icon,
+                selectedIcon: d.selectedIcon,
+                label: d.label,
+                selected: currentRoute == d.route,
+                onTap: () => _go(context, d.route, d.path),
+              ),
             _DrawerItem(
               icon: Icons.login,
               selectedIcon: Icons.login,
@@ -83,25 +68,17 @@ class AppDrawer extends StatelessWidget {
               selected: currentRoute == AppRoute.login,
               onTap: () {
                 Navigator.of(context).pop();
-                Navigator.of(context).push(MaterialPageRoute(
-                  builder: (_) => signedIn ? const AccountScreen() : const AuthScreen(),
-                ));
+                context.push(signedIn ? '/account' : '/sign-in');
               },
             ),
-            _DrawerItem(
-              icon: Icons.settings_outlined,
-              selectedIcon: Icons.settings,
-              label: 'Settings',
-              selected: currentRoute == AppRoute.settings,
-              onTap: () => _go(context, AppRoute.settings, () => const SettingsScreen()),
-            ),
-            _DrawerItem(
-              icon: Icons.volunteer_activism_outlined,
-              selectedIcon: Icons.volunteer_activism,
-              label: 'Donate',
-              selected: currentRoute == AppRoute.donate,
-              onTap: () => _go(context, AppRoute.donate, () => const DonateScreen()),
-            ),
+            for (final d in appNavDestinations.skip(3))
+              _DrawerItem(
+                icon: d.icon,
+                selectedIcon: d.selectedIcon,
+                label: d.label,
+                selected: currentRoute == d.route,
+                onTap: () => _go(context, d.route, d.path),
+              ),
             const Spacer(),
             const Divider(height: 1),
             ListTile(

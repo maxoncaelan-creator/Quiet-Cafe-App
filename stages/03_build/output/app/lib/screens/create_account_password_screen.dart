@@ -5,6 +5,7 @@
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../services/oauth_service.dart';
@@ -69,9 +70,9 @@ class _CreateAccountPasswordScreenState extends State<CreateAccountPasswordScree
       // needs to happen next rather than popping as if signed in.
       if (response.session == null) {
         widget.onPendingConfirmation('Check ${widget.email} for a confirmation link, then sign in.');
-        Navigator.of(context).pop(false);
+        context.pop(false);
       } else {
-        Navigator.of(context).pop(true);
+        context.pop(true);
       }
     } on AuthException catch (e) {
       setState(() => _error = friendlyPasswordPolicyError(e) ?? e.message);

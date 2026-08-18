@@ -3,9 +3,9 @@
 // stay visually identical rather than drifting into two near-copies.
 
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 import '../models/restaurant.dart';
-import '../screens/restaurant_detail_screen.dart';
 import 'confidence_indicator.dart';
 import 'noise_level_bar.dart';
 
@@ -25,9 +25,7 @@ class RestaurantTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final rating = restaurant.googleRating;
     return InkWell(
-      onTap: () => Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => RestaurantDetailScreen(restaurant: restaurant)),
-      ),
+      onTap: () => context.push('/restaurant/${restaurant.placeId}', extra: restaurant),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         child: Row(

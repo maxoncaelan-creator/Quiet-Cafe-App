@@ -6,8 +6,11 @@
 // ui-design-decisions.md) — the toggle still controls the real OS
 // permission, ahead of that infrastructure existing.
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
+
+import '../../widgets/max_width_content.dart';
 
 class PermissionsSettingsScreen extends StatefulWidget {
   const PermissionsSettingsScreen({super.key});
@@ -69,23 +72,30 @@ class _PermissionsSettingsScreenState extends State<PermissionsSettingsScreen> w
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Permissions')),
-      body: ListView(
-        children: [
-          SwitchListTile(
-            title: const Text('Notifications'),
-            subtitle: const Text('Alerts about your submitted readings and new quiet spots nearby'),
-            value: _notificationStatus?.isGranted ?? false,
-            onChanged: _notificationStatus == null
-                ? null
-                : (v) => _handleToggle(Permission.notification, v),
-          ),
-          SwitchListTile(
-            title: const Text('Microphone'),
-            subtitle: const Text('Required to take a noise reading — off disables that feature only'),
-            value: _micStatus?.isGranted ?? false,
-            onChanged: _micStatus == null ? null : (v) => _handleToggle(Permission.microphone, v),
-          ),
-        ],
+      body: MaxWidthContent(
+        child: ListView(
+          children: [
+            SwitchListTile(
+              title: const Text('Notifications'),
+              subtitle: const Text('Alerts about your submitted readings and new quiet spots nearby'),
+              value: _notificationStatus?.isGranted ?? false,
+              onChanged: _notificationStatus == null
+                  ? null
+                  : (v) => _handleToggle(Permission.notification, v),
+            ),
+            // Hidden, not disabled, on web: a greyed toggle would imply an
+            // OS-permission state that doesn't exist there — mic capture is
+            // gated off web entirely (restaurant_detail_screen.dart), so
+            // there's nothing here to grant or deny.
+            if (!kIsWeb)
+              SwitchListTile(
+                title: const Text('Microphone'),
+                subtitle: const Text('Required to take a noise reading — off disables that feature only'),
+                value: _micStatus?.isGranted ?? false,
+                onChanged: _micStatus == null ? null : (v) => _handleToggle(Permission.microphone, v),
+              ),
+          ],
+        ),
       ),
     );
   }

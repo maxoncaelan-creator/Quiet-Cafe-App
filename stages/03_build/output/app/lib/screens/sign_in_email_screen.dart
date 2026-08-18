@@ -5,11 +5,11 @@
 // chooser screen.
 
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../widgets/centered_scroll_form.dart';
 import '../widgets/password_field.dart';
-import 'forgot_password_screen.dart';
 
 class SignInEmailScreen extends StatefulWidget {
   const SignInEmailScreen({super.key});
@@ -36,7 +36,7 @@ class _SignInEmailScreenState extends State<SignInEmailScreen> {
         email: _emailController.text.trim(),
         password: _passwordController.text,
       );
-      if (mounted) Navigator.of(context).pop(true);
+      if (mounted) context.pop(true);
     } on AuthException catch (e) {
       setState(() => _error = e.message);
     } catch (e) {
@@ -77,11 +77,7 @@ class _SignInEmailScreenState extends State<SignInEmailScreen> {
                 child: TextButton(
                   onPressed: _submitting
                       ? null
-                      : () => Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) => ForgotPasswordScreen(initialEmail: _emailController.text.trim()),
-                            ),
-                          ),
+                      : () => context.push('/forgot-password', extra: _emailController.text.trim()),
                   child: const Text('Forgot password?'),
                 ),
               ),

@@ -5,7 +5,7 @@ Inputs: [[quiet-restaurant-finder/stages/02_ranking-design/output/prd|PRD]], [[q
 
 **Code lives at [github.com/maxoncaelan-creator/Quiet-Cafe-App](https://github.com/maxoncaelan-creator/Quiet-Cafe-App) as of 2026-08-16** (pushed from this workspace — git history starts there, this ICM workspace is still the source of truth for the *decisions*, not necessarily every future code change). Session paused here after a real end-to-end pass: browsing, auth, and the mic-reading UI flow all exercised live against Supabase, two real bugs found and fixed in the process (see "Account-gated mic readings" below). Pick up from "Open items carried into further build work" at the bottom.
 
-Tech stack: **Flutter** targeting iOS and Android — compiles clean and its unit tests pass as of 2026-08-16 (`flutter analyze`: 0 issues; `flutter test`: 2/2 passed). Backend: **Supabase** (live project `quiet-restaurant-finder`, ref `aesorixtfasfuvcqrvem`, `ap-southeast-2`). Active noise signals: **review-text mining + crowdsourced microphone readings**. Popular Times (Outscraper, revised from an initial OpenSERP plan) was built, then **dropped 2026-08-15** after live testing found 0/100 Sydney restaurants had the data — see "Outscraper vs. OpenSERP" below. Submitting a mic reading requires a **real account** (browsing doesn't) — see "Account-gated mic readings" below. All decided with Caelan on 2026-08-15.
+Tech stack: **Flutter** targeting iOS and Android — compiles clean and its unit tests pass as of 2026-08-16 (`flutter analyze`: 0 issues; `flutter test`: 2/2 passed). Backend: **Supabase** (live project `quiet-restaurant-finder`, ref `aesorixtfasfuvcqrvem`, `ap-southeast-2`). Active noise signals as of 2026-08-16: **review-text mining + crowdsourced microphone readings** (a third, **loudness votes**, was added 2026-08-18 — see that session's entry and `ranking-spec.md` "Signals" for the current, up-to-date list). Popular Times (Outscraper, revised from an initial OpenSERP plan) was built, then **dropped 2026-08-15** after live testing found 0/100 Sydney restaurants had the data — see "Outscraper vs. OpenSERP" below. Submitting a mic reading requires a **real account** (browsing doesn't) — see "Account-gated mic readings" below. All decided with Caelan on 2026-08-15.
 
 ## What's here
 
@@ -1452,18 +1452,215 @@ Not yet committed — working on `feature/mic-reading-rate-limit`, still
 blocked on the GitHub connector's repo access (see PR blocker below);
 Caelan chose to skip resolving that this session and defer the PR.
 
+## Session — 2026-08-18 (yet another continuation): sign-up pending-confirmation path verified live
+
+Picked up the one remaining open item that was actually actionable this
+session (everything else is blocked on Caelan — dashboard settings,
+Stripe, a Mac, checking his own inbox, or the still-unresolved GitHub App
+repo access for `Quiet-Cafe-App`, re-checked and still 404 via the GitHub
+connector).
+
+Started the `Pixel_API_36` emulator, ran the app with the full
+`SUPABASE_URL`/`SUPABASE_ANON_KEY`/`GOOGLE_WEB_CLIENT_ID` dart-defines, and
+drove it via `adb` screenshots + `input tap`/`input text` (no direct-attach
+UI tool available in this environment). Logged out of the real
+`maxon.caelan@gmail.com` session first (confirmed via the Account screen),
+then went through Create account → Sign up with email using
+`maxon.caelan+quiettest1@gmail.com` (a plus-addressed alias of Caelan's own
+inbox, not a new external address) and a policy-valid password.
+
+No rate limit hit this time. Got back exactly "Check
+maxon.caelan+quiettest1@gmail.com for a confirmation link, then sign in."
+and landed back on the Sign in screen — the `false` +
+`onPendingConfirmation` leg of `CreateAccountPasswordScreen`'s pop-cascade,
+previously only reasoned-through from code. Confirmed via SQL against
+`auth.users` that the row exists with `email_confirmed_at: null`, matching
+the UI message exactly. Deleted the test user (`auth.identities` then
+`auth.users`) afterward to leave no residue, same pattern as prior
+sessions' test cleanup.
+
+Not exercised: the other leg of the pop-cascade (`true`, immediate
+session — happens when email confirmation is off, which it isn't for this
+project).
+
+**Update, same session: the click-through half is now resolved too.**
+Caelan pointed at [10minutemail.com](https://10minutemail.com) as a
+disposable inbox this agent *can* actually reach (via the browser tool),
+which removes the "needs Caelan's own inbox" blocker entirely. Repeated
+the signup with a fresh 10minutemail address
+(`pjtfpehbjtxlqnzmrk@vtmpj.net`), got the same "check your email" screen,
+then read the real confirmation email in the browser and pulled the actual
+link Supabase sent: `.../auth/v1/verify?token=pkce_...&type=signup&redirect_to=quietrestaurantfinder://login-callback`.
+
+Opened it via `adb shell am start -a android.intent.action.VIEW -d '<url>'`
+on the emulator, not the desktop browser — the point was to exercise the
+real deep-link handoff (Supabase verify → 302 redirect →
+`quietrestaurantfinder://login-callback` → Android routes it to the
+installed app), which a desktop browser can't do. First attempt hit
+`{"code":400,"error_code":"validation_failed","msg":"Verify requires a
+verification type"}` — not an app bug, an `adb shell` quoting bug: passing
+the URL in double quotes let the device's remote shell treat the bare `&`
+characters as its own job-control operator, truncating the command at the
+first `&` and dropping `type=signup` before it ever reached Supabase.
+Fixed by wrapping the URL in single quotes for the remote shell
+(`adb shell "am start ... -d '$URL'"`). Retried and the app came back to
+the foreground on its own — confirmed via SQL that `email_confirmed_at`
+flipped from `null` to a real timestamp. Then signed in with that same
+account through the UI and landed on an unlocked Search Assistant,
+verifying signup → email confirmation → deep link → sign-in as one
+continuous, real chain for the first time. Deleted the test user
+afterward, same cleanup pattern as before.
+
+Left the emulator logged out at the end of this session (both the real
+account and the final test account were signed out; nothing was left
+signed in).
+
+**Attempted the same session to extend this to the forgot-password
+click-through** (the sibling open item below), reusing the same
+10minutemail address. Hit `email rate limit exceeded` on the second
+signup attempt with that address — Supabase's built-in email sender
+shares one low per-hour rate limit across every auth email type (signup
+confirmation, password recovery, etc.), and the two confirmation emails
+already sent this session used most or all of it. Confirmed no partial
+user row was left in `auth.users` for that attempt — Supabase rejected the
+whole signup, not just the email send, so nothing needed cleanup. The
+forgot-password click-through is unblocked in principle (same proven
+mechanism) but still needs an actual run once the rate limit window
+resets.
+
+## Session — 2026-08-18 (yet another continuation): web support — routing, responsive shell, mic gating, Cloudflare Pages deploy
+
+Caelan asked for the app to work as a web app too, reachable through a URL,
+with device/OS-aware behavior. Established up front that CSS media queries
+can't do device/OS detection (they read viewport/rendering capabilities,
+not identity) — the actual mechanism is `kIsWeb` + `defaultTargetPlatform`
+from `package:flutter/foundation.dart`, which Flutter web already derives
+from the browser's own UA. Scoped to three goals: adaptive layout, an
+OS-aware "get the app" prompt, and gating off the in-app mic reading
+(native-only). Planned in plan mode; Caelan explicitly asked for the full
+persistent-shell + router rewrite rather than a scoped-down per-screen
+patch, and for Cloudflare Pages deployment to be part of this work, not a
+follow-up. Full plan and reasoning: `~/.claude/plans/deep-stargazing-fairy.md`
+(outside this repo, session-local).
+
+**Router migration.** The app had no router before this — plain
+`MaterialApp`, imperative `Navigator.push`/`pushReplacement` across 11
+files. Moved to `go_router` (`lib/router.dart`), giving every one of the
+20 screens a real, bookmarkable URL (`/list`, `/restaurant/:placeId`,
+`/settings/permissions`, etc.) — this is also literally what "web app
+through the URL" requires, not a separate concern from the shell work.
+`/restaurant/:placeId` fetches by id (new
+`SupabaseService.fetchRestaurantByPlaceId`, mirroring the existing
+`fetchRankedRestaurants` pattern) when opened directly with no in-memory
+`Restaurant` available — otherwise a URL paste or browser refresh would
+silently break, which would have made the URLs cosmetic rather than real.
+All 13 files with `Navigator` calls were migrated (`context.push`/`.pop`/
+`.go`, preserving every `push<bool>`/`pop(result)` chain exactly — the
+multi-screen sign-up flow's `onPendingConfirmation` callback and email
+threading through `/sign-up` → `/sign-up/email` → `/sign-up/password`
+now travels via go_router's `extra`, including a Dart record type for the
+two-value case). `usePathUrlStrategy()` (`flutter_web_plugins`) keeps URLs
+as plain paths, not hash-prefixed.
+
+**Persistent shell — the point Caelan corrected mid-plan.** First draft
+scoped the wide-screen `NavigationRail` to only the 5 nav-bearing
+screens, matching where the existing `Drawer` shows today. Caelan said
+that was out of scope and wanted the real thing: a root `ShellRoute`
+(`lib/widgets/app_shell.dart`) wraps *every* route, so the rail is
+visible on wide layouts even during auth flows, restaurant detail, or
+settings sub-screens — not just the 5. Below `kWideLayoutBreakpoint`
+(840, `lib/utils/breakpoints.dart`), each screen keeps its own `Drawer`
+exactly as before — confirmed live on the Android emulator afterward
+that mobile visuals and navigation are byte-for-byte unchanged (drawer
+order, detail screen layout, mic button all identical to pre-change
+screenshots). `lib/widgets/app_nav_destinations.dart` is now the single
+source of truth for the 5 top-level destinations, shared by `AppDrawer`
+and the new `AppNavRail` so they can't drift apart — `AppDrawer` itself
+shrank from 5 hardcoded items to a loop, with `AppRoute` re-exported from
+it (moved to `app_nav_destinations.dart`) so the 5 screens that only
+imported `app_drawer.dart` for that enum didn't all need new imports.
+
+**Mic gating.** `restaurant_detail_screen.dart`'s single "Take a reading
+here" call site got a `kIsWeb` branch — web shows "Take a reading in the
+app" leading to a new shared `showGetAppPrompt` bottom sheet instead of
+dead-ending. `permissions_settings_screen.dart`'s Microphone toggle is
+hidden (not disabled) on web — a greyed toggle would have implied an
+OS-permission state that doesn't exist there. `mic_reading.dart`'s
+previously-unconditional `dart:io Platform` import (the actual web-compile
+blocker) was replaced with `kIsWeb`/`defaultTargetPlatform`, adding a
+`'web'` platform value that's normally unreachable now that capture
+itself is gated. Voice search (`speech_to_text`) was deliberately left
+alone — it already has real web support, a different feature from mic
+decibel metering.
+
+**"Get the app" banner.** New `download_app_banner.dart` (OS detection,
+no new package), `download_banner_service.dart` (dismissal persisted via
+`SharedPreferences`, mirroring `theme_service.dart`'s pattern), and
+`store_links.dart` — the store URLs are explicit placeholders (`idTODO`),
+since the app isn't published to either store yet. Shown globally via
+`MaterialApp.router`'s `builder:` slot, not per-screen.
+
+**Cloudflare Pages deploy.** New `.github/workflows/deploy-web.yml` —
+this repo's first CI pipeline — builds `flutter build web --release` and
+deploys via `wrangler pages deploy`. `web/_redirects`
+(`/* /index.html 200`) added for SPA fallback so direct-URL loads don't
+404 at the CDN. None of the account-side setup is done — no Cloudflare
+API token, no GitHub secrets, no Pages project — all documented as
+ordered steps in `PLATFORM_SETUP.md`'s new "Web" section, explicitly
+Caelan's to do. Flagged, not resolved: the existing "Site URL should
+become `https://cafequiet.com`" open item conflicts with this work's
+`https://app.cafequiet.com` redirect need — one Supabase field, two
+different asks — left as an open decision for Caelan once the marketing
+site's own hosting is real.
+
+**Verification.** `flutter analyze`: 0 issues (one round-trip fixing 5
+files that referenced `AppRoute` only via `app_drawer.dart`'s now-moved
+definition). `flutter build web --release`: succeeded — the strongest
+single signal here, since Dart's type system would reject almost any
+mistake in the 20-route table, the record-typed `extra`s, or the
+`fetchRestaurantByPlaceId` wiring. Ran `flutter run -d web-server` and
+drove it via the browser tool: confirmed a clean boot (Supabase init
+completes, zero console errors) on both `/` and a direct
+`/restaurant/<real-id>` load, and confirmed `usePathUrlStrategy` actually
+keeps the address bar on the plain path with no redirect or 404. **Could
+not get full pixel/semantics-level confirmation of the web UI in this
+session** — the browser tool's own screenshot action failed with "the
+page is not compositing frames," and CanvasKit (Flutter web's renderer)
+never painted a canvas element despite a clean, error-free boot; a manual
+`fetch()` to Supabase and to `gstatic.com` (CanvasKit's CDN) both
+succeeded from the page, so this reads as a WebGL/compositing limitation
+of this specific sandboxed browser tool, not a code defect — but it means
+the web UI's actual visual layout (rail/drawer swap, banner rendering,
+max-width constraints) is unverified beyond code review and the
+successful compile. Worth a real visual pass (a normal desktop browser,
+or once deployed) before calling the web UI itself done, separate from
+"does it build and boot," which is confirmed. Mobile regression check was
+thorough and fully visual (Android emulator, `Pixel_API_36`): drawer,
+sign-in chain (push → nested push → back), and a full restaurant-tile →
+detail-screen navigation with the mic button intact, all screenshotted
+and matching pre-change behavior exactly.
+
+Work is on `feature/web-support`, branched from `docs/session-mistakes-and-updates`
+(itself already pushed). Not yet pushed or PR'd — see below.
+
 ## Open items carried into further build work
+- **Web UI needs a real visual verification pass** — added 2026-08-18. Build/boot/routing verified (`flutter analyze`, `flutter build web`, clean console on direct URL loads), but the actual rendered layout (rail vs. drawer swap, banner, max-width constraints) couldn't be visually confirmed in this session's sandboxed browser tool (CanvasKit never painted — reads as a tool/WebGL limitation, not a code defect, see above). Check in a normal browser (`flutter run -d chrome` locally, or the deployed Cloudflare Pages URL) before considering the web UI itself done.
+- **Cloudflare Pages deployment not set up** — added 2026-08-18. `.github/workflows/deploy-web.yml` exists and will run `flutter build web` on push to `main` even before secrets exist, but the deploy step needs 4 GitHub Actions secrets (`CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`) and Cloudflare-side setup (API token, Pages project, custom domain `app.cafequiet.com`) — all Caelan's, ordered steps in `PLATFORM_SETUP.md`'s "Web" section.
+- **Supabase Site URL conflict, not resolved** — added 2026-08-18. The pre-existing "Site URL → `https://cafequiet.com`" open item (for iOS/Android Universal/App Links) and this session's web app redirect need (`https://app.cafequiet.com`) both want the same single Supabase field. Needs Caelan's call once the marketing site's own hosting is real — see `_config/decisions.md` "Scope" and `PLATFORM_SETUP.md`'s "Web" section.
+- **Store links are placeholders** — `lib/utils/store_links.dart` has `idTODO`/`id=TODO` App Store/Play Store URLs. Replace once the app is actually published; not something to chase speculatively.
+- **`feature/web-support` not yet pushed or PR'd** — same GitHub App repo-access issue as prior sessions (still 404 on this repo via the GitHub connector as of this session). Push happens this session regardless, per the established branch-first pattern; opening the PR is blocked the same way `docs/session-mistakes-and-updates` was.
 - ~~Decide what to do about Popular Times~~ — decided 2026-08-15: dropped for v1, code kept dormant.
 - ~~Decide whether mic readings need a user identity~~ — decided 2026-08-15: real accounts, submission-gated only. See "Account-gated mic readings" above.
 - ~~Whether to add Google/Apple Sign-In~~ — decided 2026-08-15: yes to both. ~~Google~~ — resolved 2026-08-18: Web + Android OAuth clients created, confirmed working end to end on the emulator (real account picker, real credential entry, successful sign-in). iOS client ID still not created — Apple sign-in still waiting on a real device to test.
 - ~~Whether to add Facebook (and other) social logins~~ — decided 2026-08-16: Facebook, via `signInWithOAuth`, hidden behind `FACEBOOK_SIGN_IN_ENABLED` until Caelan configures the Facebook provider in Supabase. See "Facebook — free, added 2026-08-16" in `PLATFORM_SETUP.md`.
-- **Register `quietrestaurantfinder://login-callback` as an Additional Redirect URL in Supabase's Auth → URL Configuration.** Needed for Facebook sign-in and the fixed email-confirmation redirect to actually work — the code side is done, this dashboard step is Caelan's to do. See "Deep link redirect" in `PLATFORM_SETUP.md`.
+- ~~Register `quietrestaurantfinder://login-callback` as an Additional Redirect URL in Supabase's Auth → URL Configuration.~~ — confirmed already done as of 2026-08-18 (yet another continuation): a real signup confirmation link's `redirect_to=quietrestaurantfinder://login-callback` was followed live (Supabase verify → 302 → deep link → app foregrounded), which only works if this redirect URL is registered. Still needed for Facebook sign-in specifically once that provider is configured (separate, still open below).
 - ~~Whether to add per-account rate limiting on readings, now that real identity exists~~ — resolved 2026-08-18: 30-second cooldown between submissions from the same account, enforced server-side. See "per-account rate limiting on mic readings" above.
 - **GitHub branch protection on `main` still not set up as an actual repo setting** — no authenticated path to github.com in the 2026-08-18 session (Claude-in-Chrome needed re-auth, no `gh` CLI, no token). Caelan chose a standing behavioral rule (branch + PR, never push to `main` directly) instead for now; revisit setting the real GitHub setting when there's an authenticated path available.
 - ~~Rate-limit cooldown message not click-tested end to end on-device~~ — resolved 2026-08-18 (continuation): triggered live by submitting two readings within 30s on-device, got back the exact expected message. See "mic crash found and fixed, rate-limit UX click-tested" above. Found and fixed an unrelated but real crash along the way (silent/invalid mic samples producing `-Infinity` → uncaught `.round()`), same session.
-- **New sign-up success path not click-tested** — `CreateAccountPasswordScreen`'s pop-cascade (`true` for an immediate session, `false` + `onPendingConfirmation` for the "check your email" case) is code-reviewed and reasoned-through, not confirmed live — Supabase's email rate limit blocked every signup attempt this session before reaching success. Worth completing once the rate limit clears.
+- ~~New sign-up success path not click-tested~~ — resolved 2026-08-18 (yet another continuation): rate limit had cleared, retested live. See "sign-up pending-confirmation path verified live" below.
 - ~~Email can be changed from the Account screen~~ — resolved 2026-08-18: removed entirely, per Caelan (a new email is effectively a new account). See "email is now immutable" above.
-- ~~No way to reset a forgotten password~~ — resolved 2026-08-18: standard Supabase email-recovery flow added. See "forgot-password flow added" above. **Partially click-tested on-device** — rebuilt and ran on the Android emulator (`Pixel_API_36`), verified live: the Email row on Account is no longer tappable, the "Forgot password?" link renders and opens the dialog, and submitting a real address gets Supabase's actual "check your email" confirmation back. **Still open**: the click-through half — tapping the real emailed link and landing on `ResetPasswordScreen` via the deep link — needs Caelan to check his own inbox, since that leg can't be driven from the emulator.
+- ~~No way to reset a forgotten password~~ — resolved 2026-08-18: standard Supabase email-recovery flow added. See "forgot-password flow added" above. **Partially click-tested on-device** — rebuilt and ran on the Android emulator (`Pixel_API_36`), verified live: the Email row on Account is no longer tappable, the "Forgot password?" link renders and opens the dialog, and submitting a real address gets Supabase's actual "check your email" confirmation back. **Still open**: the click-through half — tapping the real emailed link and landing on `ResetPasswordScreen` via the deep link. No longer blocked on Caelan's inbox specifically (2026-08-18, yet another continuation, proved the same `quietrestaurantfinder://login-callback` deep-link mechanism works end to end using a 10minutemail.com disposable address + `adb shell am start ... -d '<url>'` for the signup-confirmation link — see "sign-up pending-confirmation path verified live" below); the password-reset link just hasn't been re-tested the same way yet.
+- **Move Supabase Auth off its built-in email sender to Resend (custom SMTP), waiting on Cloudflare DNS propagation.** Decided 2026-08-18 (yet another continuation) after Supabase's shared per-hour email rate limit blocked the forgot-password click-through test twice in one session — see the `email rate limit exceeded` note above. Caelan created a Resend account and generated an API key. Two steps remain, both Caelan's: (1) verify `cafequiet.com` as a sending domain in Resend by adding the SPF/DKIM records Resend provides to Cloudflare DNS — required, since Resend won't deliver to real recipients from an unverified domain, only back to the account owner's own address; currently waiting on that DNS propagation. (2) Once verified, take the SMTP credentials (`smtp.resend.com`, port 465, username `resend`, password = the API key) into Supabase Dashboard → Authentication → Emails → SMTP Settings and enable Custom SMTP with a sender address on the verified domain (e.g. `noreply@cafequiet.com`). Neither step is doable from this session — SMTP settings and DNS records are both dashboard-only, same pattern as the password-policy setting. Once done, retry the forgot-password click-through test (still separately open above) to confirm delivery actually works end to end.
 - Exact score-weighting constants (`DEFAULT_WEIGHTS`, `PLATFORM_WEIGHT`, and now `REVIEW_MENTION_TIERS`/`MIC_READING_TIERS` in `scoring.js`) — starting values per ranking-spec.md, need tuning against real usage data.
 - ~~Flutter app not yet compiled~~ — resolved 2026-08-16: `flutter pub get`/`analyze`/`test` all ran clean, and `flutter run -d edge` confirmed the app renders live Supabase data correctly. ~~Android build/device run~~ — resolved 2026-08-17: full Android toolchain set up, real emulator created, app built and run on it, verified visually (see "first real run" above). Still needed: iOS build (needs a Mac — no workaround, unrelated to the Android work). ~~Completing a real sign-in + mic-reading submission through the UI on-device~~ — resolved 2026-08-17: full flow verified for real (signup → email confirmation → sign-in → mic capture → submission → pipeline aggregation), see "real sign-in + mic-reading verified on-device" above.
 - ~~Clear the 4 seeded demo rows from the live `restaurants` table~~ — done this session (2026-08-16, continued): confirmed the 4 rows were exactly the known sample set, then deleted. Table is at 0 rows now — needs real pipeline data before the app has anything to show.

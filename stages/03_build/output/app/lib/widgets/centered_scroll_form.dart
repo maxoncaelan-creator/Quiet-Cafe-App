@@ -21,13 +21,18 @@ class CenteredScrollForm extends StatelessWidget {
       builder: (context, constraints) {
         return SingleChildScrollView(
           padding: padding,
-          child: ConstrainedBox(
-            constraints: BoxConstraints(minHeight: constraints.maxHeight - padding.vertical),
-            child: IntrinsicHeight(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: children,
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 480),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minHeight: constraints.maxHeight - padding.vertical),
+                child: IntrinsicHeight(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: children,
+                  ),
+                ),
               ),
             ),
           ),

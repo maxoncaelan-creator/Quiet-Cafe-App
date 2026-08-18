@@ -1,12 +1,15 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:flutter_web_plugins/url_strategy.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import 'screens/reset_password_screen.dart';
-import 'screens/search_assistant_screen.dart';
+import 'router.dart';
+import 'services/download_banner_service.dart';
 import 'services/supabase_service.dart';
 import 'services/theme_service.dart';
+import 'widgets/download_app_banner.dart';
 
 // Same hue used to build the Figma color-role variables (see
 // ui-design-decisions.md) — ColorScheme.fromSeed derives the full M3 tonal
@@ -16,8 +19,10 @@ const _seedColor = Color(0xFF006874);
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  if (kIsWeb) usePathUrlStrategy(); // plain /restaurant/abc URLs, not /#/restaurant/abc
   await SupabaseService.initialize(); // no-op if SUPABASE_URL/SUPABASE_ANON_KEY aren't set — see supabase_service.dart
   await ThemeService.load();
+  await DownloadBannerService.load();
   runApp(const QuietRestaurantFinderApp());
 }
 
@@ -29,7 +34,6 @@ class QuietRestaurantFinderApp extends StatefulWidget {
 }
 
 class _QuietRestaurantFinderAppState extends State<QuietRestaurantFinderApp> {
-  final _navigatorKey = GlobalKey<NavigatorState>();
   StreamSubscription<AuthState>? _authSubscription;
 
   @override
@@ -42,9 +46,7 @@ class _QuietRestaurantFinderAppState extends State<QuietRestaurantFinderApp> {
     if (SupabaseService.isConfigured) {
       _authSubscription = SupabaseService().authStateChanges.listen((state) {
         if (state.event == AuthChangeEvent.passwordRecovery) {
-          _navigatorKey.currentState?.push(
-            MaterialPageRoute(builder: (_) => const ResetPasswordScreen()),
-          );
+          appRouter.push('/reset-password');
         }
       });
     }
@@ -61,8 +63,7 @@ class _QuietRestaurantFinderAppState extends State<QuietRestaurantFinderApp> {
     return ValueListenableBuilder<ThemeMode>(
       valueListenable: ThemeService.mode,
       builder: (context, themeMode, _) {
-        return MaterialApp(
-          navigatorKey: _navigatorKey,
+        return MaterialApp.router(
           title: 'Quiet Restaurant Finder',
           themeMode: themeMode,
           theme: ThemeData(
@@ -73,7 +74,13 @@ class _QuietRestaurantFinderAppState extends State<QuietRestaurantFinderApp> {
             colorScheme: ColorScheme.fromSeed(seedColor: _seedColor, brightness: Brightness.dark),
             useMaterial3: true,
           ),
-          home: const SearchAssistantScreen(),
+          routerConfig: appRouter,
+          builder: (context, child) => Column(
+            children: [
+              const DownloadAppBanner(),
+              Expanded(child: child!),
+            ],
+          ),
         );
       },
     );

@@ -1,10 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../widgets/app_drawer.dart';
-import 'display_settings_screen.dart';
-import 'legal_screen.dart';
-import 'location_settings_screen.dart';
-import 'permissions_settings_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -20,33 +17,25 @@ class SettingsScreen extends StatelessWidget {
             icon: Icons.contrast,
             label: 'Display',
             sublabel: 'Theme, dark mode',
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const DisplaySettingsScreen()),
-            ),
+            onTap: () => context.push('/settings/display'),
           ),
           _SettingsRow(
             icon: Icons.location_on_outlined,
             label: 'Location',
             sublabel: 'City, GPS',
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const LocationSettingsScreen()),
-            ),
+            onTap: () => context.push('/settings/location'),
           ),
           _SettingsRow(
             icon: Icons.shield_outlined,
             label: 'Permissions',
             sublabel: 'Notifications, microphone',
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const PermissionsSettingsScreen()),
-            ),
+            onTap: () => context.push('/settings/permissions'),
           ),
           _SettingsRow(
             icon: Icons.gavel_outlined,
             label: 'Privacy Policy',
             sublabel: 'And other legal documents',
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const LegalScreen()),
-            ),
+            onTap: () => context.push('/settings/legal'),
           ),
         ],
       ),

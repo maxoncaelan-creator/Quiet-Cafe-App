@@ -80,6 +80,35 @@ Aggregated onto the restaurant record for fast ranking lookups:
 | `confidence` | enum: `Very Low` \| `Low` \| `Moderate` \| `High` \| `Very High` \| `Certain` | **Changed 2026-08-17** (was `low`/`medium`/`high`, purely signal-count based) — six graduated levels based on how many of the active signals are present *and* their data volume. See [[quiet-restaurant-finder/stages/02_ranking-design/output/ranking-spec|ranking spec]] "Confidence levels." Migration: `0005_confidence_levels.sql`. |
 | `score_updated_at` | timestamp | |
 
+## Loudness votes
+
+Added 2026-08-18, per Caelan — a lightweight alternative to a mic reading:
+`stages/03_build/output/supabase/migrations/0008_loudness_votes.sql`. One
+row per vote (not one per user per restaurant — a user can vote more than
+once), same account gate as `mic_readings`:
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | uuid | Primary key |
+| `place_id` | string | Foreign key to restaurant record |
+| `user_id` | uuid, not null | Real Supabase Auth account — same gate as `mic_readings.user_id`. Needed so the pipeline can apply the precedence rule below, not just for privacy. |
+| `vote` | enum: `quiet` \| `normal` \| `loud` | |
+| `submitted_at` | timestamp | Server-set (`now()`), not client-supplied — same reasoning as `mic_readings.submitted_at`: it's what the pipeline compares against a mic reading's own timestamp. |
+
+**Precedence rule:** if the same user has a mic reading at the same venue
+within 5 minutes either side of a vote, the pipeline excludes that vote
+from scoring — the decibel reading is the more trustworthy signal. The
+vote row itself is never deleted or modified; only this run's aggregation
+skips it. See [[quiet-restaurant-finder/stages/02_ranking-design/output/ranking-spec|ranking spec]] "Signals."
+
+Aggregated onto the restaurant record, mirroring the microphone signal's shape:
+
+| Field | Type | Notes |
+|---|---|---|
+| `vote_count` | integer | Count of votes actually counted toward scoring this run (post-precedence-rule), not the raw total in `loudness_votes` |
+| `vote_subscore` | float 0–100, nullable | Null if zero countable votes |
+| `vote_signal_updated_at` | timestamp | |
+
 ## Favorites
 
 Added from the UI redesign (2026-08-17) — `stages/03_build/output/supabase/migrations/0004_favorites.sql`. One row per user per favorited restaurant:
