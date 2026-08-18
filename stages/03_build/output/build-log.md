@@ -1518,6 +1518,66 @@ Added as a follow-up commit on `feature/confidence-label-and-reading-button`
 rather than a new branch, since it's a direct continuation of the same
 list-screen work already open for review there.
 
+## Session — 2026-08-18 (continuation): reading flow moved inline; mic readings weren't reaching scores
+
+Two things from Caelan after using the redesigned button: the separate
+"Reading at MuMu" screen shouldn't exist at all (the whole capture flow
+should happen inline on the venue page, with the button itself carrying
+state — solid red while recording with the live dB number where the prompt
+text is, then grey and non-pulsing with a thank-you message once done); and
+mic readings didn't seem to be affecting the list's loudness/confidence at
+all.
+
+**Reading flow rebuilt inline.** Deleted `screens/take_reading_screen.dart`
+outright. New `widgets/mic_reading_control.dart` owns the whole
+capture-and-submit state machine (idle → recording → finished) that used
+to live across two screens; `widgets/pulsing_mic_button.dart` became purely
+presentational (`pulsing: bool`, `color: Color`, driven by the caller
+instead of always teal). Capture auto-stops after a fixed 5 seconds — no
+manual "stop and save" step anymore — then submits immediately and shows
+either "Thanks! Your recording helps others know how loud this venue is."
+or the same rate-limit/error messages the old screen showed, just inline
+instead of as a SnackBar. After 4 seconds the control resets to idle so
+another reading can be attempted. `restaurant_detail_screen.dart`'s
+`_startReading` became `_ensureSignedIn`, passed into the control rather
+than gating a screen push.
+
+`flutter analyze`: 0 issues. `flutter test`: 2/2 passed. **Verified live**
+on `emulator-5554`, all three states, via a burst of screenshots timed
+around the 5-second auto-stop (single before/after screenshots weren't
+catching the transient grey state — had to script a tight capture loop to
+actually see it): idle teal pulsing → tap → solid red, no ripple, live
+"18 dB" replacing the prompt text → auto-stop → grey, non-pulsing, exact
+message text confirmed both for a successful submit and (on a second rapid
+attempt) the rate-limit path.
+
+**Mic readings not affecting scores — root cause confirmed, not a bug in
+the app.** `quietness_score`/`confidence`/`mic_subscore` are written
+*only* by the offline data-pipeline job (`data-pipeline/src/pipeline.js`,
+`npm start`) — there's no database trigger or cron recomputing them when a
+row lands in `mic_readings`. Confirmed directly against the database
+before touching anything: MuMu had 6 real `mic_readings` rows from this
+session's testing, but its `restaurants` row still showed
+`mic_reading_count_android: 0`, `mic_subscore: null` — the submissions
+were landing fine, nothing was ever re-aggregating them.
+
+Ran the pipeline for real (`cd data-pipeline && npm start`) — it re-fetches
+live Places data, mines reviews, pulls `mic_readings` via the
+`pipeline_service` role, recomputes scores, and upserts. Re-queried after:
+MuMu now shows `mic_reading_count_android: 6`, `mic_subscore: 100`,
+confidence upgraded `Very Low` → `Moderate`. Confirmed the same live in the
+app — MuMu's detail screen now reads "6 reading(s) (0 iOS, 6 Android)" and
+"Moderate" confidence. This resolves what was actually submitted during
+testing; it doesn't add automation, see open items below.
+
+`data-pipeline/data/restaurants.json` (the pipeline's own output snapshot,
+already tracked in git per existing practice) updated as a side effect of
+running it and is included in this commit.
+
+Committed to `feature/confidence-label-and-reading-button` — the branch
+already covers this exact button, and this session directly continues it
+rather than starting something new.
+
 ## Open items carried into further build work
 - ~~Decide what to do about Popular Times~~ — decided 2026-08-15: dropped for v1, code kept dormant.
 - ~~Decide whether mic readings need a user identity~~ — decided 2026-08-15: real accounts, submission-gated only. See "Account-gated mic readings" above.
@@ -1536,7 +1596,8 @@ list-screen work already open for review there.
 - ~~Minor UX gap: no "no restaurants yet" message when `restaurants` has zero rows~~ — fixed this session: `home_screen.dart` now shows an empty state instead of a bare filter bar.
 - ~~Confirmation-link `otp_expired` error~~ — the redirect infrastructure it needed is now built (2026-08-16, continued again), reusing the same deep link set up for Facebook sign-in. Not fully resolved yet: needs Caelan to register the redirect URL in Supabase's dashboard (see item above), and needs live device verification either way.
 - ~~Live Places/Yelp/Outscraper API calls have not been exercised~~ — Places resolved 2026-08-17: real key wired through the new `places-search` Edge Function, live-tested, 20 real Sydney restaurants loaded into `restaurants`. Yelp: paused (see "Yelp paused" above), not exercised by design. Outscraper: stays dropped, not exercised by design.
-- **Real signal volume is thin right now** — every currently-loaded restaurant has `quietness_score: null` because real review-mention counts and mic readings haven't reached the minimum threshold yet, not because of a bug (verified 2026-08-17). Expected to resolve naturally as mic readings and richer review data accumulate; nothing to fix.
+- ~~Real signal volume is thin right now~~ — updated 2026-08-18 (continuation): mic readings *were* accumulating correctly, they just weren't reflected until the pipeline was manually re-run (see "reading flow moved inline; mic readings weren't reaching scores" above) — ran it, confirmed MuMu's confidence and mic counts updated for real.
+- **No automated trigger re-runs the scoring pipeline** — found 2026-08-18 (continuation): `quietness_score`/`confidence`/`mic_subscore` only update when someone manually runs `npm start` in `data-pipeline/`, which also re-fetches live Places data and re-mines reviews (real, if small, external API cost) every time — not something to fire on every single mic reading. Worth deciding: a lightweight rescore-only path (recompute from data already in Supabase, no external API calls) that *could* run more often, versus a scheduled full pipeline run (e.g. daily), versus leaving it manual. Caelan's call, not decided this session.
 - ~~Android SDK/Android Studio not installed~~ — resolved 2026-08-17: Caelan installed Android Studio; cmdline-tools, licenses, a system image, and one AVD (`Pixel_API_36`) set up in this environment. See "first real run" above.
 - ~~Anthropic API key needed from Caelan~~ — resolved 2026-08-17: added to Supabase Function Secrets (dashboard, not shared in chat). `search-assistant` Edge Function deployed, live-tested via curl and on-device.
 - **Stripe account needed from Caelan** — blocks Donate from doing anything real. Explicitly paused by Caelan for closer to launch. See `ui-design-decisions.md`.

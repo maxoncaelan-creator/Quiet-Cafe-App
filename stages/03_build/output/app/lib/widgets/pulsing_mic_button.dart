@@ -1,14 +1,22 @@
-// The restaurant detail screen's call to action to take a reading — a
-// circular mic button with two staggered ripple rings that continuously
-// expand and fade, like sound (or a raindrop) spreading outward. Purely
-// decorative animation; the tap target is the solid circle itself.
+// The restaurant detail screen's circular mic button. Purely presentational
+// — the caller drives its color and whether it's pulsing; this widget only
+// owns the ripple animation itself. Idle (pulsing, primary-colored) invites
+// a tap; a caller stops the pulse and swaps the color to show recording or
+// finished states without this widget needing to know what those mean.
 
 import 'package:flutter/material.dart';
 
 class PulsingMicButton extends StatefulWidget {
-  final VoidCallback onPressed;
+  final VoidCallback? onPressed;
+  final bool pulsing;
+  final Color color;
 
-  const PulsingMicButton({super.key, required this.onPressed});
+  const PulsingMicButton({
+    super.key,
+    required this.onPressed,
+    required this.color,
+    this.pulsing = true,
+  });
 
   @override
   State<PulsingMicButton> createState() => _PulsingMicButtonState();
@@ -23,7 +31,20 @@ class _PulsingMicButtonState extends State<PulsingMicButton> with SingleTickerPr
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(vsync: this, duration: const Duration(milliseconds: 1800))..repeat();
+    _controller = AnimationController(vsync: this, duration: const Duration(milliseconds: 1800));
+    if (widget.pulsing) _controller.repeat();
+  }
+
+  @override
+  void didUpdateWidget(covariant PulsingMicButton oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.pulsing != oldWidget.pulsing) {
+      if (widget.pulsing) {
+        _controller.repeat();
+      } else {
+        _controller.stop();
+      }
+    }
   }
 
   @override
@@ -34,8 +55,6 @@ class _PulsingMicButtonState extends State<PulsingMicButton> with SingleTickerPr
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-
     return SizedBox(
       width: _maxRingSize,
       height: _maxRingSize,
@@ -45,26 +64,25 @@ class _PulsingMicButtonState extends State<PulsingMicButton> with SingleTickerPr
           return Stack(
             alignment: Alignment.center,
             children: [
-              _ring(scheme, _controller.value),
-              // Second ring offset half a cycle behind the first, so a new
-              // ripple starts as the previous one is half faded — otherwise
-              // there'd be a dead gap with nothing rippling.
-              _ring(scheme, (_controller.value + 0.5) % 1.0),
+              // Staggered so a new ripple starts as the previous one is half
+              // faded, instead of a dead gap with nothing rippling.
+              if (widget.pulsing) _ring(_controller.value),
+              if (widget.pulsing) _ring((_controller.value + 0.5) % 1.0),
               child!,
             ],
           );
         },
         child: Material(
-          color: scheme.primary,
+          color: widget.color,
           shape: const CircleBorder(),
           elevation: 2,
           child: InkWell(
             customBorder: const CircleBorder(),
             onTap: widget.onPressed,
-            child: SizedBox(
+            child: const SizedBox(
               width: _buttonSize,
               height: _buttonSize,
-              child: Icon(Icons.mic, color: scheme.onPrimary, size: 40),
+              child: Icon(Icons.mic, color: Colors.white, size: 40),
             ),
           ),
         ),
@@ -72,14 +90,14 @@ class _PulsingMicButtonState extends State<PulsingMicButton> with SingleTickerPr
     );
   }
 
-  Widget _ring(ColorScheme scheme, double t) {
+  Widget _ring(double t) {
     final size = _buttonSize + (_maxRingSize - _buttonSize) * t;
     return Container(
       width: size,
       height: size,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        color: scheme.primary.withValues(alpha: (1 - t) * 0.35),
+        color: widget.color.withValues(alpha: (1 - t) * 0.35),
       ),
     );
   }

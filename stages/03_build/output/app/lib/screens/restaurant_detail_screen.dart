@@ -3,10 +3,9 @@ import 'package:flutter/material.dart';
 import '../models/restaurant.dart';
 import '../services/supabase_service.dart';
 import '../widgets/confidence_indicator.dart';
+import '../widgets/mic_reading_control.dart';
 import '../widgets/noise_level_bar.dart';
-import '../widgets/pulsing_mic_button.dart';
 import 'auth_screen.dart';
-import 'take_reading_screen.dart';
 
 class RestaurantDetailScreen extends StatefulWidget {
   final Restaurant restaurant;
@@ -67,23 +66,16 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
     }
   }
 
-  Future<void> _startReading(BuildContext context) async {
-    // Browsing never requires an account — only submitting a reading does.
-    // Prompt for sign-in/sign-up right here, at the point of need, rather
-    // than gating the whole app behind auth.
-    if (!_supabaseService.isSignedIn) {
-      final signedIn = await Navigator.of(context).push<bool>(
-        MaterialPageRoute(builder: (_) => const AuthScreen()),
-      );
-      if (signedIn != true) return; // user backed out or sign-up needs email confirmation first
-    }
-
-    if (!context.mounted) return;
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => TakeReadingScreen(placeId: restaurant.placeId, name: restaurant.name),
-      ),
+  // Browsing never requires an account — only submitting a reading does.
+  // Prompt for sign-in/sign-up right here, at the point of need, rather
+  // than gating the whole app behind auth. Passed into MicReadingControl so
+  // it can check this itself right before starting a capture.
+  Future<bool> _ensureSignedIn(BuildContext context) async {
+    if (_supabaseService.isSignedIn) return true;
+    final signedIn = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(builder: (_) => const AuthScreen()),
     );
+    return signedIn == true;
   }
 
   @override
@@ -131,24 +123,7 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
           ),
           const SizedBox(height: 32),
           Center(
-            child: Column(
-              children: [
-                Text(
-                  'Record how loud this venue is',
-                  style: Theme.of(context).textTheme.titleMedium,
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 20),
-                PulsingMicButton(onPressed: () => _startReading(context)),
-                const SizedBox(height: 20),
-                Text(
-                  'Take a reading here',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
-                ),
-              ],
-            ),
+            child: MicReadingControl(placeId: restaurant.placeId, ensureSignedIn: _ensureSignedIn),
           ),
         ],
       ),
