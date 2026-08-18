@@ -918,6 +918,39 @@ this session; the code path is reasoned-through, not click-tested.
 Still on `feature/mic-reading-rate-limit` — Caelan asked not to push the
 branch yet, more changes to land on it first.
 
+## Session — 2026-08-18 (continued once more): the two Account fixes verified live on the emulator
+
+Caelan flagged that a screenshot of his still showed the old "Change email"
+dialog. Checked the source first rather than assuming a bug — confirmed
+`account_screen.dart` already had no `onTap`/`_changeEmail` and grepped the
+whole app for "Change email" (zero hits) — the source was already correct.
+The screenshot was from a stale install; the emulator hadn't been rebuilt
+since that commit landed.
+
+Rebuilt and ran for real: `flutter run -d emulator-5554` with the real
+Supabase project's URL/anon key (same values `PLATFORM_SETUP.md` already
+documents as safe to use in plain text). Drove it via `adb shell input`
+taps and `adb shell screencap` pulled screenshots (adb wasn't on PATH —
+found at the standard `Sdk/platform-tools/adb.exe` location; needed
+`MSYS2_ARG_CONV_EXCL="*"` on each call, otherwise Git Bash was rewriting
+`/sdcard/...` remote paths into a local Windows path and breaking every
+pull), not just re-reading the code.
+
+Confirmed both fixes live, signed in as Caelan's real account
+(`maxon.caelan@gmail.com`):
+- Account screen's Email row: plain `ListTile`, no chevron, not tappable.
+- Signed out, opened the sign-in screen: "Forgot password?" renders under
+  the password field. Tapped it, entered the real email, hit "Send link" —
+  got Supabase's actual response back in the UI: "If
+  maxon.caelan@gmail.com has an account, a password reset link is on its
+  way." A real reset email went out to that address.
+
+**Not fully click-tested**: the emulator can confirm the send succeeded,
+but can't complete the other half of the loop — tapping the link in a real
+inbox and landing on `ResetPasswordScreen` via the
+`quietrestaurantfinder://login-callback` deep link. That needs Caelan to
+check his own email and confirm it lands cleanly.
+
 ## Open items carried into further build work
 - ~~Decide what to do about Popular Times~~ — decided 2026-08-15: dropped for v1, code kept dormant.
 - ~~Decide whether mic readings need a user identity~~ — decided 2026-08-15: real accounts, submission-gated only. See "Account-gated mic readings" above.
@@ -928,7 +961,7 @@ branch yet, more changes to land on it first.
 - **GitHub branch protection on `main` still not set up as an actual repo setting** — no authenticated path to github.com in the 2026-08-18 session (Claude-in-Chrome needed re-auth, no `gh` CLI, no token). Caelan chose a standing behavioral rule (branch + PR, never push to `main` directly) instead for now; revisit setting the real GitHub setting when there's an authenticated path available.
 - **Rate-limit cooldown message not click-tested end to end on-device** — the server-side trigger is verified live against the database; the Flutter snackbar message path (`take_reading_screen.dart`'s `PostgrestException` handling) is reasoned-through from the code, not yet confirmed by actually triggering it twice within 30s through the real UI.
 - ~~Email can be changed from the Account screen~~ — resolved 2026-08-18: removed entirely, per Caelan (a new email is effectively a new account). See "email is now immutable" above.
-- ~~No way to reset a forgotten password~~ — resolved 2026-08-18: standard Supabase email-recovery flow added. See "forgot-password flow added" above. **Not yet click-tested on-device** — same gap as the rate-limit message above, code path reasoned-through but not run through a real emailed link end to end.
+- ~~No way to reset a forgotten password~~ — resolved 2026-08-18: standard Supabase email-recovery flow added. See "forgot-password flow added" above. **Partially click-tested on-device** — rebuilt and ran on the Android emulator (`Pixel_API_36`), verified live: the Email row on Account is no longer tappable, the "Forgot password?" link renders and opens the dialog, and submitting a real address gets Supabase's actual "check your email" confirmation back. **Still open**: the click-through half — tapping the real emailed link and landing on `ResetPasswordScreen` via the deep link — needs Caelan to check his own inbox, since that leg can't be driven from the emulator.
 - Exact score-weighting constants (`DEFAULT_WEIGHTS`, `PLATFORM_WEIGHT`, and now `REVIEW_MENTION_TIERS`/`MIC_READING_TIERS` in `scoring.js`) — starting values per ranking-spec.md, need tuning against real usage data.
 - ~~Flutter app not yet compiled~~ — resolved 2026-08-16: `flutter pub get`/`analyze`/`test` all ran clean, and `flutter run -d edge` confirmed the app renders live Supabase data correctly. ~~Android build/device run~~ — resolved 2026-08-17: full Android toolchain set up, real emulator created, app built and run on it, verified visually (see "first real run" above). Still needed: iOS build (needs a Mac — no workaround, unrelated to the Android work). ~~Completing a real sign-in + mic-reading submission through the UI on-device~~ — resolved 2026-08-17: full flow verified for real (signup → email confirmation → sign-in → mic capture → submission → pipeline aggregation), see "real sign-in + mic-reading verified on-device" above.
 - ~~Clear the 4 seeded demo rows from the live `restaurants` table~~ — done this session (2026-08-16, continued): confirmed the 4 rows were exactly the known sample set, then deleted. Table is at 0 rows now — needs real pipeline data before the app has anything to show.
