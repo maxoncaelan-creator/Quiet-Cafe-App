@@ -48,6 +48,51 @@ Links (iOS) / App Links (Android) once real hosting + an Apple Developer
 Team ID + an Android signing key all exist — see `PLATFORM_SETUP.md`
 "Universal Links / App Links."
 
+## Account & Search Assistant access
+
+**Search Assistant requires sign-in**, decided with Caelan 2026-08-18 — same
+account gate as mic readings and favorites. A signed-out user sees an
+explanatory message and a Sign in button instead of the chat composer.
+Enforced server-side in the `search-assistant` Edge Function (rejects an
+unauthenticated caller with 401), not just in the Flutter UI.
+
+**Per-account rate limit: 10,000 tokens per fixed 5-hour window**, decided
+with Caelan 2026-08-18, to prevent misuse. Enforced in the Edge Function
+against `search_assistant_usage` (a Postgres table, service-role-only
+writes). Once hit, the screen shows "Search Assistant is on a break, it
+will be available again in [X hours and] Y minutes" instead of the
+composer, with the hours part dropped under an hour. See
+[[quiet-restaurant-finder/stages/03_build/output/build-log|build log]] for
+the implementation and how it was tested without spending the budget.
+
+Mic readings carry their own separate limit, decided the same day: a
+30-second cooldown between submissions from the same account, enforced via
+a Postgres trigger.
+
+## Password policy
+
+Supabase Auth's password policy requires at least one uppercase letter, one
+lowercase letter, one number, and one special character — an intentional,
+confirmed setting in the Supabase dashboard (Authentication → Providers →
+Email → Password Requirements), not something set by this workspace's code
+or migrations. Confirmed with Caelan 2026-08-18 after an initial mix-up:
+Supabase's own rejection message dumped the full allowed-character-set
+string verbatim, which read as confusing enough that the policy itself
+looked wrong. The policy stays as-is; only the *display* was fixed — see
+`utils/friendly_auth_error.dart` in the Flutter app and the build log's
+"raw-backend-error-shown-to-user" mistake entry.
+
+## Git workflow
+
+**Never push directly to `main`.** Decided with Caelan 2026-08-18, after a
+commit was accidentally pushed straight to `main` in an earlier session.
+Every change goes through a feature branch and a pull request that Caelan
+reviews and merges himself (or explicitly asks this agent to merge). A real
+GitHub branch-protection rule enforcing this hasn't been set up yet — no
+session so far has had an authenticated path to github.com to configure it
+— so this is currently a behavioral rule, not a platform-enforced one. See
+`AGENTS.md`'s "Rules specific to this workspace."
+
 ## Git tracking
 
 **Found and fixed 2026-08-18**: this workspace folder had no `.git` at all,

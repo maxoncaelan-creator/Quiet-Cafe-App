@@ -802,13 +802,668 @@ compiled**: Account screen renders with the real signed-in email
 live Supabase with the correct empty state, Log out is present, and Donate
 now shows its own hamburger menu confirming it's a real top-level route.
 
+## Session — 2026-08-18 (continued): per-account rate limiting on mic readings
+
+Caelan's call, per this workspace's own rules (rate limiting was explicitly
+flagged as not something to decide silently). Asked directly: a 30-second
+cooldown between any two submissions from the same account, regardless of
+which restaurant.
+
+Also surfaced first: the direct-push-to-main incident from the previous
+session. No GitHub branch-protection rule got set up — the session had no
+authenticated path to github.com (Claude-in-Chrome extension needed
+re-auth and didn't come back up, no `gh` CLI installed, no token in env).
+Caelan chose to skip the GitHub settings change for now and rely on a
+standing rule instead: always branch + PR, never push straight to `main`.
+This and every session's work from here on happens on a feature branch
+(`feature/mic-reading-rate-limit` for this session).
+
+Also checked before touching `DEFAULT_WEIGHTS`/tier thresholds in
+`scoring.js` (the other open item, also flagged Caelan's call): queried the
+live `restaurants`/`mic_readings` tables first rather than assuming. Real
+signal is still too thin to tune against — 0 mic readings across all 23
+restaurants, and only 3 restaurants have any review-mention signal at all,
+each with exactly 1 mention. Flagged to Caelan rather than tuning against
+noise; he chose to hold off entirely rather than set new judgment-call
+values now. Weight tuning stays an open item.
+
+**New migration**: `supabase/migrations/0006_mic_reading_rate_limit.sql`.
+Enforced server-side via a `before insert` trigger on `mic_readings`
+(`enforce_mic_reading_cooldown`), not just client-side, so it can't be
+bypassed by a modified client. Added a new `submitted_at timestamptz`
+column, distinct from the existing `recorded_at` — `recorded_at` is
+client-supplied (the on-device capture time ranking-spec.md's time-of-day
+filtering needs) and so isn't trustworthy for a rate-limit check; the
+trigger unconditionally overwrites `submitted_at` with `now()` regardless
+of what the client sends. The check itself: look up the caller's own most
+recent `submitted_at` (covered by the existing "Users can read their own
+mic readings" RLS policy from `0003_auth_required_for_mic_readings.sql` —
+no `security definer` needed) and reject with a `rate_limited: ...` message
+if under 30 seconds have passed.
+
+Ran `get_advisors` (security) after applying the migration, per standard
+practice for any DDL change — caught `function_search_path_mutable` on the
+new trigger function immediately, fixed with a follow-up
+`alter function ... set search_path = public`, then re-ran advisors and
+confirmed clean (only the pre-existing, unrelated leaked-password-protection
+warning remains).
+
+**Verified live against the real database, not just reasoned about**: ran an
+actual insert/insert/rollback test against the live `mic_readings` table
+(inside a transaction, rolled back after) confirming a second insert from
+the same `user_id` within 30 seconds is rejected with the expected message,
+then confirmed the rollback left 0 rows behind.
+
+**Flutter side**: `take_reading_screen.dart` now catches `PostgrestException`
+specifically and shows the trigger's message (stripped of the
+`rate_limited:` prefix) in the snackbar instead of the raw error, so a
+throttled user sees "wait N more second(s)..." rather than a Postgres error
+string. `flutter analyze`: 0 issues. `flutter test`: 2/2 passed. Not yet
+verified live on-device (no real second reading was submitted within 30s
+through the actual UI this session) — the server-side behavior is proven,
+the client-side message path is reasoned-through from the code but not
+click-tested end to end.
+
+## Session — 2026-08-18 (continued again): email is now immutable; forgot-password flow added
+
+Two bugs Caelan caught in the just-shipped Account screen.
+
+**Email can no longer be changed from the app.** Caelan's reasoning: needing
+a different email is effectively wanting a new account, not an edit to this
+one — so the capability shouldn't exist. Removed `_changeEmail()` and its
+dialog from `account_screen.dart` entirely; the Email row is now a plain
+`ListTile` with no `onTap`/chevron, display-only. Removed the now-unused
+`SupabaseService.updateEmail()` too rather than leave dead code.
+
+**Forgot password, added.** Nothing existed for a user who's locked out —
+`account_screen.dart`'s change-password only works for someone already
+signed in. Built as Supabase Auth's standard email-based recovery, not a
+custom token scheme:
+- `auth_screen.dart`: new "Forgot password?" link under the password field
+  (sign-in mode only — a fresh signup has no password yet to reset), a
+  dialog for the email (pre-filled from the field above if already typed),
+  calling `_client.auth.resetPasswordForEmail(email, redirectTo: ...)`
+  directly against the Supabase client — matching this file's existing
+  pattern of talking to `_client.auth` directly for every other auth action
+  here, rather than adding a pass-through wrapper to `SupabaseService` that
+  nothing else would call. Reuses `_oauthRedirectUrl`
+  (`quietrestaurantfinder://login-callback`), the same deep link already
+  wired for OAuth and email confirmation — no new native/dashboard config
+  needed beyond what's already pending (see the still-open "Register
+  `quietrestaurantfinder://login-callback`..." item below). Deliberately
+  doesn't reveal whether the address has an account, since Supabase's own
+  API doesn't either — the confirmation message reads "if this address has
+  an account..." either way.
+- New `screens/reset_password_screen.dart`: shown after the user taps the
+  emailed link. Supabase exchanges that link for a temporary recovery
+  session and fires `AuthChangeEvent.passwordRecovery` — the old password is
+  never asked for, by design (the link itself is the proof of ownership).
+  Just a new-password + confirm form calling the existing
+  `SupabaseService.updatePassword()`.
+- **Wired at the app level, not screen level**: `main.dart`'s
+  `QuietRestaurantFinderApp` converted from `StatelessWidget` to
+  `StatefulWidget` specifically to hold a `GlobalKey<NavigatorState>` and a
+  top-level `authStateChanges` subscription. The recovery link can cold-launch
+  the app or land while any arbitrary screen is on top — home_screen.dart's
+  existing auth listener is scoped to that one screen and wouldn't fire
+  reliably here, so this needed to live above all of them, pushing
+  `ResetPasswordScreen` via the navigator key from wherever the app happens
+  to be.
+
+`flutter analyze`: 0 issues. `flutter test`: 2/2 passed. **Not yet verified
+live on-device** — sending a real reset email and completing the link-tap →
+recovery-session → new-password flow through the actual UI hasn't been done
+this session; the code path is reasoned-through, not click-tested.
+
+Still on `feature/mic-reading-rate-limit` — Caelan asked not to push the
+branch yet, more changes to land on it first.
+
+## Session — 2026-08-18 (continued once more): the two Account fixes verified live on the emulator
+
+Caelan flagged that a screenshot of his still showed the old "Change email"
+dialog. Checked the source first rather than assuming a bug — confirmed
+`account_screen.dart` already had no `onTap`/`_changeEmail` and grepped the
+whole app for "Change email" (zero hits) — the source was already correct.
+The screenshot was from a stale install; the emulator hadn't been rebuilt
+since that commit landed.
+
+Rebuilt and ran for real: `flutter run -d emulator-5554` with the real
+Supabase project's URL/anon key (same values `PLATFORM_SETUP.md` already
+documents as safe to use in plain text). Drove it via `adb shell input`
+taps and `adb shell screencap` pulled screenshots (adb wasn't on PATH —
+found at the standard `Sdk/platform-tools/adb.exe` location; needed
+`MSYS2_ARG_CONV_EXCL="*"` on each call, otherwise Git Bash was rewriting
+`/sdcard/...` remote paths into a local Windows path and breaking every
+pull), not just re-reading the code.
+
+Confirmed both fixes live, signed in as Caelan's real account
+(`maxon.caelan@gmail.com`):
+- Account screen's Email row: plain `ListTile`, no chevron, not tappable.
+- Signed out, opened the sign-in screen: "Forgot password?" renders under
+  the password field. Tapped it, entered the real email, hit "Send link" —
+  got Supabase's actual response back in the UI: "If
+  maxon.caelan@gmail.com has an account, a password reset link is on its
+  way." A real reset email went out to that address.
+
+**Not fully click-tested**: the emulator can confirm the send succeeded,
+but can't complete the other half of the loop — tapping the link in a real
+inbox and landing on `ResetPasswordScreen` via the
+`quietrestaurantfinder://login-callback` deep link. That needs Caelan to
+check his own email and confirm it lands cleanly.
+
+## Session — 2026-08-18 (continued yet again): Google button false alarm, intro copy removed, forgot-password moved to its own page
+
+Three things from Caelan after checking the previous session's screenshots.
+
+**Google sign-in button "missing" — not a code regression.** Caelan's
+screenshot showed no Google button on Sign in/Create account. Checked before
+touching anything: `git diff` against `auth_screen.dart` for this whole
+branch shows only additions (the forgot-password work) — `_signInWithGoogle`
+and its button's `if (_googleConfigured)` gate were never touched. The
+button was correctly hiding itself because the *previous* session's
+`flutter run` verification only passed `SUPABASE_URL`/`SUPABASE_ANON_KEY`,
+not `--dart-define=GOOGLE_WEB_CLIENT_ID=...` — so `_googleConfigured`
+evaluated false, exactly as designed (hide rather than show a button that
+would error). Not a bug; just a verification run that didn't pass every
+flag the app supports. Confirmed by rebuilding with the Google web client
+ID from `PLATFORM_SETUP.md` added back to the run command.
+
+**Removed the "An account is only needed..." intro line** from
+`auth_screen.dart` — shown above the form on both Sign in and Create
+account, per Caelan (not needed).
+
+**Forgot password moved from a dialog to its own screen**, per Caelan (it
+was a `showDialog` on top of `AuthScreen`; he wants a real page). New
+`screens/forgot_password_screen.dart`, reached via
+`Navigator.push` from the "Forgot password?" link (was `showDialog`) —
+`_forgotPassword()`'s dialog-and-network-call method removed from
+`auth_screen.dart` entirely, logic moved onto the new screen's own state.
+Pre-fills from whatever was already typed in the sign-in email field, same
+as the dialog did.
+
+**Skeleton loader added deliberately as a transition**, per Caelan's
+specific ask ("separated from the sign in page by a skeleton loader") —
+`_ForgotPasswordSkeleton`: pulsing placeholder blocks shaped like the real
+form (description, email field, button), shown for a flat 500ms on
+navigation before swapping to the real interactive form. No dependency
+added — a plain `AnimationController` + `FadeTransition`, not a shimmer
+package, kept in this one file since nothing else in the app needs it yet.
+Worth being clear this is cosmetic pacing, not real loading: there's no
+actual async fetch happening underneath, the screen has nothing to wait
+on — the delay exists only because Caelan asked for the visual separation.
+
+`flutter analyze`: 0 issues (one miss along the way — forgot the `kIsWeb`
+import in the new file, caught immediately by analyze, fixed). `flutter
+test`: 2/2 passed. **Verified live on the emulator**, rebuilt with the full
+set of dart-defines this time (including Google's client ID): the Google
+button is back on Sign in, the intro line is gone, and tapping "Forgot
+password?" opens a distinct full page with its own back arrow — caught the
+skeleton mid-pulse in a screenshot taken immediately on navigation (grey
+placeholder bars matching the real form's shape), confirmed it swaps to the
+real interactive form shortly after, and confirmed the empty-email
+validation message ("Enter your account email first.") on the new page.
+Apple's button is unaffected by any of this (iOS-only, `Platform.isIOS`
+gate untouched) but wasn't itself re-verified this run — Android emulator,
+same as every other session, never shows it.
+
+## Session — 2026-08-18 (yet another continuation): keyboard overflow fixed; sign-up split into email → password steps
+
+Caelan hit a real bug live: a yellow/black "BOTTOM OVERFLOWED BY 109 PIXELS"
+banner on the Create account screen once the keyboard opened. Root cause,
+same across every auth screen: `Scaffold.body` was a bare
+`Padding(child: Column(mainAxisAlignment: center, ...))` — fine until the
+keyboard shrinks the viewport (`viewInsets.bottom`), at which point the
+vertically-centered fixed-height content has nowhere to go. Fixed by
+wrapping every auth screen's form in `SingleChildScrollView` (dropping
+`mainAxisAlignment: center`, which stops mattering once content can
+scroll): `auth_screen.dart`, `forgot_password_screen.dart`,
+`reset_password_screen.dart`, and the two new screens below. Verified live
+by forcing the emulator's soft keyboard on
+(`settings put secure show_ime_with_hard_keyboard 1` — this emulator has a
+hardware-keyboard passthrough that normally suppresses the on-screen IME,
+which is why the bug wasn't caught in earlier sessions' verification) and
+screenshotting the password screen with the keyboard up: form fits cleanly
+above it, no overflow.
+
+**Sign-up restructured into two screens**, per Caelan: create-account used
+to be `AuthScreen` toggled into a second mode sharing one email+password
+pair with sign-in. Now:
+- `AuthScreen` is sign-in only — no more `_isSignUp` toggle, title is
+  always "Sign in". "Don't have an account? Create one" now navigates
+  instead of toggling.
+- New `screens/create_account_screen.dart` — email field only, plus the
+  OAuth buttons (Google/Apple/Facebook create an account and sign in with
+  the same call, so they don't need a second step). "Continue" does a
+  minimal `contains('@')` check (Supabase is the real authority on email
+  validity, proven below) and pushes the new password screen.
+- New `screens/create_account_password_screen.dart` — password + confirm
+  password, checked for a 6-char minimum and that they match before
+  calling `signUp`.
+
+**Extracted `services/oauth_service.dart`** rather than duplicate the
+Google/Apple/Facebook sign-in mechanics (nonce generation, idToken
+exchange, the config flags) across both AuthScreen and the new
+CreateAccountScreen — each screen now just calls
+`OAuthService.signInWithGoogle()` etc. and owns its own
+submitting/error/navigation handling. `forgot_password_screen.dart` also
+switched to this file's shared `oauthRedirectUrl` constant instead of its
+own duplicate.
+
+**Navigation contract**: all three call sites that push `AuthScreen`
+(`home_screen.dart` ×2, `restaurant_detail_screen.dart` ×2,
+`app_drawer.dart` ×1) use `Navigator.push<bool>`, so `AuthScreen` may only
+ever pop with `true`/`false`/`null` — checked this before designing the
+3-screen cascade. `CreateAccountPasswordScreen` pops `true` (session
+established — cascades all the way up through `CreateAccountScreen` and
+`AuthScreen`) or `false` (needs email confirmation — the message reaches
+`AuthScreen` via an `onPendingConfirmation` callback threaded through both
+new screens, decoupled from the pop value itself, then cascades back only
+as far as `AuthScreen` so it can display that message).
+
+`flutter analyze`: 0 issues (two misses along the way, both caught
+immediately by analyze: a nonexistent `SignInWithAppleButtonIfIOS` widget
+name invented while drafting, and `LaunchMode` incorrectly imported from
+`material.dart` instead of `supabase_flutter.dart` in the new service
+file). `flutter test`: 2/2 passed.
+
+**Verified live on the emulator**, extensively:
+- Overflow fix, confirmed above.
+- Create account screen: email-only, no password field, matches Caelan's
+  ask exactly.
+- Continue → Set a password screen, back arrow → returns to Create account
+  with the email preserved (natural `Navigator` pop, no special handling
+  needed).
+- Three real Supabase-side errors surfaced correctly through the new
+  screens' error text, each proving the real API call path works, not just
+  the UI: a password-complexity policy on this project ("should contain at
+  least one character of each: lowercase, uppercase, digit, symbol"), an
+  invalid-domain rejection (`@example.com`), and — after several test
+  emails this session — a real `email rate limit exceeded` from Supabase's
+  own SMTP limits.
+- **Not completed**: the actual success path (immediate session, or the
+  "check your email" pending-confirmation message reaching AuthScreen) —
+  blocked by that same rate limit before a signup could succeed. No test
+  account was created by any attempt (confirmed via
+  `select ... from auth.users` — zero rows), so nothing needed cleaning up.
+  The pop-cascade logic is code-reviewed and reasoned-through, not
+  click-tested end to end. **Heads up for Caelan**: if you try signing up
+  for real soon and get "email rate limit exceeded," that's Supabase's
+  default free-tier SMTP limit (temporary, resets on its own), not a bug —
+  don't spend time debugging it.
+
+## Session — 2026-08-18 (yet another continuation): auth screens split into choosers, matching cal.com reference
+
+Caelan gave a screenshot of cal.com's sign-in/sign-up pages as the reference
+and asked for four things: a more prominent Google button, sign-up's email
+field moved off the main screen and behind a button, sign-in's email+password
+moved the same way, and every Google button using the real logo.
+
+**`widgets/google_sign_in_button.dart`** (new) — solid near-black pill,
+white bold text, Google's actual four-color "G" mark rather than a generic
+Material icon. Deliberately a literal style match to the reference rather
+than derived from the app's teal theme — the point is contrast against the
+other buttons on the same screen. The logo itself: added
+`assets/icons/google_logo.svg` (Google's standard four-path "G" logomark)
+and the `flutter_svg` package (`^2.0.10+1`, resolved to `2.3.0` — wasn't a
+dependency before, added just for this) to render it.
+
+**`widgets/email_option_button.dart`** (new) — the "Sign in/up with email >"
+secondary button replacing the inline fields on both chooser screens.
+
+**Both `auth_screen.dart` and `create_account_screen.dart` became pure
+choosers** — just the provider buttons (Google now via the new widget,
+Apple/Facebook unchanged) and an email-option button, no text fields of
+their own anymore. The actual fields moved to two new screens:
+- `screens/sign_in_email_screen.dart` — email, password, "Forgot
+  password?", Sign in button. Basically `auth_screen.dart`'s old form,
+  relocated.
+- `screens/create_account_email_screen.dart` — email field + Continue.
+  `create_account_screen.dart`'s old form, relocated.
+
+**Cascade got one hop deeper** on the sign-up side: all 5 sites that push
+`AuthScreen` still expect `Navigator.push<bool>`, so the pop contract
+(`true`/`false`/`null`, same meaning as before) now relays through one more
+screen — `CreateAccountPasswordScreen` → `CreateAccountEmailScreen` →
+`CreateAccountScreen` (chooser) → `AuthScreen` (chooser) → original caller.
+Each hop is the same `if (result != null) Navigator.of(context).pop(result)`
+pattern already established two sessions ago, just threaded one level
+further. Sign-in gained one hop too:
+`SignInEmailScreen` → `AuthScreen` (chooser) → original caller.
+`onPendingConfirmation` (the "check your email" message callback) threads
+through the same chain unchanged.
+
+`flutter analyze`: 0 issues (one miss along the way, caught immediately:
+`create_account_email_screen.dart`'s `_submitting` field was declared but
+never actually set `true` during the push-and-await, same latent gap the
+pre-refactor file had — analyze flagged it as "could be final" once
+isolated in its own file; fixed properly by setting it during the
+navigation instead of just silencing the lint). `flutter test`: 2/2 passed.
+
+**Verified live on the emulator**: both chooser screens screenshot
+pixel-matches the ask — solid black Google button with the real logo,
+"Sign in with email >" / "Sign up with email >" as the only other visible
+option beside Apple/Facebook. Confirmed tapping the email-option button on
+both screens opens the dedicated page with the actual fields, title
+reflecting which flow ("Sign in with email" / "Create account").
+Deeper cascade behavior (the extra hop) is reasoned-through/code-reviewed,
+not independently re-verified this pass beyond what the visual check above
+covers — no reason to expect it broke given it's the same pop pattern used
+one level up, but flagging the distinction honestly.
+
+## Session — 2026-08-18 (yet another continuation): auth screens' content vertically centered
+
+Caelan: "move all of that more to the centre of the screens" — the chooser
+and email/password screens from the last two sessions all had their content
+packed at the top with a lot of empty space below, a side effect of the
+keyboard-overflow fix (`SingleChildScrollView` sizes its child to content,
+so `mainAxisAlignment: center` on the inner `Column` was already dead —
+removed when that fix landed, silently leaving everything top-aligned).
+
+**New `widgets/centered_scroll_form.dart`** — the same
+`LayoutBuilder → SingleChildScrollView → ConstrainedBox(minHeight) →
+IntrinsicHeight → Column(mainAxisAlignment: center)` recipe was about to be
+copy-pasted into all 7 screens with this shape, so extracted once instead.
+The `minHeight` comes from the `LayoutBuilder`'s own reported constraints,
+which the `Scaffold` already shrinks when the keyboard opens — so this
+centers content only when there's slack, and still scrolls normally when
+there isn't (the keyboard-overflow fix from two sessions ago stays intact,
+not re-broken by this).
+
+Applied to all 7: `auth_screen.dart`, `create_account_screen.dart`,
+`sign_in_email_screen.dart`, `create_account_email_screen.dart`,
+`create_account_password_screen.dart`, `forgot_password_screen.dart` (only
+the real-form branch — the skeleton placeholder already centered correctly
+on its own, since it's outside the scroll view), `reset_password_screen.dart`.
+
+`flutter analyze`: 0 issues. `flutter test`: 2/2 passed. **Verified live on
+the emulator**: rebuilt, screenshotted the Sign in chooser and the "Sign in
+with email" page — both now show content centered in the available space
+rather than pinned to the top.
+
+## Session — 2026-08-18 (yet another continuation): Search Assistant gated to signed-in users, per-account 10,000-token/5-hour rate limit
+
+Two asks from Caelan: Search Assistant only usable by signed-in accounts
+(signed-out sees an explanatory message instead), and a 10,000-token/5-hour
+budget per account to prevent misuse, with "on a break, available again in
+X" messaging once hit. Explicitly told not to test by actually burning
+10,000 tokens — see the testing section below for what was done instead.
+
+**Enforced server-side, not just in the Flutter UI** — same principle as
+every other gate in this app (mic reading auth, mic reading cooldown): the
+UI gate is the normal path, but `search-assistant`'s Edge Function has to
+reject an unauthenticated or over-limit caller on its own, since a client
+can always call the function directly.
+
+**New migration**: `0007_search_assistant_rate_limit.sql` —
+`search_assistant_usage` (user_id, window_start, tokens_used). Only a
+SELECT policy for `authenticated` (own row) — deliberately no
+insert/update policy, since only the Edge Function's service-role client
+should ever write to it; a user directly resetting their own tokens_used
+would defeat the whole point. The SELECT policy exists so the app can show
+current status via a plain table read, no round trip through the assistant
+or any token cost.
+
+**`search-assistant/index.ts` rewritten**: extracts the caller's JWT from
+the Authorization header and validates it via `auth.getUser()` — rejects
+with 401 `auth_required` if that fails (covers both "never signed in" and
+"session expired" the same way, since `functions.invoke` always sends
+*some* bearer token — the anon key if signed out — and `auth.getUser`
+rejects that the same as a missing one). Added a service-role client
+(`SUPABASE_SERVICE_ROLE_KEY` — auto-injected by the Edge Runtime, not a
+secret that needed setting) for the usage table, separate from the existing
+anon client that reads public restaurant data. Fixed 5-hour window per
+account, not sliding — simplest to reason about and to explain to the user.
+A blocked request never touches Anthropic; a request that goes through
+gets its real `usage.input_tokens + usage.output_tokens` from Anthropic's
+response added to the running total afterward (upsert, best-effort — a
+failed accounting write doesn't discard a reply already paid for). Deployed
+as version 6, `verify_jwt: true` kept as-is (already true; compatible since
+the anon key is itself a validly-signed JWT that passes the platform check
+before my own `auth.getUser` check correctly rejects it as not a real
+user).
+
+**Flutter side**: `SupabaseService` gained `SearchAssistantUsage` (+
+`isRateLimited`/`resetAt` helpers), `SearchAssistantRateLimited` (thrown by
+`askSearchAssistant` on a 429), and `fetchSearchAssistantUsage()` (the
+token-free status read). `TOKEN_LIMIT`/`WINDOW_MS` constants duplicated
+client-side (Dart) and server-side (Deno/TS) — no way to literally share a
+constant across those runtimes, flagged clearly in comments on both sides;
+the Edge Function's copy is the actual source of truth, the client's is
+only for showing status without spending a call.
+
+`search_assistant_screen.dart`: checks sign-in state and current usage on
+load (via `authStateChanges`, same subscription pattern `home_screen.dart`
+already uses) and shows one of three states in place of the normal
+chat — not configured (dev-only), signed out ("Search Assistant needs you
+to sign up or log in to work." + a Sign in button), or rate-limited
+("Search Assistant is on a break, it will be available again in
+[X hours and] Y minutes.", hours dropped under 1h per Caelan, "0 minutes"
+also dropped when remainder lands exactly on the hour). A 30-second
+`Timer.periodic` keeps the countdown accurate and clears the gate on its
+own once time's up, rather than leaving a stale "2 hours" on screen
+indefinitely. Also caught: a message that comes back 429 mid-conversation
+switches into the same gated state.
+
+**Testing — deliberately not by spending 10,000 tokens**, per Caelan's
+explicit instruction. What was done instead:
+- `curl`'d the deployed function directly with the anon key as the bearer
+  token (no real user) — confirmed 401 `auth_required`, zero tokens spent,
+  proves the server-side auth gate works independent of the Flutter UI.
+- Simulated the rate-limited state via direct SQL on
+  `search_assistant_usage` for the real account (`tokens_used: 10000`,
+  `window_start` backdated by a chosen amount) rather than actually
+  reaching the limit through real usage. Verified live on the emulator:
+  signed-out gate shows correctly with the exact requested wording;
+  signed in via Google, backdated the window by 2h30m → screen correctly
+  showed "available again in 2 hours and 29 minutes"; backdated by 4h15m
+  (45m remaining) → correctly showed "available again in 45 minutes" with
+  the hours part dropped, exactly per spec; deleted the row → composer
+  correctly reappeared.
+- Sent exactly one real message ("hi") to confirm the parts no SQL
+  simulation could prove on its own: that a real signed-in JWT actually
+  passes the function's `auth.getUser` check, and that a real Anthropic
+  response's actual token usage gets correctly parsed and upserted. Cost:
+  973 tokens (mostly the system prompt's restaurant context) — under 10% of
+  one account's 5-hour budget, nowhere near the 10,000-token ceiling this
+  session was told not to spend testing. Confirmed via SQL that the row
+  recorded exactly that, then deleted the test row to leave the real
+  account's usage clean.
+
+`flutter analyze`: 0 issues. `flutter test`: 2/2 passed.
+
+## Session — 2026-08-18 (yet another continuation): password visibility toggle, friendly policy-error message, Change password rebuilt as its own re-verified screen
+
+Three related asks from Caelan, arriving in sequence as the conversation
+clarified itself.
+
+**Password visibility toggle.** New `widgets/password_field.dart` — a
+`TextField` wrapping its own `obscureText` bool with an eye
+`IconButton` suffix, so every password field in the app gets the same
+toggle without each screen managing the bool itself. Applied everywhere a
+password is typed: `sign_in_email_screen.dart`,
+`create_account_password_screen.dart` (both fields),
+`reset_password_screen.dart` (both fields), and the (now-replaced, see
+below) change-password dialog.
+
+**The confusing password-policy error, not the policy itself.** Caelan's
+first framing made it sound like the strict Supabase password-complexity
+requirement (upper+lower+digit+symbol, from the "password should contain
+at least one character of each: abcdefg...!@#$%..." error two sessions
+ago) was a mistake to relax. He then corrected that: the policy is
+intentional and correct — what actually needed fixing was that the app was
+displaying Supabase's raw rejection message verbatim, dumping the entire
+allowed-character-set string instead of stating the requirement plainly.
+New `utils/friendly_auth_error.dart` —
+`friendlyPasswordPolicyError(Object error)` detects that specific
+Supabase message (matches on `'password should contain'`, case-
+insensitive) and returns "Password must contain at least one uppercase
+letter, one lowercase letter, one number, and one special character."
+instead; returns null for any other error so callers keep their own normal
+fallback formatting. Wired into every place a password-setting call can
+fail: `create_account_password_screen.dart`, `reset_password_screen.dart`,
+and the change-password flow. Also added a matching hint line under the
+new-password field on all three password-*setting* screens (not
+sign-in, which doesn't set a password) — "Must include an uppercase
+letter, a lowercase letter, a number, and a symbol." — so the requirement
+is visible upfront instead of only discovered after a rejected attempt.
+
+Also flagged plainly to Caelan: the policy itself lives in Supabase's Auth
+project settings (Dashboard → Authentication → Providers → Email →
+"Password Requirements"), not in this app's code or migrations — none of
+the Supabase MCP tools available in this session can read or change that
+setting remotely, so confirming exactly what's configured there was Caelan's
+own check, not something done from here.
+
+**Change password rebuilt as its own screen**, per Caelan, replacing the
+original `showDialog` version — and now asks for the *current* password
+too, not just the new one. New `screens/change_password_screen.dart`:
+Current password + New password (both via the new `PasswordField`, both
+with the policy hint), reached from `account_screen.dart`'s "Change
+password" row via `Navigator.push` instead of `showDialog`. Two-step
+submit, not one: Supabase's `updateUser()` changes the password based on
+the current session alone — it never checks the old password — so this
+screen re-verifies it explicitly first via a real
+`signInWithPassword(email, currentPassword)` call before touching the
+actual update. A wrong current password fails right there with "Current
+password is incorrect." and never reaches the update step. This matters
+for a real, not hypothetical, gap: without it, anyone with the device
+unlocked and this app already signed in could change the password without
+ever knowing the original — re-verification is what makes "change
+password" actually mean the account holder authorized it.
+`account_screen.dart` lost its `_changePassword` method and the
+now-unused `PasswordField`/`friendly_auth_error` imports that moved with
+it.
+
+`flutter analyze`: 0 issues throughout (checked after each of the three
+sub-changes). `flutter test`: 2/2 passed.
+
+**Verified live on the emulator**, all three: (1) opened the change-
+password screen, typed a password, tapped the eye icon — text visibly
+un-masked, icon switched to the crossed-out variant. (2) Entered a
+deliberately wrong current password with a policy-valid new password,
+submitted — got exactly "Current password is incorrect.", confirming the
+re-verify-before-update ordering actually works, not just compiles. Hit
+one unrelated hiccup mid-session: the emulator rendered a solid black
+frame after closing the Google account picker (engine/surface glitch, no
+error in the Flutter run log, unaffected by any code in this session) —
+resolved with a force-stop + relaunch, unrelated to and not caused by any
+of these changes.
+
+## Session — 2026-08-18 (yet another continuation): full-conversation mistake review
+
+Caelan asked for a review of the whole conversation for mistakes that should
+have been logged, noting that failing to log a mistake is itself a mistake.
+Went through the session and recorded six in
+`workspaces/quiet-restaurant-finder/MISTAKES.md` via `bin/icm mistake`:
+`keyboard-overflow-unhandled`, `incomplete-verification-build-flags`,
+`raw-backend-error-shown-to-user` (all caught by Caelan), plus two smaller
+self-caught ones (`unscoped-filesystem-search`,
+`unintended-tool-call-not-disclosed`) and the meta one Caelan's framing
+pointed at directly — `mistakes-not-logged-contemporaneously`: none of the
+above were written down when they actually happened, despite this
+workspace's own `AGENTS.md` saying to. Recompiled `MasterMistakes.md` and
+ran `bin/icm doctor` clean afterward. Full detail lives in `MISTAKES.md`
+itself, not duplicated here — none of these are at the 3+ "approaching"
+threshold yet, so no `AGENTS.md` guard is required.
+
+## Session — 2026-08-18 (yet another continuation): documentation pass
+
+Caelan asked for all documentation in the vault to be brought up to date,
+separately from the pending PR (still blocked on GitHub connector repo
+access — see below). Went through every doc in the workspace and updated
+what this session's work had made stale:
+
+- `_config/decisions.md` — three new confirmed-decisions sections: "Account
+  & Search Assistant access" (sign-in required, 10k-token/5h limit),
+  "Password policy" (intentional, only the display was wrong), "Git
+  workflow" (never push directly to `main`).
+- `AGENTS.md` — the "per-account rate limiting" open item was stale (marked
+  as still-open; it's resolved twice over now, mic readings and Search
+  Assistant both). Added the branch+PR rule to "Rules specific to this
+  workspace" so it's not only in this agent's memory file.
+- `ui-design-decisions.md` — updated the Search Assistant entry (gating +
+  rate limit) and added a summary-table row for the cal.com-style
+  sign-in/sign-up rework, noting it's a separate later pass from the
+  original Figma-driven redesign this doc otherwise documents.
+- `app/PLATFORM_SETUP.md` — updated the "AuthScreen has the buttons" note
+  now that the OAuth mechanics live in `oauth_service.dart` shared across
+  two screens; added a password-policy dashboard note so a future session
+  (or Caelan) knows where that setting lives and that the app's own copy
+  (hint text, friendly error message) won't update itself if it changes.
+- `app/README.md` — was still Flutter's unedited scaffold boilerplate
+  ("A new Flutter project") this whole time, on the actual GitHub repo.
+  Replaced with a real project README: what the app is, the stack,
+  features, how to run it, and a pointer back to this workspace as the
+  source of truth for the decisions behind the code.
+
+Left `data-schema.md`, `ranking-spec.md`, `prd.md`, `research-brief.md`,
+`CONTEXT.md`, `workspace.md` unchanged — checked each, none went stale from
+this session's work (data-schema.md deliberately delegates exact columns
+to the migration files rather than duplicating them, so new tables/columns
+don't require an edit there).
+
+**Still open**: the PR itself. Pushed `feature/mic-reading-rate-limit` to
+origin, but had no authenticated path to create/merge it — `gh` CLI isn't
+installed, Claude-in-Chrome needed re-auth then turned out to not apply to
+Edge (Chrome-only extension), and the connected GitHub App's installation
+was initially scoped to two unrelated repos, not this one. Caelan is
+updating the installation's repository access; retrying once that's
+confirmed.
+
+## Session — 2026-08-18 (continuation): mic crash found and fixed, rate-limit UX click-tested
+
+Picked up the rate-limit cooldown open item — verifying the `take_reading_screen.dart`
+snackbar path live, not just reasoned from code. Confirmed `emulator-5554`
+(`Pixel_API_36`) already running with the app installed and signed in as
+`maxon.caelan@gmail.com`.
+
+**Found a real crash, not an emulator quirk.** Tapping "Start listening" on
+MuMu's reading screen red-screened immediately: `Unsupported operation:
+Infinity or NaN toInt`. Traced via `adb logcat`: the emulator's virtual mic
+was failing to deliver frames (`pcm_readi failed ... I/O error`, inserting
+silence). `noise_meter`'s `meanDecibel` is `20*log10(amplitude)`, so true
+zero amplitude is `-Infinity`, not a small number — that flowed unguarded
+into `take_reading_screen.dart`'s `Text('${_currentDb!.round()} dB')` and
+crashed on the `.round()` call. This isn't emulator-specific: a genuinely
+silent room — exactly the case this app exists to detect — hits the same
+zero-amplitude math on a real device.
+
+**Fixed at the source**, `lib/services/mic_service.dart`'s `start()`: the
+`onReading` callback now checks `value.isFinite` and substitutes `0` for
+any non-finite sample, instead of passing `-Infinity`/`NaN` through
+untouched. `flutter analyze`: 0 issues. Rebuilt (`flutter run -d
+emulator-5554` with the full `SUPABASE_URL`/`SUPABASE_ANON_KEY`/
+`GOOGLE_WEB_CLIENT_ID` dart-define set) and reinstalled.
+
+**Re-verified live end to end**, both halves: (1) "Start listening" no
+longer crashes — showed a real ticking dB value, then `0 dB` on a later
+sample where the mic again produced silence, confirming the clamp path
+itself gets exercised, not just the happy path. (2) Submitted a reading
+(got "Thanks! Reading of 18 dB submitted."), then immediately started and
+submitted a second one on the same account — got back exactly "wait 14
+more second(s) before submitting another reading", the plain-language
+message from `friendly`-style handling of the `rate_limited:`-prefixed
+`PostgrestException` in `take_reading_screen.dart`. Confirms the server
+trigger (`enforce_mic_reading_cooldown`, `0006_mic_reading_rate_limit.sql`)
+and the Flutter-side message parsing both work correctly together, live —
+this was previously only reasoned-through from code.
+
+Not yet committed — working on `feature/mic-reading-rate-limit`, still
+blocked on the GitHub connector's repo access (see PR blocker below);
+Caelan chose to skip resolving that this session and defer the PR.
+
 ## Open items carried into further build work
 - ~~Decide what to do about Popular Times~~ — decided 2026-08-15: dropped for v1, code kept dormant.
 - ~~Decide whether mic readings need a user identity~~ — decided 2026-08-15: real accounts, submission-gated only. See "Account-gated mic readings" above.
 - ~~Whether to add Google/Apple Sign-In~~ — decided 2026-08-15: yes to both. ~~Google~~ — resolved 2026-08-18: Web + Android OAuth clients created, confirmed working end to end on the emulator (real account picker, real credential entry, successful sign-in). iOS client ID still not created — Apple sign-in still waiting on a real device to test.
 - ~~Whether to add Facebook (and other) social logins~~ — decided 2026-08-16: Facebook, via `signInWithOAuth`, hidden behind `FACEBOOK_SIGN_IN_ENABLED` until Caelan configures the Facebook provider in Supabase. See "Facebook — free, added 2026-08-16" in `PLATFORM_SETUP.md`.
 - **Register `quietrestaurantfinder://login-callback` as an Additional Redirect URL in Supabase's Auth → URL Configuration.** Needed for Facebook sign-in and the fixed email-confirmation redirect to actually work — the code side is done, this dashboard step is Caelan's to do. See "Deep link redirect" in `PLATFORM_SETUP.md`.
-- Whether to add per-account rate limiting on readings, now that real identity exists.
+- ~~Whether to add per-account rate limiting on readings, now that real identity exists~~ — resolved 2026-08-18: 30-second cooldown between submissions from the same account, enforced server-side. See "per-account rate limiting on mic readings" above.
+- **GitHub branch protection on `main` still not set up as an actual repo setting** — no authenticated path to github.com in the 2026-08-18 session (Claude-in-Chrome needed re-auth, no `gh` CLI, no token). Caelan chose a standing behavioral rule (branch + PR, never push to `main` directly) instead for now; revisit setting the real GitHub setting when there's an authenticated path available.
+- ~~Rate-limit cooldown message not click-tested end to end on-device~~ — resolved 2026-08-18 (continuation): triggered live by submitting two readings within 30s on-device, got back the exact expected message. See "mic crash found and fixed, rate-limit UX click-tested" above. Found and fixed an unrelated but real crash along the way (silent/invalid mic samples producing `-Infinity` → uncaught `.round()`), same session.
+- **New sign-up success path not click-tested** — `CreateAccountPasswordScreen`'s pop-cascade (`true` for an immediate session, `false` + `onPendingConfirmation` for the "check your email" case) is code-reviewed and reasoned-through, not confirmed live — Supabase's email rate limit blocked every signup attempt this session before reaching success. Worth completing once the rate limit clears.
+- ~~Email can be changed from the Account screen~~ — resolved 2026-08-18: removed entirely, per Caelan (a new email is effectively a new account). See "email is now immutable" above.
+- ~~No way to reset a forgotten password~~ — resolved 2026-08-18: standard Supabase email-recovery flow added. See "forgot-password flow added" above. **Partially click-tested on-device** — rebuilt and ran on the Android emulator (`Pixel_API_36`), verified live: the Email row on Account is no longer tappable, the "Forgot password?" link renders and opens the dialog, and submitting a real address gets Supabase's actual "check your email" confirmation back. **Still open**: the click-through half — tapping the real emailed link and landing on `ResetPasswordScreen` via the deep link — needs Caelan to check his own inbox, since that leg can't be driven from the emulator.
 - Exact score-weighting constants (`DEFAULT_WEIGHTS`, `PLATFORM_WEIGHT`, and now `REVIEW_MENTION_TIERS`/`MIC_READING_TIERS` in `scoring.js`) — starting values per ranking-spec.md, need tuning against real usage data.
 - ~~Flutter app not yet compiled~~ — resolved 2026-08-16: `flutter pub get`/`analyze`/`test` all ran clean, and `flutter run -d edge` confirmed the app renders live Supabase data correctly. ~~Android build/device run~~ — resolved 2026-08-17: full Android toolchain set up, real emulator created, app built and run on it, verified visually (see "first real run" above). Still needed: iOS build (needs a Mac — no workaround, unrelated to the Android work). ~~Completing a real sign-in + mic-reading submission through the UI on-device~~ — resolved 2026-08-17: full flow verified for real (signup → email confirmation → sign-in → mic capture → submission → pipeline aggregation), see "real sign-in + mic-reading verified on-device" above.
 - ~~Clear the 4 seeded demo rows from the live `restaurants` table~~ — done this session (2026-08-16, continued): confirmed the 4 rows were exactly the known sample set, then deleted. Table is at 0 rows now — needs real pipeline data before the app has anything to show.

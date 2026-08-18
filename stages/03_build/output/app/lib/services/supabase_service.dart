@@ -20,6 +20,31 @@ const _supabaseAnonKey = String.fromEnvironment('SUPABASE_ANON_KEY');
 
 class SupabaseNotConfigured implements Exception {}
 
+/// The signed-in user's current Search Assistant usage window — see
+/// search_assistant_usage in 0007_search_assistant_rate_limit.sql. Kept in
+/// sync with the search-assistant Edge Function's own constants
+/// (TOKEN_LIMIT, WINDOW_MS), which are the actual source of truth; this
+/// file's copies exist only so the app can show status without a round
+/// trip through the assistant itself.
+const searchAssistantTokenLimit = 10000;
+const searchAssistantWindow = Duration(hours: 5);
+
+class SearchAssistantUsage {
+  final DateTime windowStart;
+  final int tokensUsed;
+  const SearchAssistantUsage({required this.windowStart, required this.tokensUsed});
+
+  DateTime get resetAt => windowStart.add(searchAssistantWindow);
+  bool get isRateLimited => tokensUsed >= searchAssistantTokenLimit && resetAt.isAfter(DateTime.now());
+}
+
+/// Thrown by [SupabaseService.askSearchAssistant] when the Edge Function
+/// rejects a request for being over the per-account token budget.
+class SearchAssistantRateLimited implements Exception {
+  final DateTime resetAt;
+  const SearchAssistantRateLimited(this.resetAt);
+}
+
 class SupabaseService {
   static bool get isConfigured => _supabaseUrl.isNotEmpty && _supabaseAnonKey.isNotEmpty;
 
@@ -42,14 +67,6 @@ class SupabaseService {
   Stream<AuthState> get authStateChanges => _client.auth.onAuthStateChange;
 
   Future<void> signOut() => _client.auth.signOut();
-
-  /// Supabase sends a confirmation link to the new address (and, depending
-  /// on the project's "secure email change" setting, the old one too)
-  /// before this actually takes effect — the change isn't immediate.
-  Future<void> updateEmail(String newEmail) async {
-    if (!isConfigured) throw SupabaseNotConfigured();
-    await _client.auth.updateUser(UserAttributes(email: newEmail));
-  }
 
   Future<void> updatePassword(String newPassword) async {
     if (!isConfigured) throw SupabaseNotConfigured();
@@ -115,7 +132,9 @@ class SupabaseService {
   /// (supabase/functions/search-assistant) — the Anthropic API key lives
   /// only there, never in this app. `history` is the prior turns of the
   /// conversation, kept client-side; there's no server-side chat-session
-  /// table (yet).
+  /// table (yet). The function itself requires a signed-in caller and
+  /// enforces the per-account token budget — this only surfaces what it
+  /// says, it doesn't duplicate that logic.
   Future<String> askSearchAssistant(String message, List<Map<String, String>> history) async {
     if (!isConfigured) throw SupabaseNotConfigured();
 
@@ -124,11 +143,33 @@ class SupabaseService {
       body: {'message': message, 'history': history},
     );
 
+    if (response.status == 429) {
+      final data = response.data as Map<String, dynamic>;
+      throw SearchAssistantRateLimited(DateTime.parse(data['resetAt'] as String));
+    }
     if (response.status != 200) {
       throw Exception('Search Assistant request failed (${response.status})');
     }
     final data = response.data as Map<String, dynamic>;
     return data['reply'] as String? ?? '';
+  }
+
+  /// The signed-in user's current Search Assistant usage, or null if
+  /// they haven't used it yet this window (equivalent to 0 tokens used).
+  /// Scoped by RLS (search_assistant_usage's own-row SELECT policy from
+  /// 0007_search_assistant_rate_limit.sql) — no explicit user_id filter
+  /// needed. Lets the screen show current status on load without spending
+  /// any tokens or going through the assistant itself.
+  Future<SearchAssistantUsage?> fetchSearchAssistantUsage() async {
+    if (!isConfigured || !isSignedIn) return null;
+    final rows = await _client.from('search_assistant_usage').select('window_start, tokens_used').limit(1);
+    final list = rows as List;
+    if (list.isEmpty) return null;
+    final row = list.first as Map<String, dynamic>;
+    return SearchAssistantUsage(
+      windowStart: DateTime.parse(row['window_start'] as String),
+      tokensUsed: row['tokens_used'] as int,
+    );
   }
 
   Future<void> submitMicReading(MicReading reading) async {

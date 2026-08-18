@@ -7,16 +7,38 @@
 // file or in the Flutter client). See ui-design-decisions.md for why this
 // has to be a server-side proxy rather than calling Anthropic directly
 // from the app.
+//
+// Sign-in required + per-account rate limiting added 2026-08-18, per
+// Caelan: only signed-in users may call this, and each account gets 10,000
+// tokens per fixed 5-hour window (see 0007_search_assistant_rate_limit.sql
+// for the accounting table). Enforced here, not just in the Flutter UI —
+// the UI gate (search_assistant_screen.dart) is the normal path, but this
+// function has to reject an anonymous or over-limit caller on its own,
+// same as every other server-side gate in this app (mic reading auth,
+// mic reading cooldown).
 
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
 const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY');
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!;
+// Auto-injected into every Edge Function by the Supabase runtime — not a
+// dashboard secret that needed setting, unlike ANTHROPIC_API_KEY.
+const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
 // Public data only (restaurants are publicly readable per 0001_init.sql's
 // RLS policy) — the anon key is the right scope here, not service_role.
-const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+// Also used to validate the caller's JWT (auth.getUser), which needs no
+// elevated privileges.
+const supabaseAnon = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// Rate-limit accounting only — search_assistant_usage has no write policy
+// for regular users (see the migration), so this has to be the service-role
+// client, not one scoped to the caller's own JWT.
+const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+
+const TOKEN_LIMIT = 10000;
+const WINDOW_MS = 5 * 60 * 60 * 1000; // 5 hours — keep in sync with search_assistant_screen.dart's client-side check
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -43,6 +65,19 @@ Deno.serve(async (req) => {
     return jsonResponse({ error: 'ANTHROPIC_API_KEY is not configured' }, 500);
   }
 
+  // Signed-in users only. supabase_flutter's functions.invoke() always
+  // sends *some* bearer token (the session's access token if signed in,
+  // otherwise the anon key) — auth.getUser rejects the anon key the same
+  // way it rejects a missing/invalid token, so this one check covers both
+  // "never signed in" and "session expired" without special-casing either.
+  const authHeader = req.headers.get('Authorization') ?? '';
+  const token = authHeader.replace(/^Bearer\s+/i, '');
+  const { data: userData, error: userError } = await supabaseAnon.auth.getUser(token);
+  if (userError || !userData.user) {
+    return jsonResponse({ error: 'auth_required', message: 'Sign in to use Search Assistant.' }, 401);
+  }
+  const userId = userData.user.id;
+
   let body: { message?: string; history?: ChatMessage[] };
   try {
     body = await req.json();
@@ -56,7 +91,31 @@ Deno.serve(async (req) => {
   }
   const history = Array.isArray(body.history) ? body.history : [];
 
-  const { data: restaurants, error: dbError } = await supabase
+  // Fixed 5-hour window per account, not sliding — simplest to reason
+  // about and to explain to the user ("available again in X"). A window
+  // that's expired resets tokensUsed to 0 as part of this same check, so a
+  // blocked response below can only ever mean the window is still active.
+  const { data: usageRow } = await supabaseAdmin
+    .from('search_assistant_usage')
+    .select('window_start, tokens_used')
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  const now = new Date();
+  let windowStart = usageRow ? new Date(usageRow.window_start) : now;
+  let tokensUsed = usageRow?.tokens_used ?? 0;
+
+  if (now.getTime() - windowStart.getTime() >= WINDOW_MS) {
+    windowStart = now;
+    tokensUsed = 0;
+  }
+
+  if (tokensUsed >= TOKEN_LIMIT) {
+    const resetAt = new Date(windowStart.getTime() + WINDOW_MS);
+    return jsonResponse({ error: 'rate_limited', resetAt: resetAt.toISOString() }, 429);
+  }
+
+  const { data: restaurants, error: dbError } = await supabaseAnon
     .from('restaurants')
     .select('name, cuisine, suburb, quietness_score, confidence, google_rating')
     .order('quietness_score', { ascending: false, nullsFirst: false })
@@ -107,6 +166,20 @@ ${restaurantContext || '(none loaded yet)'}`;
 
   const data = await anthropicRes.json();
   const reply = data.content?.[0]?.text ?? '';
+
+  const usage = data.usage ?? {};
+  const tokensThisCall = (usage.input_tokens ?? 0) + (usage.output_tokens ?? 0);
+
+  // Best-effort — an accounting write failing shouldn't block a reply the
+  // user already paid a real Anthropic call for. Logged, not thrown.
+  const { error: upsertError } = await supabaseAdmin.from('search_assistant_usage').upsert({
+    user_id: userId,
+    window_start: windowStart.toISOString(),
+    tokens_used: tokensUsed + tokensThisCall,
+  });
+  if (upsertError) {
+    console.error('Failed to record search assistant usage:', upsertError.message);
+  }
 
   return jsonResponse({ reply });
 });

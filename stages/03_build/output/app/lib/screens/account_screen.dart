@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 
 import '../models/mic_reading.dart';
 import '../services/supabase_service.dart';
+import 'change_password_screen.dart';
 
 class AccountScreen extends StatefulWidget {
   const AccountScreen({super.key});
@@ -34,70 +35,6 @@ class _AccountScreenState extends State<AccountScreen> {
       if (mounted) setState(() => _readings = readings);
     } catch (e) {
       if (mounted) setState(() => _readingsError = e);
-    }
-  }
-
-  Future<void> _changeEmail() async {
-    final controller = TextEditingController(text: _supabaseService.currentUserEmail);
-    final newEmail = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Change email'),
-        content: TextField(
-          controller: controller,
-          keyboardType: TextInputType.emailAddress,
-          decoration: const InputDecoration(labelText: 'New email'),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(controller.text.trim()),
-            child: const Text('Save'),
-          ),
-        ],
-      ),
-    );
-    if (!mounted || newEmail == null || newEmail.isEmpty) return;
-    if (newEmail == _supabaseService.currentUserEmail) return;
-
-    try {
-      await _supabaseService.updateEmail(newEmail);
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Check your email to confirm the change.')),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not update email: $e')));
-    }
-  }
-
-  Future<void> _changePassword() async {
-    final controller = TextEditingController();
-    final newPassword = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Change password'),
-        content: TextField(
-          controller: controller,
-          obscureText: true,
-          decoration: const InputDecoration(labelText: 'New password'),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),
-          TextButton(onPressed: () => Navigator.of(context).pop(controller.text), child: const Text('Save')),
-        ],
-      ),
-    );
-    if (!mounted || newPassword == null || newPassword.length < 6) return;
-
-    try {
-      await _supabaseService.updatePassword(newPassword);
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Password updated.')));
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not update password: $e')));
     }
   }
 
@@ -137,8 +74,6 @@ class _AccountScreenState extends State<AccountScreen> {
             leading: const Icon(Icons.email_outlined),
             title: const Text('Email'),
             subtitle: Text(email),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: _changeEmail,
           ),
           const Divider(height: 32),
           const _SectionHeader('Security'),
@@ -146,7 +81,9 @@ class _AccountScreenState extends State<AccountScreen> {
             leading: const Icon(Icons.lock_outline),
             title: const Text('Change password'),
             trailing: const Icon(Icons.chevron_right),
-            onTap: _changePassword,
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const ChangePasswordScreen()),
+            ),
           ),
           const Divider(height: 32),
           const _SectionHeader('Your activity'),
