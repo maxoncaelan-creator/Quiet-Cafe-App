@@ -15,6 +15,10 @@ dependencies:
   google_sign_in: ^7.2.0
   sign_in_with_apple: ^8.1.0
   crypto: ^3.0.5
+  shared_preferences: ^2.3.2
+  package_info_plus: ^8.0.2
+  url_launcher: ^6.3.1
+  speech_to_text: ^7.0.0
 
 dev_dependencies:
   flutter_test:

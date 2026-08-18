@@ -28,6 +28,26 @@
 	<true/>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Quiet Restaurant Finder uses your microphone to measure ambient noise level at the restaurant you're at. No audio is recorded or stored.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Quiet Restaurant Finder uses speech recognition so you can search by voice instead of typing.</string>
+	<!-- Supabase Auth redirect: OAuth (Facebook, Google web flow) and email
+	     confirmation / magic links come back through this, instead of
+	     Supabase's generic hosted page. Registered in Supabase's Auth
+	     settings as an Additional Redirect URL — see PLATFORM_SETUP.md.
+	     Google's own reversed-client-id scheme (for native Google Sign-In)
+	     still needs adding here separately once GOOGLE_IOS_CLIENT_ID is set —
+	     that's a second dict in this same array, not a replacement for it. -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>quietrestaurantfinder</string>
+			</array>
+		</dict>
+	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

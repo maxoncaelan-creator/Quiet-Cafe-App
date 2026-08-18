@@ -28,7 +28,11 @@ export function computeScoredRestaurants(restaurants) {
     const popular = popularSubscore(r.busynessPercent ?? null);
     const mic = micSubscore(r.micReadings);
 
-    const { score, confidence, signalCount } = combineScores({ review, popular, mic });
+    const { score, confidence, signalCount } = combineScores({
+      review: { subscore: review, count: positiveCount + negativeCount },
+      popular: { subscore: popular },
+      mic: { subscore: mic, count: (r.micReadings || []).length },
+    });
 
     return {
       placeId: r.placeId,
@@ -64,16 +68,22 @@ async function loadSampleInput() {
 }
 
 async function main() {
-  const placesApiKey = optionalEnv('GOOGLE_PLACES_API_KEY');
+  // GOOGLE_PLACES_API_KEY itself lives in Supabase's Function secrets now
+  // (see places.js) — these three are what this pipeline needs locally to
+  // call the places-search Edge Function instead.
+  const supabaseUrl = optionalEnv('SUPABASE_URL');
+  const supabaseAnonKey = optionalEnv('SUPABASE_ANON_KEY');
+  const pipelineSharedSecret = optionalEnv('PIPELINE_SHARED_SECRET');
+  const hasPlacesProxy = Boolean(supabaseUrl) && Boolean(supabaseAnonKey) && Boolean(pipelineSharedSecret);
   // Only touch the live database on the real-data path. Sample mode is meant
   // to be a self-contained local demo — it shouldn't write anything to
   // Supabase just because SUPABASE_DB_URL happens to be set in .env.
-  const hasSupabase = Boolean(placesApiKey) && Boolean(optionalEnv('SUPABASE_DB_URL'));
+  const hasSupabase = hasPlacesProxy && Boolean(optionalEnv('SUPABASE_DB_URL'));
   let restaurants;
 
-  if (placesApiKey) {
-    console.log('GOOGLE_PLACES_API_KEY found — fetching live restaurant data for Sydney NSW.');
-    restaurants = await searchRestaurants('restaurants in Sydney NSW', placesApiKey);
+  if (hasPlacesProxy) {
+    console.log('places-search config found — fetching live restaurant data for Sydney NSW.');
+    restaurants = await searchRestaurants('restaurants in Sydney NSW', { supabaseUrl, supabaseAnonKey, pipelineSharedSecret });
 
     // Popular Times (via Outscraper) is not called here — dropped as a
     // signal on 2026-08-15 after confirming 0/100 Sydney restaurants had
@@ -99,7 +109,7 @@ async function main() {
       restaurants = restaurants.map((r) => ({ ...r, micReadings: [] }));
     }
   } else {
-    console.log('No GOOGLE_PLACES_API_KEY set — using bundled sample data instead (includes synthetic mic readings).');
+    console.log('No places-search config set (SUPABASE_URL/SUPABASE_ANON_KEY/PIPELINE_SHARED_SECRET) — using bundled sample data instead (includes synthetic mic readings).');
     restaurants = await loadSampleInput();
   }
 

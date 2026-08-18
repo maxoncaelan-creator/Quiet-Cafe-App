@@ -77,8 +77,20 @@ Aggregated onto the restaurant record for fast ranking lookups:
 | Field | Type | Notes |
 |---|---|---|
 | `quietness_score` | float 0–100, nullable | Weighted combination per [[quiet-restaurant-finder/stages/02_ranking-design/output/ranking-spec|ranking spec]] |
-| `confidence_level` | enum: `low` \| `medium` \| `high` | Based on how many of the (currently 2) active signals are present and their data volume |
+| `confidence` | enum: `Very Low` \| `Low` \| `Moderate` \| `High` \| `Very High` \| `Certain` | **Changed 2026-08-17** (was `low`/`medium`/`high`, purely signal-count based) — six graduated levels based on how many of the active signals are present *and* their data volume. See [[quiet-restaurant-finder/stages/02_ranking-design/output/ranking-spec|ranking spec]] "Confidence levels." Migration: `0005_confidence_levels.sql`. |
 | `score_updated_at` | timestamp | |
+
+## Favorites
+
+Added from the UI redesign (2026-08-17) — `stages/03_build/output/supabase/migrations/0004_favorites.sql`. One row per user per favorited restaurant:
+
+| Field | Type | Notes |
+|---|---|---|
+| `user_id` | uuid, not null | Real Supabase Auth account — same gate as `mic_readings.user_id`. Favoriting requires sign-in; browsing and the ranked list stay open to everyone. |
+| `place_id` | string | Foreign key to restaurant record |
+| `created_at` | timestamp | |
+
+Primary key is `(user_id, place_id)` — a favorite is either present or not, no separate id needed. RLS scopes every operation (select/insert/delete) to `auth.uid() = user_id`, so a user can only ever see or change their own favorites — same privacy shape as individual mic readings.
 
 ## Notes
 - No raw audio is ever stored — only the `decibel_value` from native metering, per the privacy constraint confirmed with Caelan.

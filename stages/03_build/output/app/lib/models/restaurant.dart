@@ -51,7 +51,7 @@ class Restaurant {
   final MicSignal mic;
 
   final double? quietnessScore;
-  final String? confidence; // 'low' | 'medium' | 'high' | null
+  final String? confidence; // 'Very Low' | 'Low' | 'Moderate' | 'High' | 'Very High' | 'Certain' | null
   final int signalCount;
 
   const Restaurant({

@@ -2,21 +2,75 @@ import 'package:flutter/material.dart';
 
 import '../models/restaurant.dart';
 import '../services/supabase_service.dart';
+import '../widgets/confidence_indicator.dart';
+import '../widgets/noise_level_bar.dart';
 import 'auth_screen.dart';
 import 'take_reading_screen.dart';
 
-class RestaurantDetailScreen extends StatelessWidget {
+class RestaurantDetailScreen extends StatefulWidget {
   final Restaurant restaurant;
 
   const RestaurantDetailScreen({super.key, required this.restaurant});
 
-  Future<void> _startReading(BuildContext context) async {
-    final supabaseService = SupabaseService();
+  @override
+  State<RestaurantDetailScreen> createState() => _RestaurantDetailScreenState();
+}
 
+class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
+  final _supabaseService = SupabaseService();
+  Restaurant get restaurant => widget.restaurant;
+
+  bool _isFavorite = false;
+  bool _favoriteBusy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadFavoriteStatus();
+  }
+
+  Future<void> _loadFavoriteStatus() async {
+    if (!_supabaseService.isSignedIn) return;
+    // No dedicated "is this one favorited" check yet — fetches the whole
+    // set, same as the List screen. Fine at today's scale; worth a
+    // dedicated query later if a user's favorites list gets large.
+    final ids = await _supabaseService.fetchFavoritePlaceIds();
+    if (mounted) setState(() => _isFavorite = ids.contains(restaurant.placeId));
+  }
+
+  Future<void> _toggleFavorite() async {
+    if (!_supabaseService.isSignedIn) {
+      final signedIn = await Navigator.of(context).push<bool>(
+        MaterialPageRoute(builder: (_) => const AuthScreen()),
+      );
+      if (signedIn != true || !mounted) return;
+    }
+    setState(() {
+      _isFavorite = !_isFavorite;
+      _favoriteBusy = true;
+    });
+    try {
+      if (_isFavorite) {
+        await _supabaseService.addFavorite(restaurant.placeId);
+      } else {
+        await _supabaseService.removeFavorite(restaurant.placeId);
+      }
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _isFavorite = !_isFavorite); // revert on failure
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not update favorite — try again.')),
+      );
+    } finally {
+      if (mounted) setState(() => _favoriteBusy = false);
+    }
+  }
+
+  Future<void> _startReading(BuildContext context) async {
     // Browsing never requires an account — only submitting a reading does.
     // Prompt for sign-in/sign-up right here, at the point of need, rather
     // than gating the whole app behind auth.
-    if (!supabaseService.isSignedIn) {
+    if (!_supabaseService.isSignedIn) {
       final signedIn = await Navigator.of(context).push<bool>(
         MaterialPageRoute(builder: (_) => const AuthScreen()),
       );
@@ -34,7 +88,19 @@ class RestaurantDetailScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(restaurant.name)),
+      appBar: AppBar(
+        title: Text(restaurant.name),
+        actions: [
+          if (SupabaseService.isConfigured)
+            IconButton(
+              icon: Icon(
+                _isFavorite ? Icons.star_rounded : Icons.star_border_rounded,
+                color: _isFavorite ? Colors.amber.shade700 : null,
+              ),
+              onPressed: _favoriteBusy ? null : _toggleFavorite,
+            ),
+        ],
+      ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -82,15 +148,16 @@ class _ScoreHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final score = restaurant.quietnessScore;
-    if (score == null) {
-      return const Text('Not enough data yet', style: TextStyle(fontSize: 20));
-    }
-    return Row(
-      children: [
-        Text(score.round().toString(), style: const TextStyle(fontSize: 48, fontWeight: FontWeight.bold)),
-        const SizedBox(width: 12),
-        Text('Confidence: ${restaurant.confidence ?? 'low'}'),
-      ],
+    return Center(
+      child: Column(
+        children: [
+          NoiseLevelBar(quietnessScore: score),
+          if (score != null) ...[
+            const SizedBox(height: 10),
+            ConfidenceIndicator(confidence: restaurant.confidence),
+          ],
+        ],
+      ),
     );
   }
 }

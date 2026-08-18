@@ -11,8 +11,12 @@ import {
 } from '../src/scoring.js';
 
 test('reviewSubscore returns null below the minimum mention count', () => {
-  assert.equal(reviewSubscore(1, 1), null);
-  assert.equal(MIN_REVIEW_MENTIONS, 3);
+  assert.equal(reviewSubscore(0, 0), null);
+  assert.equal(MIN_REVIEW_MENTIONS, 1);
+});
+
+test('reviewSubscore scores a single mention (lowered threshold)', () => {
+  assert.equal(reviewSubscore(1, 0), 100);
 });
 
 test('reviewSubscore scores all-positive mentions at 100', () => {
@@ -75,30 +79,53 @@ test('micSubscore weights android readings at half of ios', () => {
 });
 
 test('combineScores returns null when no signals are present', () => {
-  const result = combineScores({ review: null, popular: null, mic: null });
+  const result = combineScores({ review: { subscore: null }, popular: {}, mic: { subscore: null } });
   assert.equal(result.score, null);
   assert.equal(result.confidence, null);
   assert.equal(result.signalCount, 0);
 });
 
-test('combineScores marks low confidence with one signal', () => {
-  const result = combineScores({ review: 80, popular: null, mic: null });
+test('combineScores marks "Very Low" confidence for a single thin signal (1 review mention)', () => {
+  // Matches Caelan's rule: any noise mention at all is at least Very Low confidence.
+  const result = combineScores({ review: { subscore: 80, count: 1 }, popular: {}, mic: { subscore: null } });
   assert.equal(result.score, 80);
-  assert.equal(result.confidence, 'low');
+  assert.equal(result.confidence, 'Very Low');
   assert.equal(result.signalCount, 1);
 });
 
-test('combineScores marks high confidence and renormalizes weights with all three signals', () => {
-  const result = combineScores({ review: 100, popular: 100, mic: 100 });
+test('combineScores scales confidence up with review mention volume alone', () => {
+  assert.equal(combineScores({ review: { subscore: 80, count: 2 }, popular: {}, mic: {} }).confidence, 'Very Low');
+  assert.equal(combineScores({ review: { subscore: 80, count: 3 }, popular: {}, mic: {} }).confidence, 'Low');
+  assert.equal(combineScores({ review: { subscore: 80, count: 5 }, popular: {}, mic: {} }).confidence, 'Low');
+  assert.equal(combineScores({ review: { subscore: 80, count: 6 }, popular: {}, mic: {} }).confidence, 'Moderate');
+});
+
+test('combineScores scales confidence up with mic reading volume alone', () => {
+  assert.equal(combineScores({ review: {}, popular: {}, mic: { subscore: 60, count: 1 } }).confidence, 'Very Low');
+  assert.equal(combineScores({ review: {}, popular: {}, mic: { subscore: 60, count: 3 } }).confidence, 'Low');
+  assert.equal(combineScores({ review: {}, popular: {}, mic: { subscore: 60, count: 10 } }).confidence, 'Moderate');
+});
+
+test('combineScores reaches "Certain" when both review and mic are at their strongest tier', () => {
+  const result = combineScores({
+    review: { subscore: 100, count: 100 },
+    popular: {},
+    mic: { subscore: 100, count: 100 },
+  });
   assert.equal(result.score, 100);
-  assert.equal(result.confidence, 'high');
-  assert.equal(result.signalCount, 3);
+  assert.equal(result.confidence, 'Certain');
+  assert.equal(result.signalCount, 2);
 });
 
 test('combineScores renormalizes weights over present signals only', () => {
   // Only review (weight 0.3) and popular (weight 0.2) present.
   // Renormalized: review gets 0.3/0.5 = 0.6, popular gets 0.2/0.5 = 0.4.
-  const result = combineScores({ review: 100, popular: 0, mic: null });
+  const result = combineScores({
+    review: { subscore: 100, count: 4 },
+    popular: { subscore: 0 },
+    mic: { subscore: null },
+  });
   assert.equal(result.score, 60); // 100*0.6 + 0*0.4
-  assert.equal(result.confidence, 'medium');
+  // review tier (count 4 -> 2pts) + popular present (3pts, dormant weight but still counted) = 5.
+  assert.equal(result.confidence, 'Very High');
 });

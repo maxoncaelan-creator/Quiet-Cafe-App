@@ -28,7 +28,7 @@
       }
     },
     "quietnessScore": 74.66666666666667,
-    "confidence": "high",
+    "confidence": "Certain",
     "signalCount": 3
   },
   {
@@ -60,7 +60,7 @@
       }
     },
     "quietnessScore": 8.233333333333343,
-    "confidence": "high",
+    "confidence": "Certain",
     "signalCount": 3
   },
   {
@@ -92,7 +92,7 @@
       }
     },
     "quietnessScore": 45,
-    "confidence": "low",
+    "confidence": "Moderate",
     "signalCount": 1
   },
   {

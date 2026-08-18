@@ -35,6 +35,50 @@ class SupabaseService {
 
   bool get isSignedIn => isConfigured && _client.auth.currentUser != null;
 
+  String? get currentUserEmail => _client.auth.currentUser?.email;
+
+  /// Fires on sign-in, sign-out, and token refresh — lets the UI show
+  /// current auth state live instead of only checking it once at build time.
+  Stream<AuthState> get authStateChanges => _client.auth.onAuthStateChange;
+
+  Future<void> signOut() => _client.auth.signOut();
+
+  /// Supabase sends a confirmation link to the new address (and, depending
+  /// on the project's "secure email change" setting, the old one too)
+  /// before this actually takes effect — the change isn't immediate.
+  Future<void> updateEmail(String newEmail) async {
+    if (!isConfigured) throw SupabaseNotConfigured();
+    await _client.auth.updateUser(UserAttributes(email: newEmail));
+  }
+
+  Future<void> updatePassword(String newPassword) async {
+    if (!isConfigured) throw SupabaseNotConfigured();
+    await _client.auth.updateUser(UserAttributes(password: newPassword));
+  }
+
+  /// The signed-in user's own submitted readings, newest first, joined with
+  /// the restaurant name for display. RLS on `mic_readings` (see
+  /// 0003_auth_required_for_mic_readings.sql) already scopes this to the
+  /// caller's own rows — no explicit user_id filter needed here.
+  Future<List<MyReading>> fetchMyReadings() async {
+    if (!isConfigured || !isSignedIn) return [];
+    final rows = await _client
+        .from('mic_readings')
+        .select('place_id, decibel_value, platform, recorded_at, restaurants(name)')
+        .order('recorded_at', ascending: false);
+
+    return (rows as List).map((row) {
+      final restaurant = row['restaurants'] as Map<String, dynamic>?;
+      return MyReading(
+        placeId: row['place_id'] as String,
+        restaurantName: restaurant?['name'] as String? ?? 'Unknown restaurant',
+        decibelValue: (row['decibel_value'] as num).toDouble(),
+        platform: row['platform'] as String,
+        recordedAt: DateTime.parse(row['recorded_at'] as String),
+      );
+    }).toList();
+  }
+
   Future<List<Restaurant>> fetchRankedRestaurants() async {
     if (!isConfigured) throw SupabaseNotConfigured();
 
@@ -44,6 +88,47 @@ class SupabaseService {
         .order('quietness_score', ascending: false, nullsFirst: false);
 
     return (rows as List).map((row) => _restaurantFromRow(row as Map<String, dynamic>)).toList();
+  }
+
+  /// Empty for a signed-out user — favoriting requires an account (same gate
+  /// as mic readings, see 0004_favorites.sql), browsing doesn't.
+  Future<Set<String>> fetchFavoritePlaceIds() async {
+    if (!isConfigured || !isSignedIn) return {};
+    final rows = await _client.from('favorites').select('place_id');
+    return (rows as List).map((row) => row['place_id'] as String).toSet();
+  }
+
+  /// user_id is filled server-side (defaults to auth.uid() — see the
+  /// migration), not passed here, so a client can't favorite under someone
+  /// else's identity even by mistake.
+  Future<void> addFavorite(String placeId) async {
+    if (!isConfigured) throw SupabaseNotConfigured();
+    await _client.from('favorites').insert({'place_id': placeId});
+  }
+
+  Future<void> removeFavorite(String placeId) async {
+    if (!isConfigured) throw SupabaseNotConfigured();
+    await _client.from('favorites').delete().eq('place_id', placeId);
+  }
+
+  /// Proxies through the `search-assistant` Edge Function
+  /// (supabase/functions/search-assistant) — the Anthropic API key lives
+  /// only there, never in this app. `history` is the prior turns of the
+  /// conversation, kept client-side; there's no server-side chat-session
+  /// table (yet).
+  Future<String> askSearchAssistant(String message, List<Map<String, String>> history) async {
+    if (!isConfigured) throw SupabaseNotConfigured();
+
+    final response = await _client.functions.invoke(
+      'search-assistant',
+      body: {'message': message, 'history': history},
+    );
+
+    if (response.status != 200) {
+      throw Exception('Search Assistant request failed (${response.status})');
+    }
+    final data = response.data as Map<String, dynamic>;
+    return data['reply'] as String? ?? '';
   }
 
   Future<void> submitMicReading(MicReading reading) async {

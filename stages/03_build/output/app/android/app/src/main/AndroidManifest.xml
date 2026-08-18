@@ -1,5 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <application
         android:label="quiet_restaurant_finder"
         android:name="${applicationName}"
@@ -24,6 +25,19 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+            <!-- Supabase Auth redirect: OAuth (Facebook, Google web flow) and
+                 email confirmation / magic links come back through this,
+                 instead of Supabase's generic hosted page. Registered in
+                 Supabase's Auth settings as an Additional Redirect URL —
+                 see PLATFORM_SETUP.md. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data
+                  android:scheme="quietrestaurantfinder"
+                  android:host="login-callback" />
             </intent-filter>
         </activity>
         <!-- Don't delete the meta-data below.

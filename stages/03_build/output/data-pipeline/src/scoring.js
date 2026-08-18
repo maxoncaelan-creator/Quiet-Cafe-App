@@ -3,9 +3,11 @@
 // real API keys or a live Outscraper account.
 
 // Minimum noise mentions before the review-text signal counts at all.
-// Below this, a venue is treated as having no review-text signal rather
-// than being scored as neutral.
-export const MIN_REVIEW_MENTIONS = 3;
+// Lowered 2026-08-17 (was 3) — decided with Caelan alongside the move to
+// graduated confidence levels below: any venue with at least one noise
+// mention now gets a score, at minimum "Very Low" confidence, rather than
+// being excluded outright.
+export const MIN_REVIEW_MENTIONS = 1;
 
 // dBA range used to map a decibel reading onto the 0-100 quietness scale.
 // Below MIN_DBA -> subscore 100 (quietest). Above MAX_DBA -> subscore 0 (loudest).
@@ -85,14 +87,46 @@ export function micSubscore(readings) {
   return dbaToSubscore(weightedDba);
 }
 
+// Confidence — six graduated levels, added 2026-08-17 (was three buckets
+// purely based on how many signal types were present). Now also weighs how
+// much data backs each signal: a venue with 1 review mention and one with
+// 20 both "have the review signal," but they shouldn't read as equally
+// trustworthy. Each present signal contributes 1-3 points depending on its
+// data volume (0 if absent); points sum and clamp to 1-6, mapping 1:1 onto
+// the six labels below. Today's max reachable total is exactly 6 (review's
+// 3 + mic's 3 — Popular Times is dormant, contributing 0); if it's ever
+// revived its extra points simply saturate at "Certain" rather than needing
+// a 7th tier. Thresholds are a starting point, same as DEFAULT_WEIGHTS —
+// flagged as an open tuning item, not a final calibration.
+export const REVIEW_MENTION_TIERS = [3, 6];
+export const MIC_READING_TIERS = [3, 10];
+export const CONFIDENCE_LEVELS = ['Very Low', 'Low', 'Moderate', 'High', 'Very High', 'Certain'];
+
+function tierPoints(count, tiers) {
+  if (!count || count <= 0) return 0;
+  let points = 1;
+  for (const threshold of tiers) {
+    if (count >= threshold) points += 1;
+  }
+  return points;
+}
+
 /**
  * Combines the three sub-scores into a single quietness score, renormalizing
- * weights over whichever signals are present (cold-start handling).
- * @param {{review: number|null, popular: number|null, mic: number|null}} subscores
+ * weights over whichever signals are present (cold-start handling), and
+ * computes a graduated confidence level from each present signal's data
+ * volume.
+ * @param {{
+ *   review: { subscore: number|null, count?: number },
+ *   popular: { subscore: number|null },
+ *   mic: { subscore: number|null, count?: number },
+ * }} signals `count` is the mention/reading total backing that signal.
  * @param {{review: number, popular: number, mic: number}} weights
- * @returns {{score: number|null, confidence: 'low'|'medium'|'high'|null, signalCount: number}}
+ * @returns {{score: number|null, confidence: string|null, signalCount: number}}
  */
-export function combineScores(subscores, weights = DEFAULT_WEIGHTS) {
+export function combineScores(signals, weights = DEFAULT_WEIGHTS) {
+  const { review = {}, popular = {}, mic = {} } = signals;
+  const subscores = { review: review.subscore, popular: popular.subscore, mic: mic.subscore };
   const present = Object.entries(subscores).filter(([, v]) => v !== null && v !== undefined);
 
   if (present.length === 0) {
@@ -102,7 +136,11 @@ export function combineScores(subscores, weights = DEFAULT_WEIGHTS) {
   const weightSum = present.reduce((sum, [key]) => sum + weights[key], 0);
   const score = present.reduce((sum, [key, value]) => sum + value * (weights[key] / weightSum), 0);
 
-  const confidence = present.length === 3 ? 'high' : present.length === 2 ? 'medium' : 'low';
+  const reviewPoints = tierPoints(review.count, REVIEW_MENTION_TIERS);
+  const micPoints = tierPoints(mic.count, MIC_READING_TIERS);
+  const popularPoints = popular.subscore !== null && popular.subscore !== undefined ? 3 : 0;
+  const confidenceLevel = Math.min(6, Math.max(1, reviewPoints + micPoints + popularPoints));
+  const confidence = CONFIDENCE_LEVELS[confidenceLevel - 1];
 
   return { score: clamp(score, 0, 100), confidence, signalCount: present.length };
 }

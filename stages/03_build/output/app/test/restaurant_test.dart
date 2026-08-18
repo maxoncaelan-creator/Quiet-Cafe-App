@@ -24,7 +24,7 @@ void main() {
         'mic': {'readingCountIos': 2, 'readingCountAndroid': 1, 'subscore': 73.33},
       },
       'quietnessScore': 74.67,
-      'confidence': 'high',
+      'confidence': 'Certain',
       'signalCount': 3,
     };
 
@@ -32,7 +32,7 @@ void main() {
 
     expect(restaurant.name, 'The Quiet Fork');
     expect(restaurant.hasEnoughData, isTrue);
-    expect(restaurant.confidence, 'high');
+    expect(restaurant.confidence, 'Certain');
     expect(restaurant.mic.totalReadings, 3);
   });
 

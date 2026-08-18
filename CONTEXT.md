@@ -1,26 +1,45 @@
-# Quiet Restaurant Finder
+# Quiet Restaurant Finder — stage routing
 
-Root: [[Vault-root/CONTEXT|Vault-root]]
-
-## What this workspace builds
-An app that ranks restaurants by how quiet they are.
-
-Code: [github.com/maxoncaelan-creator/Quiet-Cafe-App](https://github.com/maxoncaelan-creator/Quiet-Cafe-App), pushed 2026-08-16. This workspace stays the source of truth for research/design decisions and the build log — see [[quiet-restaurant-finder/stages/03_build/output/README|stage 3 README]].
-
-## Scope
-One city: Sydney, NSW. Confirmed with Caelan.
-Platform: iOS and Android. Confirmed with Caelan.
-
-## Noise signals
-Active for v1:
-- Review text mining (reviews that mention noise)
-- Decibel data — measured first-party via the phone's microphone inside the app, crowdsourced from users. Submitting a reading requires a real (email/password) account; browsing the ranked list never does. Decided 2026-08-15.
-
-Not active:
-- SoundPrint (third-party decibel data) — considered and skipped 2026-08-15 in favor of first-party in-app microphone measurement.
-- Google Popular Times — built against Outscraper (revised 2026-08-15 from an initial OpenSERP plan), then dropped the same day after confirming live that 0/100 Sydney restaurants had `popular_times` data. Code kept dormant. See [[quiet-restaurant-finder/stages/01_research/output/research-brief|research brief]] and [[quiet-restaurant-finder/stages/03_build/output/README|stage 3 README]].
+Layer 1. Given what the user wants, this file says which stage handles it.
 
 ## Stages
-1. [[quiet-restaurant-finder/stages/01_research/CONTEXT|01 Research]] — find data sources, confirm the city.
-2. [[quiet-restaurant-finder/stages/02_ranking-design/CONTEXT|02 Ranking design]] — define the quietness score and data schema.
-3. [[quiet-restaurant-finder/stages/03_build/CONTEXT|03 Build]] — build the app.
+
+| Stage | Handles | Reads | Writes |
+|---|---|---|---|
+| `01_research` | Find data sources, confirm the city | the user | `research-brief.md` |
+| `02_ranking-design` | Define the quietness score and data schema | the research brief | `prd.md`, `ranking-spec.md`, `data-schema.md` |
+| `03_build` | Build the app: data pipeline, ranking engine, interface | the PRD, ranking spec, data schema | `build-log.md`, `app/`, `data-pipeline/`, `supabase/` |
+
+## Pipeline
+
+```
+01_research → (review gate) → 02_ranking-design → (review gate) → 03_build
+```
+
+All three stages are complete at least once; the project currently lives
+inside stage 03, iterating on the build. Re-entering this workspace almost
+always means continuing stage 03, not restarting from 01.
+
+## Starting a run
+
+To continue the build: read `stages/03_build/output/build-log.md` first —
+specifically "Open items carried into further build work" at the bottom — to
+see what was last done and what's still pending.
+
+To revisit an earlier decision (e.g. the quietness-score formula), open the
+relevant stage's `output/` and edit or re-run it, then check whether stage 03
+needs to follow.
+
+## Re-running one stage
+
+Any stage can be re-run on its own. If a later stage's output is wrong but the
+earlier work is fine, re-run only the stage that produced the problem. Because
+this is a live project rather than a template, prefer editing stage 03's
+outputs in place (and logging the change in `build-log.md`) over a full
+re-run — that log is the project's history and is worth keeping intact.
+
+## Shared resources
+
+| File | Layer | Used by |
+|---|---|---|
+| `_config/decisions.md` | 3 | all three stages |

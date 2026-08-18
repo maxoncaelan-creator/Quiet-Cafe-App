@@ -1,8 +1,9 @@
 // Yelp Fusion API client — supplementary identity data + review excerpts.
-// Requires YELP_API_KEY. Not exercised against the live API in this
-// environment (no key configured here) — see README for how to verify it.
-// Per the research brief, Yelp's Sydney coverage is thinner than Google's,
-// so this is a secondary source, not the backbone.
+// Requires YELP_API_KEY. Never wired into pipeline.js (only places.js is
+// called there) — kept dormant, same pattern as outscraper.js. Paused
+// 2026-08-17: Yelp Fusion dropped its permanent free tier (30-day trial
+// then paid per-call plans), so Caelan decided to run v1 on Google Places
+// only. Revisit if the cost becomes worth it later.
 
 const BASE_URL = 'https://api.yelp.com/v3';
 

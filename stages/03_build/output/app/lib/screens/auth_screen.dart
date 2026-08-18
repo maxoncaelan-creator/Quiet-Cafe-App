@@ -1,20 +1,36 @@
 // Only shown when someone taps "Take a reading here" and isn't signed in —
 // browsing the ranked list never requires an account.
 //
-// Three ways in, wired up: email/password (Supabase's default, no external
-// account needed), Google, and Apple (iOS only). Google/Apple both need
-// Caelan's own developer accounts configured before they'll work — see
-// PLATFORM_SETUP.md. Both stay hidden until explicitly turned on, rather
-// than showing a button that would just error:
+// Four ways in, wired up: email/password (Supabase's default, no external
+// account needed), Google, Apple (iOS only), and Facebook. All three social
+// providers need Caelan's own developer accounts configured before they'll
+// work — see PLATFORM_SETUP.md. Each stays hidden until explicitly turned
+// on, rather than showing a button that would just error:
 // - Google: hidden until GOOGLE_WEB_CLIENT_ID is set (`_googleConfigured`).
-// - Apple: skipped for now (decided 2026-08-15) — Caelan hasn't settled
-//   whether a free Xcode Personal Team even supports the capability, and
-//   shipping needs the paid $99/year Developer Program regardless. The
-//   implementation (`_signInWithApple`) is untouched and ready; only the
-//   button's visibility is gated, via APPLE_SIGN_IN_ENABLED, off by
-//   default. Flip it on with
-//   `flutter run --dart-define=APPLE_SIGN_IN_ENABLED=true` once ready to
-//   test — no code change needed.
+// - Apple: on by default as of 2026-08-16 (decided — activate alongside
+//   Google/Facebook rather than stay deferred). The two caveats from the
+//   original decision still apply and are unaffected by this flag: Sign in
+//   with Apple only shows on iOS, and shipping to the App Store needs the
+//   paid $99/year Developer Program regardless of whether the free Personal
+//   Team path works for local testing. Turn back off with
+//   `flutter run --dart-define=APPLE_SIGN_IN_ENABLED=false` if needed.
+// - Facebook: hidden until FACEBOOK_SIGN_IN_ENABLED is set to true
+//   (`_facebookConfigured`) — unlike Google/Apple this one needs no
+//   dart-define client ID, since it goes through Supabase's redirect-based
+//   OAuth flow (`signInWithOAuth`) rather than a native SDK; the Facebook
+//   App ID/secret are configured entirely on the Supabase dashboard side
+//   (Authentication → Providers → Facebook). The flag just prevents showing
+//   a button that would error before that's done.
+//
+// Facebook (and the web-based half of any future provider) relies on a
+// custom redirect URL, `quietrestaurantfinder://login-callback`, registered
+// as an Additional Redirect URL in Supabase's Auth settings and declared in
+// each platform's native config (AndroidManifest.xml, ios/Runner/Info.plist)
+// — see PLATFORM_SETUP.md. The same redirect is now also used for email
+// confirmation links (`emailRedirectTo` below), so confirming an account
+// routes back into the app instead of Supabase's generic hosted page.
+// Not yet verified live — needs a real installed build on a device, which
+// isn't available in this environment (see PLATFORM_SETUP.md).
 
 import 'dart:convert';
 import 'dart:io' show Platform;
@@ -34,10 +50,21 @@ const _googleWebClientId = String.fromEnvironment('GOOGLE_WEB_CLIENT_ID');
 const _googleIosClientId = String.fromEnvironment('GOOGLE_IOS_CLIENT_ID');
 bool get _googleConfigured => _googleWebClientId.isNotEmpty;
 
-// Off by default — see the file header. Not about whether Apple is
-// configured in Supabase (Google's _googleConfigured checks that); this is
-// specifically "has Caelan decided to test/ship this yet."
-const _appleSignInEnabled = bool.fromEnvironment('APPLE_SIGN_IN_ENABLED');
+// On by default as of 2026-08-16 — see the file header. Not about whether
+// Apple is configured in Supabase; this is "has Caelan decided to
+// show/hide this," defaulting to shown now that it's activated.
+const _appleSignInEnabled = bool.fromEnvironment('APPLE_SIGN_IN_ENABLED', defaultValue: true);
+
+// Off by default until Caelan has configured the Facebook provider in the
+// Supabase dashboard — see the file header.
+const _facebookConfigured = bool.fromEnvironment('FACEBOOK_SIGN_IN_ENABLED');
+
+// Redirect target for Supabase's browser-based auth flows (OAuth and email
+// confirmation) on mobile. Not used on web, where Supabase's own origin is
+// the redirect target instead. Must exactly match an Additional Redirect
+// URL in Supabase's Auth settings, and the scheme must be declared in each
+// platform's native config — see PLATFORM_SETUP.md.
+const _oauthRedirectUrl = 'quietrestaurantfinder://login-callback';
 
 class AuthScreen extends StatefulWidget {
   const AuthScreen({super.key});
@@ -68,7 +95,15 @@ class _AuthScreenState extends State<AuthScreen> {
 
     try {
       if (_isSignUp) {
-        final response = await _client.auth.signUp(email: email, password: password);
+        final response = await _client.auth.signUp(
+          email: email,
+          password: password,
+          // Routes the confirmation link back into the app via the same
+          // redirect used for OAuth, instead of Supabase's generic hosted
+          // confirmation page — see the file header. Ignored on web, where
+          // there's no app to redirect back into.
+          emailRedirectTo: kIsWeb ? null : _oauthRedirectUrl,
+        );
         // Supabase requires email confirmation by default — signUp does not
         // return an active session in that case. Don't assume success means
         // "signed in"; tell the user what actually needs to happen next.
@@ -165,6 +200,36 @@ class _AuthScreenState extends State<AuthScreen> {
     }
   }
 
+  /// Facebook has no equivalent to Google's/Apple's native ID-token flow
+  /// generally available on both platforms, so this goes through Supabase's
+  /// redirect-based `signInWithOAuth` instead: a browser tab opens for
+  /// Facebook's login/consent, then redirects back to `_oauthRedirectUrl`,
+  /// which the OS hands back to this app (native config in
+  /// AndroidManifest.xml / Info.plist makes that handoff possible).
+  /// `Navigator.pop` doesn't happen here on success — unlike the ID-token
+  /// flows above, the app loses foreground focus during the redirect, so the
+  /// sign-in completing is reported via `authStateChanges`
+  /// (`supabase_service.dart`), not this call returning normally.
+  Future<void> _signInWithFacebook() async {
+    setState(() {
+      _submitting = true;
+      _error = null;
+      _info = null;
+    });
+    try {
+      await _client.auth.signInWithOAuth(
+        OAuthProvider.facebook,
+        redirectTo: kIsWeb ? null : _oauthRedirectUrl,
+        authScreenLaunchMode: kIsWeb ? LaunchMode.platformDefault : LaunchMode.externalApplication,
+      );
+      // No Navigator.pop here — see the doc comment above.
+    } catch (e) {
+      setState(() => _error = 'Facebook sign-in failed: $e');
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
+  }
+
   @override
   void dispose() {
     _emailController.dispose();
@@ -201,7 +266,18 @@ class _AuthScreenState extends State<AuthScreen> {
                 label: const Text('Continue with Google'),
                 onPressed: _submitting ? null : _signInWithGoogle,
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 12),
+            ],
+            if (_facebookConfigured) ...[
+              OutlinedButton.icon(
+                icon: const Icon(Icons.facebook),
+                label: const Text('Continue with Facebook'),
+                onPressed: _submitting ? null : _signInWithFacebook,
+              ),
+              const SizedBox(height: 12),
+            ],
+            if (_googleConfigured || _facebookConfigured) ...[
+              const SizedBox(height: 8),
               const Row(children: [Expanded(child: Divider()), Padding(
                 padding: EdgeInsets.symmetric(horizontal: 8),
                 child: Text('or'),

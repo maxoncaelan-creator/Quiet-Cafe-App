@@ -1,43 +1,57 @@
 // Google Places API (New) client — restaurant identity/location + reviews.
-// Requires GOOGLE_PLACES_API_KEY. Not exercised against the live API in this
-// environment (no key configured here) — see README for how to verify it.
-
-const FIELD_MASK = [
-  'places.id',
-  'places.displayName',
-  'places.formattedAddress',
-  'places.location',
-  'places.priceLevel',
-  'places.primaryType',
-  'places.rating',
-  'places.userRatingCount',
-  'places.reviews',
-].join(',');
+// Calls Supabase's `places-search` Edge Function rather than Google
+// directly, so GOOGLE_PLACES_API_KEY only ever lives in Supabase's Function
+// secrets (added 2026-08-17), never in this pipeline's local .env. See
+// supabase/functions/places-search/index.ts. Requires SUPABASE_URL,
+// SUPABASE_ANON_KEY, and PIPELINE_SHARED_SECRET.
 
 /**
- * Searches for restaurants in a given city using Places API (New) Text Search.
+ * Searches for restaurants in a given city via the places-search Edge Function.
  * @param {string} query e.g. "restaurants in Sydney NSW"
- * @param {string} apiKey
+ * @param {{ supabaseUrl: string, supabaseAnonKey: string, pipelineSharedSecret: string }} config
  */
-export async function searchRestaurants(query, apiKey) {
-  if (!apiKey) throw new Error('GOOGLE_PLACES_API_KEY is required to call the Places API.');
+export async function searchRestaurants(query, { supabaseUrl, supabaseAnonKey, pipelineSharedSecret } = {}) {
+  if (!supabaseUrl || !supabaseAnonKey || !pipelineSharedSecret) {
+    throw new Error(
+      'SUPABASE_URL, SUPABASE_ANON_KEY, and PIPELINE_SHARED_SECRET are all required to call places-search.'
+    );
+  }
 
-  const res = await fetch('https://places.googleapis.com/v1/places:searchText', {
+  const res = await fetch(`${supabaseUrl}/functions/v1/places-search`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'X-Goog-Api-Key': apiKey,
-      'X-Goog-FieldMask': FIELD_MASK,
+      Authorization: `Bearer ${supabaseAnonKey}`,
+      apikey: supabaseAnonKey,
+      'x-pipeline-secret': pipelineSharedSecret,
     },
-    body: JSON.stringify({ textQuery: query }),
+    body: JSON.stringify({ query }),
   });
 
   if (!res.ok) {
-    throw new Error(`Places API request failed: ${res.status} ${await res.text()}`);
+    throw new Error(`places-search request failed: ${res.status} ${await res.text()}`);
   }
 
   const data = await res.json();
   return (data.places || []).map(normalizePlace);
+}
+
+// Places API (New) returns priceLevel as an enum string (e.g.
+// "PRICE_LEVEL_EXPENSIVE"), but data-schema.md/0001_init.sql define
+// price_level as `smallint` (integer 1-4, matching Yelp's $ / $$ / $$$
+// convention). Found live 2026-08-17 on the first real run — the insert
+// failed with "invalid input syntax for type smallint" until this mapping
+// was added.
+const PRICE_LEVEL_MAP = {
+  PRICE_LEVEL_FREE: 1,
+  PRICE_LEVEL_INEXPENSIVE: 1,
+  PRICE_LEVEL_MODERATE: 2,
+  PRICE_LEVEL_EXPENSIVE: 3,
+  PRICE_LEVEL_VERY_EXPENSIVE: 4,
+};
+
+export function normalizePriceLevel(priceLevel) {
+  return PRICE_LEVEL_MAP[priceLevel] ?? null;
 }
 
 function normalizePlace(place) {
@@ -47,7 +61,7 @@ function normalizePlace(place) {
     address: place.formattedAddress,
     lat: place.location?.latitude,
     lng: place.location?.longitude,
-    priceLevel: place.priceLevel,
+    priceLevel: normalizePriceLevel(place.priceLevel),
     cuisine: place.primaryType,
     googleRating: place.rating,
     reviewTexts: (place.reviews || []).map((r) => r.text?.text).filter(Boolean),

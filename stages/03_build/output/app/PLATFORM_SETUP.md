@@ -34,6 +34,18 @@ the UI renders and behaves correctly on screen. iOS specifically can't be
 built or run from Windows at all — that step needs a Mac regardless of
 anything else here.
 
+**Update, 2026-08-17: the account-gated flow is now verified end to end
+on-device**, not just reasoned about — real signup, real email confirmation
+(via the actual `quietrestaurantfinder://login-callback` redirect, not a
+fallback), real sign-in, real mic capture on the `Pixel_API_36` emulator,
+real submission confirmed in the database, real pipeline aggregation into
+the restaurant's score. See build-log.md "real sign-in + mic-reading
+verified on-device" for the full account. Also found and fixed a real bug
+this way that no static check caught: the List screen's Cuisine filter
+overflowed on real (long) Google Places category strings —
+`DropdownButtonFormField` needed `isExpanded: true`, which the old short
+sample data never exercised.
+
 ## Supabase
 The app reads the ranked restaurant list from Supabase and submits mic
 readings to it when `SUPABASE_URL`/`SUPABASE_ANON_KEY` are provided at run
@@ -72,35 +84,45 @@ buttons just don't appear (Google) or aren't shown on this platform (Apple
 only shows on iOS), and email/password still works.
 
 ### Google — free
+
+**Status as of 2026-08-18: confirmed working end to end on Android.** Web
+and Android OAuth clients both created; verified live on the
+`Pixel_API_36` emulator — real Google account picker scoped to the app,
+real credential entry (Caelan's own), successful sign-in, session
+persisted. iOS client ID not created yet — the button will stay Android/Web
+-only until that's done (see step 3).
+
 1. A Google Cloud account (your normal Google account is enough).
 2. Go to **console.cloud.google.com** → create or pick a project → **APIs & Services → Credentials** → **Create Credentials → OAuth client ID**.
 3. Create two client IDs:
    - **Web application** — no redirect URI needed for this flow. This becomes `GOOGLE_WEB_CLIENT_ID`.
    - **iOS** — needs your app's Bundle ID. Already set: `com.quietrestaurantfinder.quietRestaurantFinder` (from `flutter create .`, run 2026-08-16 — see `ios/Runner.xcodeproj/project.pbxproj` if you ever change it). This becomes `GOOGLE_IOS_CLIENT_ID`.
-   - (Add an **Android** client ID too when you're ready to test on Android — needs the app's package name and a SHA-1 signing fingerprint, which only exists once you've built the Android project at least once: `cd android && ./gradlew signingReport`.)
-4. In your [Supabase dashboard](https://supabase.com/dashboard/project/aesorixtfasfuvcqrvem/auth/providers) → **Authentication → Providers → Google**, enable it and paste in the **Web** client ID.
-5. In `ios/Runner/Info.plist`, add a `CFBundleURLTypes` entry containing your iOS client ID *reversed* (Google's console shows you the exact reversed string to copy).
+   - **Android** — needs the app's package name and a SHA-1 signing fingerprint. Both already known, generated 2026-08-17 (`cd android && ./gradlew signingReport`, `JAVA_HOME` needed pointing at Android Studio's bundled JBR — not on PATH by default in this environment):
+     - Package name: `com.quietrestaurantfinder.quiet_restaurant_finder`
+     - SHA-1 (debug keystore): `E3:68:E9:E5:08:76:1D:D6:E7:30:30:4F:68:05:75:05:7E:BA:79:8B`
+     - This is the **debug** keystore's fingerprint — fine for testing on the emulator/a device via `flutter run`, but a real release build (Play Store) signs with a different key and will need its own Android client ID with that release fingerprint, later.
+4. In your [Supabase dashboard](https://supabase.com/dashboard/project/aesorixtfasfuvcqrvem/auth/providers) → **Authentication → Providers → Google**, enable it and paste in the **Web** client ID. **Done 2026-08-18** — Google shows Enabled in the dashboard.
+5. In `ios/Runner/Info.plist`, add a `CFBundleURLTypes` entry containing your iOS client ID *reversed* (Google's console shows you the exact reversed string to copy). Not yet done — iOS client ID not created yet.
 6. Run with both IDs:
    ```
-   flutter run --dart-define=GOOGLE_WEB_CLIENT_ID=... --dart-define=GOOGLE_IOS_CLIENT_ID=...
+   flutter run --dart-define=GOOGLE_WEB_CLIENT_ID=335462034836-93k0vrqkqha1kmaf87j5ne05t1vaafvc.apps.googleusercontent.com --dart-define=GOOGLE_IOS_CLIENT_ID=...
    ```
 
-### Apple — skipped for now (2026-08-15)
+### Apple — activated 2026-08-16
 
-Caelan decided to hold off entirely rather than test the free-account path
-right now. The implementation is done and untouched (`_signInWithApple` in
-`auth_screen.dart`) — only the button's visibility is gated, off by
-default:
+Originally deferred (2026-08-15), then activated alongside Google and
+Facebook. The implementation is unchanged (`_signInWithApple` in
+`auth_screen.dart`); only the visibility default flipped:
 
 ```dart
-const _appleSignInEnabled = bool.fromEnvironment('APPLE_SIGN_IN_ENABLED');
+const _appleSignInEnabled = bool.fromEnvironment('APPLE_SIGN_IN_ENABLED', defaultValue: true);
 ```
 
-The button simply doesn't render until you opt in with
-`flutter run --dart-define=APPLE_SIGN_IN_ENABLED=true` — no code change
-needed to pick this back up later. Whenever that day comes, here's what
-testing free first looks like, kept for reference. Two honest caveats
-going in, so a failure isn't confusing:
+The button now shows by default on iOS builds (still never on web/Android —
+that gate is unrelated and unchanged: `!kIsWeb && Platform.isIOS`). Turn it
+back off with `flutter run --dart-define=APPLE_SIGN_IN_ENABLED=false` if you
+want to hide it again without a code change. Two honest caveats stand
+regardless of the flag, unaffected by activating it:
 - Whether "Sign in with Apple" actually works under a free **Personal Team** in Xcode is genuinely inconsistent across sources — some say the capability attaches fine for local device testing, others tie it to a paid account. This needs an actual Mac + Xcode to answer, which isn't available in the environment this was built in.
 - Regardless of the answer, **shipping to the App Store requires the paid $99/year Developer Program membership no matter what** — that's a separate, unconditional requirement, not specific to Sign in with Apple. So this free path only tells you whether the button *works on your own phone*, not whether you can skip paying eventually.
 
@@ -121,15 +143,152 @@ going in, so a failure isn't confusing:
 3. Re-confirm the Supabase provider registration from step 7 above now points at this real App ID.
 4. No dart-define needed for Apple either way — the identity token already carries the right audience once the identifier is registered with Supabase.
 
+### Facebook — free, added 2026-08-16
+
+Unlike Google/Apple, Facebook sign-in here goes through Supabase's
+redirect-based OAuth (`signInWithOAuth`), not a native SDK, so there's no
+Flutter-side client ID to pass via `--dart-define`. Everything provider-side
+is configured on the Supabase dashboard.
+
+1. Go to **developers.facebook.com** → create an app (type: **Consumer**, or
+   whichever Meta's current flow labels as the one that supports Facebook
+   Login).
+2. Add the **Facebook Login** product.
+3. Under **Facebook Login → Settings**, add this to **Valid OAuth Redirect
+   URIs**:
+   ```
+   https://aesorixtfasfuvcqrvem.supabase.co/auth/v1/callback
+   ```
+   (This is Supabase's own callback, not the app's — Supabase completes the
+   OAuth dance with Facebook first, then redirects into the app separately;
+   see "Deep link redirect" below.)
+4. Copy the **App ID** and **App Secret** from the app's Basic Settings.
+5. In the [Supabase dashboard](https://supabase.com/dashboard/project/aesorixtfasfuvcqrvem/auth/providers) → **Authentication → Providers → Facebook**, enable it and paste both in.
+6. Run with the flag on:
+   ```
+   flutter run --dart-define=FACEBOOK_SIGN_IN_ENABLED=true
+   ```
+
+Facebook's own review process only matters once you're requesting
+permissions beyond basic login (email, public profile) or going live for
+the general public — worth reading Meta's current App Review requirements
+before shipping, but not a blocker for testing with your own account.
+
+### Deep link redirect — added 2026-08-16
+
+Facebook sign-in and email confirmation links both need the app to receive
+a redirect after the user finishes something in a browser. Both now point
+at:
+```
+quietrestaurantfinder://login-callback
+```
+
+Already done, not something you need to set up again:
+- **Native config**, already in the generated projects: an `<intent-filter>` for this scheme/host in `android/app/src/main/AndroidManifest.xml`, and a `CFBundleURLTypes` entry in `ios/Runner/Info.plist`.
+- **App code**: `auth_screen.dart` passes this as `redirectTo` for Facebook sign-in and `emailRedirectTo` for sign-up confirmation (both skipped on web, which redirects to Supabase's own origin instead).
+
+**Still needed from you:** register the same URL in Supabase's dashboard →
+[Authentication → URL Configuration](https://supabase.com/dashboard/project/aesorixtfasfuvcqrvem/auth/url-configuration)
+→ **Redirect URLs**, add:
+```
+quietrestaurantfinder://login-callback
+```
+Without this, Supabase will refuse the redirect and fall back to its
+default hosted page — the exact `otp_expired`-page symptom noted in the
+build log, just for a different reason (unregistered redirect vs. a
+re-clicked link).
+
+**Not yet verified live.** This relies on `supabase_flutter`'s built-in
+deep-link handling (registered automatically once `Supabase.initialize()`
+runs, given the native config above) — that's documented, stable package
+behavior, not something this environment can exercise end-to-end without a
+real installed build on a device or emulator. If Facebook sign-in or a
+confirmation link doesn't route back into the app when you test it, start
+by checking the Supabase redirect URL registration above before assuming
+the code is wrong.
+
+### Universal Links / App Links — domain confirmed, still blocked on two other things (2026-08-17)
+
+The domain is **`cafequiet.com`** — confirmed purchased by Caelan
+2026-08-17. Checked directly (not assumed): it currently resolves to Crazy
+Domains' (the registrar's) infrastructure, not any real hosting yet — a
+plain `curl`/fetch gets a certificate mismatch against
+`*.crazydomains.com`. Nothing is hosted at `cafequiet.com` yet, which
+matters below since the AASA file has to live on real hosting.
+
+Caelan asked to use it to move sign-in redirects off `localhost`/a bare
+custom scheme and onto real HTTPS-verified links. Current redirect
+(`quietrestaurantfinder://login-callback`) keeps working either way — this
+is an upgrade, not a fix for something broken.
+
+**Immediate, unblocked fix**: Supabase's Auth **Site URL** is still
+`http://localhost:3000` — the fallback used whenever a request doesn't
+specify a redirect (only the web/`flutter run -d edge` testing path today,
+but a real trap for any future flow, like password reset, that forgets to
+pass one explicitly). This should become `https://cafequiet.com` now — no
+other blockers apply to just this field. Still a dashboard-only change,
+same as the redirect URL registration earlier — noted below.
+
+**Why it's worth doing**: a custom URL scheme (`quietrestaurantfinder://`)
+can technically be registered by more than one app on a device — nothing
+stops another app claiming the same scheme. Universal Links (iOS) / App
+Links (Android) are HTTPS URLs cryptographically verified against a domain
+only this app controls, which a scheme can't guarantee.
+
+**Blocked on more than just the domain** — checked Supabase's current docs
+directly (2026-08-17, not assumed) rather than a stale mental model:
+
+**iOS (Universal Links) — well-documented by Supabase**:
+1. Add **Associated Domains** capability in Xcode: `applinks:cafequiet.com`.
+2. Host `https://cafequiet.com/.well-known/apple-app-site-association` —
+   must be JSON, HTTPS, no redirects, `Content-Type: application/json`, no
+   file extension. **Supabase explicitly does not host this file — it has
+   to live on your own infrastructure.** The marketing site is the natural
+   place for it once `cafequiet.com` has real hosting behind it (it
+   currently doesn't — see above).
+   ```json
+   {"applinks":{"apps":[],"details":[{"appID":"TEAM_ID.BUNDLE_ID","paths":["*"]}]}}
+   ```
+   `BUNDLE_ID` is already known: `com.quietrestaurantfinder.quietRestaurantFinder`.
+   `TEAM_ID` is not — it only exists once you've enrolled in the **paid**
+   Apple Developer Program (see "Apple" above; still not done). So this is
+   blocked on real hosting for the domain plus that enrollment, not just
+   owning the domain name.
+3. Once both exist, add `https://cafequiet.com/...` as an Additional
+   Redirect URL in Supabase, alongside the working custom scheme.
+
+**Android (App Links) — Supabase's Flutter docs don't actually cover this.**
+Checked directly rather than assumed: Supabase's current native-deep-linking
+guide only documents the basic (unverified) custom-scheme intent-filter for
+Android/Flutter — no `assetlinks.json`/`autoVerify` walkthrough. Real Android
+App Link verification is a standard Android platform feature, independent of
+Supabase, and needs:
+- `android:autoVerify="true"` on an intent-filter with an `https` `<data>`
+  entry (in addition to, not instead of, the existing custom-scheme filter).
+- Hosting `https://cafequiet.com/.well-known/assetlinks.json` containing
+  the package name (already known: `com.quietrestaurantfinder.quiet_restaurant_finder`)
+  and the **SHA-256 fingerprint of the app's release signing certificate** —
+  this doesn't exist yet either; no release keystore has been generated in
+  this project so far. See
+  [developer.android.com/training/app-links](https://developer.android.com/training/app-links)
+  for the exact format once that exists.
+
+**Net effect**: this needs real hosting on `cafequiet.com` (not just owning
+it), the paid Apple Developer Program enrollment, and an Android release
+signing key — none of which exist yet. Nothing to build now without redoing
+it once those show up. Revisit once the domain has somewhere real to point;
+the working `quietrestaurantfinder://login-callback` scheme isn't broken
+and doesn't need replacing before then.
+
 ### What this agent needs back from you
-Nothing secret. Client IDs (Google) aren't secret and are meant to live in
-build commands/native config files, not hidden — just run the app with
-them as shown above, or tell me the values and I'll wire them into a
-`--dart-define` snippet for you. Anything genuinely secret (Apple's
-private key, if you ever add the Android/web OAuth flow) goes directly
-into the Supabase dashboard, never into chat or this codebase — same
-pattern as the Outscraper API key and the Supabase service role key
-earlier.
+Mostly nothing secret. Client IDs (Google) aren't secret and are meant to
+live in build commands/native config files, not hidden — just run the app
+with them as shown above, or tell me the values and I'll wire them into a
+`--dart-define` snippet for you. Anything genuinely secret (Apple's private
+key if you ever add the Android/web OAuth flow; **Facebook's App Secret**)
+goes directly into the Supabase dashboard, never into chat or this
+codebase — same pattern as the Outscraper API key and the Supabase service
+role key earlier.
 
 ## Verify
 ```
