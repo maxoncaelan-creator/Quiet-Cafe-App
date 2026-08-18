@@ -1366,6 +1366,50 @@ ran `bin/icm doctor` clean afterward. Full detail lives in `MISTAKES.md`
 itself, not duplicated here — none of these are at the 3+ "approaching"
 threshold yet, so no `AGENTS.md` guard is required.
 
+## Session — 2026-08-18 (yet another continuation): documentation pass
+
+Caelan asked for all documentation in the vault to be brought up to date,
+separately from the pending PR (still blocked on GitHub connector repo
+access — see below). Went through every doc in the workspace and updated
+what this session's work had made stale:
+
+- `_config/decisions.md` — three new confirmed-decisions sections: "Account
+  & Search Assistant access" (sign-in required, 10k-token/5h limit),
+  "Password policy" (intentional, only the display was wrong), "Git
+  workflow" (never push directly to `main`).
+- `AGENTS.md` — the "per-account rate limiting" open item was stale (marked
+  as still-open; it's resolved twice over now, mic readings and Search
+  Assistant both). Added the branch+PR rule to "Rules specific to this
+  workspace" so it's not only in this agent's memory file.
+- `ui-design-decisions.md` — updated the Search Assistant entry (gating +
+  rate limit) and added a summary-table row for the cal.com-style
+  sign-in/sign-up rework, noting it's a separate later pass from the
+  original Figma-driven redesign this doc otherwise documents.
+- `app/PLATFORM_SETUP.md` — updated the "AuthScreen has the buttons" note
+  now that the OAuth mechanics live in `oauth_service.dart` shared across
+  two screens; added a password-policy dashboard note so a future session
+  (or Caelan) knows where that setting lives and that the app's own copy
+  (hint text, friendly error message) won't update itself if it changes.
+- `app/README.md` — was still Flutter's unedited scaffold boilerplate
+  ("A new Flutter project") this whole time, on the actual GitHub repo.
+  Replaced with a real project README: what the app is, the stack,
+  features, how to run it, and a pointer back to this workspace as the
+  source of truth for the decisions behind the code.
+
+Left `data-schema.md`, `ranking-spec.md`, `prd.md`, `research-brief.md`,
+`CONTEXT.md`, `workspace.md` unchanged — checked each, none went stale from
+this session's work (data-schema.md deliberately delegates exact columns
+to the migration files rather than duplicating them, so new tables/columns
+don't require an edit there).
+
+**Still open**: the PR itself. Pushed `feature/mic-reading-rate-limit` to
+origin, but had no authenticated path to create/merge it — `gh` CLI isn't
+installed, Claude-in-Chrome needed re-auth then turned out to not apply to
+Edge (Chrome-only extension), and the connected GitHub App's installation
+was initially scoped to two unrelated repos, not this one. Caelan is
+updating the installation's repository access; retrying once that's
+confirmed.
+
 ## Open items carried into further build work
 - ~~Decide what to do about Popular Times~~ — decided 2026-08-15: dropped for v1, code kept dormant.
 - ~~Decide whether mic readings need a user identity~~ — decided 2026-08-15: real accounts, submission-gated only. See "Account-gated mic readings" above.

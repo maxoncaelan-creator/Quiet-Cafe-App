@@ -56,8 +56,13 @@ quiet-restaurant-finder/
   paste it into chat, or commit it. `.gitignore` at this workspace's root
   already excludes it from git.
 - **Decisions get confirmed with Caelan before code changes.** Several open
-  items in the build log (Popular Times, per-account rate limiting, score
-  weights) are explicitly his call, not something to decide silently.
+  items in the build log (Popular Times, score weights) are explicitly his
+  call, not something to decide silently. (Per-account rate limiting was one
+  of these too — resolved 2026-08-18, see `_config/decisions.md`.)
+- **Never push directly to `main` on the GitHub repo.** Always work on a
+  feature branch and open a pull request for Caelan to review and merge (or
+  merge only when he explicitly asks). See `_config/decisions.md`'s "Git
+  workflow" — this followed an accidental direct push.
 
 ## Standards and mistakes
 

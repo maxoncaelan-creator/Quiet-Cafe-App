@@ -74,14 +74,29 @@ The anon key is safe to keep in plain text like this — it's meant for
 client-side use and RLS is what actually restricts what it can do, not
 secrecy of the key itself.
 
+**Password policy** (Authentication → Providers → Email → Password
+Requirements, in the same dashboard): currently set to require an
+uppercase letter, a lowercase letter, a number, and a special character —
+confirmed intentional with Caelan 2026-08-18, this is dashboard
+configuration, not anything in this app's code or migrations. If you ever
+change it, the app's own copy (the hint text under every "new password"
+field, and the friendly rejection message in
+`lib/utils/friendly_auth_error.dart`) won't update itself — keep them in
+sync by hand.
+
 ## Google and Apple Sign-In
 
-`AuthScreen` (`lib/screens/auth_screen.dart`) has Google and Apple sign-in
-buttons wired up in code, but both need real credentials from **your own**
+`AuthScreen` (`lib/screens/auth_screen.dart`, sign-in) and
+`CreateAccountScreen` (`lib/screens/create_account_screen.dart`, sign-up)
+both have Google and Apple sign-in buttons wired up in code — the actual
+Google/Apple/Facebook mechanics live in `lib/services/oauth_service.dart`,
+shared between the two screens since signing in and signing up via OAuth
+are the same Supabase call. Both need real credentials from **your own**
 developer accounts before they'll work — this agent can't create either
 account for you. Neither is required for the app to run: without them, the
 buttons just don't appear (Google) or aren't shown on this platform (Apple
-only shows on iOS), and email/password still works.
+only shows on iOS), and email/password (via "Sign in with email" /
+"Sign up with email") still works.
 
 ### Google — free
 

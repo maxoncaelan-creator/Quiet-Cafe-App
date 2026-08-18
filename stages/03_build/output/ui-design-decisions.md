@@ -171,7 +171,8 @@ mockup ($5/$10/$25/Other) are placeholder values, not confirmed pricing.
 | Legal docs | Blocked on content, not code |
 | Report a problem | Needs a 1-line decision (default: mailto) |
 | Version number | Ready — needs one package added |
-| Search Assistant / Haiku | **Done, live-verified 2026-08-17** — Edge Function deployed, tested via curl and on a real Android emulator |
+| Search Assistant / Haiku | **Done, live-verified 2026-08-17** — Edge Function deployed, tested via curl and on a real Android emulator. Gated to signed-in accounts + 10k-token/5h rate limit added 2026-08-18. |
+| Sign-in/sign-up screens (cal.com-style rework) | **Done, live-verified 2026-08-18** — chooser screens + real Google logo + dedicated email/password screens; not part of the original Figma pass this doc otherwise covers |
 | Donate / Stripe | Blocked on Caelan's Stripe account + an Edge Function — explicitly paused until closer to launch |
 
 **Update, 2026-08-17:** Search Assistant moved from "blocked" to shipped —
@@ -182,3 +183,24 @@ only by running the app on-device — a premature microphone-permission
 prompt and literal markdown asterisks in replies — both fixed and
 reverified live. See build-log.md's "first real run" session entry for the
 full account, including the Android emulator setup this all depended on.
+
+**Update, 2026-08-18: gated to signed-in accounts, rate-limited.** Two
+UI-visible states added on top of the existing empty/populated ones: signed
+out shows an explanatory message + Sign in button instead of the composer,
+and an account over its 10,000-token/5-hour budget shows "on a break,
+available again in X" instead. Both enforced server-side in the Edge
+Function, not just here. See `_config/decisions.md` "Account & Search
+Assistant access" and build-log.md for the implementation and how it was
+verified without spending the token budget on testing.
+
+**Also 2026-08-18: sign-in/sign-up screens redone**, this time from a
+cal.com screenshot Caelan gave directly rather than the original Figma
+pass — a separate, later design decision from everything else in this
+file. `AuthScreen`/`CreateAccountScreen` became pure choosers (a
+prominently-styled Google button with the real logo, plus an
+"…with email" button), with the actual email/password fields moved to
+their own screens (`SignInEmailScreen`, `CreateAccountEmailScreen`,
+`CreateAccountPasswordScreen`). Full detail — including the real
+keyboard-overflow bug this surfaced and fixed along the way — is in
+build-log.md, not duplicated here since it wasn't part of the original
+Figma-driven pass this document covers.
