@@ -1643,9 +1643,64 @@ and matching pre-change behavior exactly.
 Work is on `feature/web-support`, branched from `docs/session-mistakes-and-updates`
 (itself already pushed). Not yet pushed or PR'd — see below.
 
+## Session — 2026-08-19: Cloudflare Pages deploy — live, after three real fixes
+
+Caelan carried out the GitHub-secrets and Cloudflare setup from the prior
+session's "Web" section himself and ran the deploy live, pasting the
+actual GitHub Actions error logs back each time something broke. Three
+real bugs, not user error, found and fixed this way — none of them were
+verifiable without a real deploy attempt:
+
+1. **`deploy-web.yml` was at the wrong path entirely.** Placed inside
+   `app/.github/workflows/` in the prior session, but this repo's true
+   root is the ICM workspace (`app/` is a subdirectory several levels
+   down) — GitHub Actions only ever reads workflow files from the actual
+   repo root, so it silently never saw the workflow at all; the Actions
+   tab showed the "Get started" onboarding page instead. Fixed on
+   `fix/workflow-location` (PR #3, merged): moved the file to the real
+   root `.github/workflows/`, added a job-level `working-directory`
+   default (`stages/03_build/output/app`) for the `run:` steps, kept the
+   wrangler deploy path as a full path from root since `uses:` steps
+   don't inherit that default. Logged as mistake
+   `workflow-file-placed-in-wrong-repo-root`.
+2. **Cloudflare API token permissions were incomplete.** Documented (and
+   Caelan created the token) with only `Pages: Edit`. First real deploy
+   failed with `Authentication error [code: 10000]` / "Unable to
+   retrieve email for this user" — Wrangler's own login check also needs
+   `User → User Details → Read`, undocumented in Cloudflare's own token
+   template gallery (there's no dedicated Pages template there at all;
+   has to be a Custom Token). Caelan added the permission to the
+   existing token without regenerating it. Logged as mistake
+   `cloudflare-token-permission-incomplete`.
+3. **`wrangler pages deploy` doesn't auto-create the Pages project.**
+   PLATFORM_SETUP.md's "Web" section assumed it would; second real
+   deploy attempt failed with `Project not found ... [code: 8000007]`.
+   Fixed on `fix/deploy-create-pages-project` (PR merged): added a
+   `continue-on-error` `wrangler pages project create` step before the
+   deploy step, so the project is created explicitly on first run and
+   the step is a harmless no-op every run after. Logged as mistake
+   `cloudflare-pages-project-assumed-auto-created`.
+
+**Verified live afterward** (this was also the first real visual
+confirmation of the web build — the prior session's sandboxed browser
+tool couldn't composite/screenshot at all): navigated to
+`https://quiet-restaurant-finder.pages.dev` (Cloudflare's default
+`.pages.dev` URL, live before any custom domain is attached) — clean
+boot, `flutter-view` present, no console errors. Also loaded
+`https://quiet-restaurant-finder.pages.dev/list` directly (not via
+in-app navigation) and got the app, not a 404 — confirms `web/_redirects`
+(`/* /index.html 200`) actually works on Cloudflare Pages, so direct
+URLs/bookmarks/shares will work for real users, not just in principle.
+
+**Still open, both Caelan's**: attach the `app.cafequiet.com` custom
+domain in the Cloudflare Pages project (Custom domains tab), and add
+`https://app.cafequiet.com` to Supabase's Redirect URLs — see the Site
+URL conflict item below, unresolved until the marketing site's hosting
+is also real.
+
 ## Open items carried into further build work
-- **Web UI needs a real visual verification pass** — added 2026-08-18. Build/boot/routing verified (`flutter analyze`, `flutter build web`, clean console on direct URL loads), but the actual rendered layout (rail vs. drawer swap, banner, max-width constraints) couldn't be visually confirmed in this session's sandboxed browser tool (CanvasKit never painted — reads as a tool/WebGL limitation, not a code defect, see above). Check in a normal browser (`flutter run -d chrome` locally, or the deployed Cloudflare Pages URL) before considering the web UI itself done.
-- **Cloudflare Pages deployment not set up** — added 2026-08-18. `.github/workflows/deploy-web.yml` exists and will run `flutter build web` on push to `main` even before secrets exist, but the deploy step needs 4 GitHub Actions secrets (`CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`) and Cloudflare-side setup (API token, Pages project, custom domain `app.cafequiet.com`) — all Caelan's, ordered steps in `PLATFORM_SETUP.md`'s "Web" section.
+- **Web UI's actual rendered layout still not visually confirmed** — the live `.pages.dev` boot/routing check above confirms the app *works*, but didn't specifically re-check the rail/drawer swap at different widths, the download banner, or the max-width constraints now that a real browser is available. Worth a specific pass, not just "does it load."
+- ~~Cloudflare Pages deployment not set up~~ — resolved 2026-08-19: live at `https://quiet-restaurant-finder.pages.dev`, see session above. Still open: attach `app.cafequiet.com` as a custom domain (Cloudflare dashboard, Caelan's).
 - **Supabase Site URL conflict, not resolved** — added 2026-08-18. The pre-existing "Site URL → `https://cafequiet.com`" open item (for iOS/Android Universal/App Links) and this session's web app redirect need (`https://app.cafequiet.com`) both want the same single Supabase field. Needs Caelan's call once the marketing site's own hosting is real — see `_config/decisions.md` "Scope" and `PLATFORM_SETUP.md`'s "Web" section.
 - **Store links are placeholders** — `lib/utils/store_links.dart` has `idTODO`/`id=TODO` App Store/Play Store URLs. Replace once the app is actually published; not something to chase speculatively.
 - **`feature/web-support` not yet pushed or PR'd** — same GitHub App repo-access issue as prior sessions (still 404 on this repo via the GitHub connector as of this session). Push happens this session regardless, per the established branch-first pattern; opening the PR is blocked the same way `docs/session-mistakes-and-updates` was.
