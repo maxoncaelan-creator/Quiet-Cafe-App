@@ -42,6 +42,8 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'forgot_password_screen.dart';
+
 // Google OAuth client IDs — not secret, but environment-specific, so passed
 // at build/run time rather than hardcoded. See PLATFORM_SETUP.md for where
 // these come from (Google Cloud Console) and how to pass them:
@@ -123,54 +125,6 @@ class _AuthScreenState extends State<AuthScreen> {
       setState(() => _error = e.message);
     } catch (e) {
       setState(() => _error = 'Something went wrong: $e');
-    } finally {
-      if (mounted) setState(() => _submitting = false);
-    }
-  }
-
-  /// Prompts for the account's email (pre-filled if already typed above)
-  /// and sends a reset link via Supabase Auth's built-in flow. Doesn't
-  /// reveal whether the address has an account — Supabase's API itself
-  /// returns success regardless, so there's nothing more specific to tell
-  /// the user either way.
-  Future<void> _forgotPassword() async {
-    final controller = TextEditingController(text: _emailController.text.trim());
-    final email = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Reset password'),
-        content: TextField(
-          controller: controller,
-          keyboardType: TextInputType.emailAddress,
-          decoration: const InputDecoration(labelText: 'Email'),
-          autofocus: controller.text.isEmpty,
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(controller.text.trim()),
-            child: const Text('Send link'),
-          ),
-        ],
-      ),
-    );
-    if (!mounted || email == null || email.isEmpty) return;
-
-    setState(() {
-      _submitting = true;
-      _error = null;
-      _info = null;
-    });
-    try {
-      await _client.auth.resetPasswordForEmail(
-        email,
-        redirectTo: kIsWeb ? null : _oauthRedirectUrl,
-      );
-      if (!mounted) return;
-      setState(() => _info = 'If $email has an account, a password reset link is on its way.');
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _error = 'Could not send reset link: $e');
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
@@ -297,11 +251,6 @@ class _AuthScreenState extends State<AuthScreen> {
           mainAxisAlignment: MainAxisAlignment.center,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Text(
-              'An account is only needed to submit a noise reading — browsing stays open to everyone.',
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 24),
             if (showAppleButton) ...[
               SignInWithAppleButton(
                 onPressed: _submitting ? null : () { _signInWithApple(); },
@@ -347,7 +296,13 @@ class _AuthScreenState extends State<AuthScreen> {
               Align(
                 alignment: Alignment.centerRight,
                 child: TextButton(
-                  onPressed: _submitting ? null : _forgotPassword,
+                  onPressed: _submitting
+                      ? null
+                      : () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => ForgotPasswordScreen(initialEmail: _emailController.text.trim()),
+                            ),
+                          ),
                   child: const Text('Forgot password?'),
                 ),
               ),

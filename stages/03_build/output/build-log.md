@@ -951,6 +951,61 @@ inbox and landing on `ResetPasswordScreen` via the
 `quietrestaurantfinder://login-callback` deep link. That needs Caelan to
 check his own email and confirm it lands cleanly.
 
+## Session — 2026-08-18 (continued yet again): Google button false alarm, intro copy removed, forgot-password moved to its own page
+
+Three things from Caelan after checking the previous session's screenshots.
+
+**Google sign-in button "missing" — not a code regression.** Caelan's
+screenshot showed no Google button on Sign in/Create account. Checked before
+touching anything: `git diff` against `auth_screen.dart` for this whole
+branch shows only additions (the forgot-password work) — `_signInWithGoogle`
+and its button's `if (_googleConfigured)` gate were never touched. The
+button was correctly hiding itself because the *previous* session's
+`flutter run` verification only passed `SUPABASE_URL`/`SUPABASE_ANON_KEY`,
+not `--dart-define=GOOGLE_WEB_CLIENT_ID=...` — so `_googleConfigured`
+evaluated false, exactly as designed (hide rather than show a button that
+would error). Not a bug; just a verification run that didn't pass every
+flag the app supports. Confirmed by rebuilding with the Google web client
+ID from `PLATFORM_SETUP.md` added back to the run command.
+
+**Removed the "An account is only needed..." intro line** from
+`auth_screen.dart` — shown above the form on both Sign in and Create
+account, per Caelan (not needed).
+
+**Forgot password moved from a dialog to its own screen**, per Caelan (it
+was a `showDialog` on top of `AuthScreen`; he wants a real page). New
+`screens/forgot_password_screen.dart`, reached via
+`Navigator.push` from the "Forgot password?" link (was `showDialog`) —
+`_forgotPassword()`'s dialog-and-network-call method removed from
+`auth_screen.dart` entirely, logic moved onto the new screen's own state.
+Pre-fills from whatever was already typed in the sign-in email field, same
+as the dialog did.
+
+**Skeleton loader added deliberately as a transition**, per Caelan's
+specific ask ("separated from the sign in page by a skeleton loader") —
+`_ForgotPasswordSkeleton`: pulsing placeholder blocks shaped like the real
+form (description, email field, button), shown for a flat 500ms on
+navigation before swapping to the real interactive form. No dependency
+added — a plain `AnimationController` + `FadeTransition`, not a shimmer
+package, kept in this one file since nothing else in the app needs it yet.
+Worth being clear this is cosmetic pacing, not real loading: there's no
+actual async fetch happening underneath, the screen has nothing to wait
+on — the delay exists only because Caelan asked for the visual separation.
+
+`flutter analyze`: 0 issues (one miss along the way — forgot the `kIsWeb`
+import in the new file, caught immediately by analyze, fixed). `flutter
+test`: 2/2 passed. **Verified live on the emulator**, rebuilt with the full
+set of dart-defines this time (including Google's client ID): the Google
+button is back on Sign in, the intro line is gone, and tapping "Forgot
+password?" opens a distinct full page with its own back arrow — caught the
+skeleton mid-pulse in a screenshot taken immediately on navigation (grey
+placeholder bars matching the real form's shape), confirmed it swaps to the
+real interactive form shortly after, and confirmed the empty-email
+validation message ("Enter your account email first.") on the new page.
+Apple's button is unaffected by any of this (iOS-only, `Platform.isIOS`
+gate untouched) but wasn't itself re-verified this run — Android emulator,
+same as every other session, never shows it.
+
 ## Open items carried into further build work
 - ~~Decide what to do about Popular Times~~ — decided 2026-08-15: dropped for v1, code kept dormant.
 - ~~Decide whether mic readings need a user identity~~ — decided 2026-08-15: real accounts, submission-gated only. See "Account-gated mic readings" above.
