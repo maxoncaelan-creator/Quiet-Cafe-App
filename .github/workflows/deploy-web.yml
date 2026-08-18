@@ -35,8 +35,20 @@ jobs:
             --dart-define=SUPABASE_URL=${{ secrets.SUPABASE_URL }} \
             --dart-define=SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
 
+      # wrangler pages deploy does NOT auto-create the Pages project (despite
+      # what earlier docs here assumed, corrected 2026-08-19 after a real
+      # deploy failure: "Project not found ... [code: 8000007]") — it has to
+      # exist first. continue-on-error so this is a no-op once the project
+      # exists (every run after the first).
+      - uses: cloudflare/wrangler-action@v3
+        continue-on-error: true
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages project create quiet-restaurant-finder --production-branch=main
+
       - uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy stages/03_build/output/app/build/web --project-name=quiet-restaurant-finder --branch=main
+          command: pages deploy stages/03_build/output/app/build/web --project-name=quiet-restaurant-finder --branch=main --commit-dirty=true

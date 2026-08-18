@@ -378,15 +378,27 @@ saw it, caught 2026-08-19 via the Actions tab showing the onboarding page
 instead of the workflow). This repo's first CI pipeline, builds and
 deploys on every push to `main`. None of the following is done —
 dashboard/account access wasn't available in the session that added this:
-1. Cloudflare → API Tokens → create one scoped to `Pages: Edit`.
+1. Cloudflare → API Tokens → create one scoped to **Account → Cloudflare
+   Pages → Edit** *and* **User → User Details → Read**. Both are needed —
+   confirmed live 2026-08-19 after a real deploy failed with
+   `Authentication error [code: 10000]` / "Unable to retrieve email for
+   this user" using Pages:Edit alone; Wrangler's own login check needs
+   the User Details:Read permission too, undocumented in Cloudflare's
+   token template gallery (there's no dedicated "Pages" template there at
+   all — use "Create Custom Token").
 2. Note the Cloudflare Account ID (Workers & Pages → Overview).
 3. GitHub repo → Settings → Secrets → Actions → add `CLOUDFLARE_API_TOKEN`,
    `CLOUDFLARE_ACCOUNT_ID`, `SUPABASE_URL`, `SUPABASE_ANON_KEY` (the last
    two because CI has no local `--dart-define`s — without them the
    deployed build silently falls back to sample data with submission
    disabled, an easy failure to miss).
-4. Push to `main` (via the usual branch+PR flow) — first run auto-creates
-   the `quiet-restaurant-finder` Pages project.
+4. Push to `main` (via the usual branch+PR flow). The workflow runs a
+   `wrangler pages project create` step before deploying (added
+   2026-08-19 after a real deploy failure — `wrangler pages deploy` does
+   NOT auto-create the project on its own, contrary to what this doc
+   originally assumed), so the `quiet-restaurant-finder` Pages project
+   gets created automatically on the first run; that step is a
+   `continue-on-error` no-op on every run after that.
 5. Cloudflare → that Pages project → Custom domains → add `app.cafequiet.com`.
 6. Supabase → Authentication → URL Configuration → add
    `https://app.cafequiet.com` to Redirect URLs.
