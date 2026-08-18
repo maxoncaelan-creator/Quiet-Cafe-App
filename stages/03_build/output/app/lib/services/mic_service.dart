@@ -38,7 +38,16 @@ class MicService {
   }) async {
     await ensurePermission();
     _subscription = _noiseMeter.noise.listen(
-      (NoiseReading reading) => onReading(reading.meanDecibel),
+      (NoiseReading reading) {
+        // meanDecibel is 20*log10(amplitude) under the hood, so true
+        // silence (zero amplitude — confirmed to happen on the Android
+        // emulator, whose virtual mic can fail to deliver real frames) is
+        // mathematically -Infinity, not a small number. That crashed the
+        // UI's rounding unguarded. A silent room is exactly what this app
+        // is meant to detect, so clamp instead of dropping the sample.
+        final value = reading.meanDecibel;
+        onReading(value.isFinite ? value : 0);
+      },
       onError: onError,
       cancelOnError: true,
     );

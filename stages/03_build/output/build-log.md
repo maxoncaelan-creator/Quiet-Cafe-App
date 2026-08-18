@@ -1410,6 +1410,48 @@ was initially scoped to two unrelated repos, not this one. Caelan is
 updating the installation's repository access; retrying once that's
 confirmed.
 
+## Session — 2026-08-18 (continuation): mic crash found and fixed, rate-limit UX click-tested
+
+Picked up the rate-limit cooldown open item — verifying the `take_reading_screen.dart`
+snackbar path live, not just reasoned from code. Confirmed `emulator-5554`
+(`Pixel_API_36`) already running with the app installed and signed in as
+`maxon.caelan@gmail.com`.
+
+**Found a real crash, not an emulator quirk.** Tapping "Start listening" on
+MuMu's reading screen red-screened immediately: `Unsupported operation:
+Infinity or NaN toInt`. Traced via `adb logcat`: the emulator's virtual mic
+was failing to deliver frames (`pcm_readi failed ... I/O error`, inserting
+silence). `noise_meter`'s `meanDecibel` is `20*log10(amplitude)`, so true
+zero amplitude is `-Infinity`, not a small number — that flowed unguarded
+into `take_reading_screen.dart`'s `Text('${_currentDb!.round()} dB')` and
+crashed on the `.round()` call. This isn't emulator-specific: a genuinely
+silent room — exactly the case this app exists to detect — hits the same
+zero-amplitude math on a real device.
+
+**Fixed at the source**, `lib/services/mic_service.dart`'s `start()`: the
+`onReading` callback now checks `value.isFinite` and substitutes `0` for
+any non-finite sample, instead of passing `-Infinity`/`NaN` through
+untouched. `flutter analyze`: 0 issues. Rebuilt (`flutter run -d
+emulator-5554` with the full `SUPABASE_URL`/`SUPABASE_ANON_KEY`/
+`GOOGLE_WEB_CLIENT_ID` dart-define set) and reinstalled.
+
+**Re-verified live end to end**, both halves: (1) "Start listening" no
+longer crashes — showed a real ticking dB value, then `0 dB` on a later
+sample where the mic again produced silence, confirming the clamp path
+itself gets exercised, not just the happy path. (2) Submitted a reading
+(got "Thanks! Reading of 18 dB submitted."), then immediately started and
+submitted a second one on the same account — got back exactly "wait 14
+more second(s) before submitting another reading", the plain-language
+message from `friendly`-style handling of the `rate_limited:`-prefixed
+`PostgrestException` in `take_reading_screen.dart`. Confirms the server
+trigger (`enforce_mic_reading_cooldown`, `0006_mic_reading_rate_limit.sql`)
+and the Flutter-side message parsing both work correctly together, live —
+this was previously only reasoned-through from code.
+
+Not yet committed — working on `feature/mic-reading-rate-limit`, still
+blocked on the GitHub connector's repo access (see PR blocker below);
+Caelan chose to skip resolving that this session and defer the PR.
+
 ## Open items carried into further build work
 - ~~Decide what to do about Popular Times~~ — decided 2026-08-15: dropped for v1, code kept dormant.
 - ~~Decide whether mic readings need a user identity~~ — decided 2026-08-15: real accounts, submission-gated only. See "Account-gated mic readings" above.
@@ -1418,7 +1460,7 @@ confirmed.
 - **Register `quietrestaurantfinder://login-callback` as an Additional Redirect URL in Supabase's Auth → URL Configuration.** Needed for Facebook sign-in and the fixed email-confirmation redirect to actually work — the code side is done, this dashboard step is Caelan's to do. See "Deep link redirect" in `PLATFORM_SETUP.md`.
 - ~~Whether to add per-account rate limiting on readings, now that real identity exists~~ — resolved 2026-08-18: 30-second cooldown between submissions from the same account, enforced server-side. See "per-account rate limiting on mic readings" above.
 - **GitHub branch protection on `main` still not set up as an actual repo setting** — no authenticated path to github.com in the 2026-08-18 session (Claude-in-Chrome needed re-auth, no `gh` CLI, no token). Caelan chose a standing behavioral rule (branch + PR, never push to `main` directly) instead for now; revisit setting the real GitHub setting when there's an authenticated path available.
-- **Rate-limit cooldown message not click-tested end to end on-device** — the server-side trigger is verified live against the database; the Flutter snackbar message path (`take_reading_screen.dart`'s `PostgrestException` handling) is reasoned-through from the code, not yet confirmed by actually triggering it twice within 30s through the real UI.
+- ~~Rate-limit cooldown message not click-tested end to end on-device~~ — resolved 2026-08-18 (continuation): triggered live by submitting two readings within 30s on-device, got back the exact expected message. See "mic crash found and fixed, rate-limit UX click-tested" above. Found and fixed an unrelated but real crash along the way (silent/invalid mic samples producing `-Infinity` → uncaught `.round()`), same session.
 - **New sign-up success path not click-tested** — `CreateAccountPasswordScreen`'s pop-cascade (`true` for an immediate session, `false` + `onPendingConfirmation` for the "check your email" case) is code-reviewed and reasoned-through, not confirmed live — Supabase's email rate limit blocked every signup attempt this session before reaching success. Worth completing once the rate limit clears.
 - ~~Email can be changed from the Account screen~~ — resolved 2026-08-18: removed entirely, per Caelan (a new email is effectively a new account). See "email is now immutable" above.
 - ~~No way to reset a forgotten password~~ — resolved 2026-08-18: standard Supabase email-recovery flow added. See "forgot-password flow added" above. **Partially click-tested on-device** — rebuilt and ran on the Android emulator (`Pixel_API_36`), verified live: the Email row on Account is no longer tappable, the "Forgot password?" link renders and opens the dialog, and submitting a real address gets Supabase's actual "check your email" confirmation back. **Still open**: the click-through half — tapping the real emailed link and landing on `ResetPasswordScreen` via the deep link — needs Caelan to check his own inbox, since that leg can't be driven from the emulator.
