@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 import '../models/restaurant.dart';
 import '../services/restaurant_repository.dart';
@@ -8,8 +9,6 @@ import '../services/supabase_service.dart';
 import '../widgets/app_drawer.dart';
 import '../widgets/restaurant_tile.dart';
 import '../widgets/voice_search_bar.dart';
-import 'account_screen.dart';
-import 'auth_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -61,9 +60,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!_supabaseService.isSignedIn) {
       // Same point-of-need prompt as "Take a reading here" — browsing and
       // favoriting share the account gate, but only favoriting needs it.
-      final signedIn = await Navigator.of(context).push<bool>(
-        MaterialPageRoute(builder: (_) => const AuthScreen()),
-      );
+      final signedIn = await context.push<bool>('/sign-in');
       if (signedIn != true || !mounted) return;
     }
 
@@ -105,9 +102,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _handleAccountTap() async {
-    await Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => _signedInEmail != null ? const AccountScreen() : const AuthScreen(),
-    ));
+    await context.push(_signedInEmail != null ? '/account' : '/sign-in');
   }
 
   Future<void> _load() async {

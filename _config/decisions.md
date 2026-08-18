@@ -6,7 +6,14 @@ they change. Stage contracts read this rather than restating it.
 ## Scope
 
 One city: Sydney, NSW. Confirmed with Caelan.
-Platform: iOS and Android. Confirmed with Caelan.
+Platform: iOS, Android, and Web. Web added 2026-08-18 (yet another
+continuation) — reachable at `app.cafequiet.com` once deployed. Mic-based
+decibel reading is native-only (no web equivalent exists); everything else
+works across all three. See
+[[quiet-restaurant-finder/stages/03_build/output/build-log|build log]]
+"Web support: routing, responsive shell, mic gating, Cloudflare Pages
+deploy" for the implementation, and `app/PLATFORM_SETUP.md`'s "Web"
+section for the deployment steps still needed from Caelan.
 
 ## Noise signals
 

@@ -1,8 +1,10 @@
 # Quiet Restaurant Finder
 
-A Flutter app (iOS/Android) that ranks Sydney restaurants by how quiet they
-are, combining review-text mining with first-party decibel readings
-crowdsourced from users' phones.
+A Flutter app (iOS/Android/Web) that ranks Sydney restaurants by how quiet
+they are, combining review-text mining with first-party decibel readings
+crowdsourced from users' phones. The mic-reading feature is mobile-only —
+see `PLATFORM_SETUP.md`'s "Web" section for what's different on the web
+build.
 
 The full history of *why* this app is built the way it is — research,
 ranking design, and a running build log of every session's work — lives in
@@ -55,6 +57,11 @@ data and reading submission is disabled — useful for UI work, not for
 anything that touches real data. For the real project's values, Google/
 Apple/Facebook sign-in setup, and everything else platform-specific, see
 [`PLATFORM_SETUP.md`](PLATFORM_SETUP.md).
+
+For web: `flutter run -d chrome --dart-define=...` (same dart-defines) for
+local dev, `flutter build web --release --dart-define=...` for a production
+build. Deployment (Cloudflare Pages, `app.cafequiet.com`) is documented in
+`PLATFORM_SETUP.md`'s "Web" section.
 
 ## Contributing changes
 

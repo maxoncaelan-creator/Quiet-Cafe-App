@@ -12,12 +12,12 @@
 // sign-up form sharing one email+password pair.
 
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 import '../services/oauth_service.dart';
 import '../widgets/centered_scroll_form.dart';
 import '../widgets/email_option_button.dart';
 import '../widgets/google_sign_in_button.dart';
-import 'create_account_email_screen.dart';
 
 class CreateAccountScreen extends StatefulWidget {
   /// Fired if the account is created but needs email confirmation before a
@@ -43,7 +43,7 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
     });
     try {
       await signIn();
-      if (popOnSuccess && mounted) Navigator.of(context).pop(true);
+      if (popOnSuccess && mounted) context.pop(true);
     } catch (e) {
       setState(() => _error = 'Sign-in failed: $e');
     } finally {
@@ -52,12 +52,8 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
   }
 
   Future<void> _signUpWithEmail() async {
-    final result = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(
-        builder: (_) => CreateAccountEmailScreen(onPendingConfirmation: widget.onPendingConfirmation),
-      ),
-    );
-    if (result != null && mounted) Navigator.of(context).pop(result);
+    final result = await context.push<bool>('/sign-up/email', extra: widget.onPendingConfirmation);
+    if (result != null && mounted) context.pop(result);
   }
 
   @override
@@ -100,7 +96,7 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
               if (_error != null) Text(_error!, style: const TextStyle(color: Colors.red)),
               const SizedBox(height: 12),
               TextButton(
-                onPressed: _submitting ? null : () => Navigator.of(context).pop(),
+                onPressed: _submitting ? null : () => context.pop(),
                 child: const Text('Already have an account? Sign in'),
               ),
           ],

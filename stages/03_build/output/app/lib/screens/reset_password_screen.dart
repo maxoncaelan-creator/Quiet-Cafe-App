@@ -7,6 +7,7 @@
 // to work (the emailed link itself is the proof of ownership).
 
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 import '../services/supabase_service.dart';
 import '../utils/friendly_auth_error.dart';
@@ -55,7 +56,10 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Password updated. You can sign in with it from now on.')),
       );
-      Navigator.of(context).popUntil((route) => route.isFirst);
+      // Equivalent of "pop to the root of the stack" under go_router — this
+      // screen is reached from a global deep-link push (main.dart), not
+      // user navigation, so there's no meaningful "back" to return to.
+      context.go('/');
     } catch (e) {
       if (!mounted) return;
       setState(() => _error = friendlyPasswordPolicyError(e) ?? 'Could not update password: $e');

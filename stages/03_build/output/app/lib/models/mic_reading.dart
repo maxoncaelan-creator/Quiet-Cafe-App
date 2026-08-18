@@ -2,12 +2,12 @@
 // "Microphone signal" table in stage 2's data-schema.md. Submission to a
 // backend is not implemented yet — see README's "what's stubbed" section.
 
-import 'dart:io' show Platform;
+import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform, TargetPlatform;
 
 class MicReading {
   final String placeId;
   final double decibelValue;
-  final String platform; // 'ios' | 'android'
+  final String platform; // 'ios' | 'android' | 'web'
   final DateTime recordedAt;
 
   const MicReading({
@@ -24,9 +24,18 @@ class MicReading {
     return MicReading(
       placeId: placeId,
       decibelValue: decibelValue,
-      platform: Platform.isIOS ? 'ios' : 'android',
+      platform: _capturePlatform(),
       recordedAt: DateTime.now(),
     );
+  }
+
+  // dart:io's Platform isn't available on web, and mic capture itself is
+  // gated off web (see restaurant_detail_screen.dart) — this 'web' branch
+  // should be unreachable in practice, but the file still needs to compile
+  // for the web target.
+  static String _capturePlatform() {
+    if (kIsWeb) return 'web';
+    return defaultTargetPlatform == TargetPlatform.iOS ? 'ios' : 'android';
   }
 
   Map<String, dynamic> toJson() => {

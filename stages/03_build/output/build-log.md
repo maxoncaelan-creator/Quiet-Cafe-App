@@ -1528,7 +1528,127 @@ forgot-password click-through is unblocked in principle (same proven
 mechanism) but still needs an actual run once the rate limit window
 resets.
 
+## Session — 2026-08-18 (yet another continuation): web support — routing, responsive shell, mic gating, Cloudflare Pages deploy
+
+Caelan asked for the app to work as a web app too, reachable through a URL,
+with device/OS-aware behavior. Established up front that CSS media queries
+can't do device/OS detection (they read viewport/rendering capabilities,
+not identity) — the actual mechanism is `kIsWeb` + `defaultTargetPlatform`
+from `package:flutter/foundation.dart`, which Flutter web already derives
+from the browser's own UA. Scoped to three goals: adaptive layout, an
+OS-aware "get the app" prompt, and gating off the in-app mic reading
+(native-only). Planned in plan mode; Caelan explicitly asked for the full
+persistent-shell + router rewrite rather than a scoped-down per-screen
+patch, and for Cloudflare Pages deployment to be part of this work, not a
+follow-up. Full plan and reasoning: `~/.claude/plans/deep-stargazing-fairy.md`
+(outside this repo, session-local).
+
+**Router migration.** The app had no router before this — plain
+`MaterialApp`, imperative `Navigator.push`/`pushReplacement` across 11
+files. Moved to `go_router` (`lib/router.dart`), giving every one of the
+20 screens a real, bookmarkable URL (`/list`, `/restaurant/:placeId`,
+`/settings/permissions`, etc.) — this is also literally what "web app
+through the URL" requires, not a separate concern from the shell work.
+`/restaurant/:placeId` fetches by id (new
+`SupabaseService.fetchRestaurantByPlaceId`, mirroring the existing
+`fetchRankedRestaurants` pattern) when opened directly with no in-memory
+`Restaurant` available — otherwise a URL paste or browser refresh would
+silently break, which would have made the URLs cosmetic rather than real.
+All 13 files with `Navigator` calls were migrated (`context.push`/`.pop`/
+`.go`, preserving every `push<bool>`/`pop(result)` chain exactly — the
+multi-screen sign-up flow's `onPendingConfirmation` callback and email
+threading through `/sign-up` → `/sign-up/email` → `/sign-up/password`
+now travels via go_router's `extra`, including a Dart record type for the
+two-value case). `usePathUrlStrategy()` (`flutter_web_plugins`) keeps URLs
+as plain paths, not hash-prefixed.
+
+**Persistent shell — the point Caelan corrected mid-plan.** First draft
+scoped the wide-screen `NavigationRail` to only the 5 nav-bearing
+screens, matching where the existing `Drawer` shows today. Caelan said
+that was out of scope and wanted the real thing: a root `ShellRoute`
+(`lib/widgets/app_shell.dart`) wraps *every* route, so the rail is
+visible on wide layouts even during auth flows, restaurant detail, or
+settings sub-screens — not just the 5. Below `kWideLayoutBreakpoint`
+(840, `lib/utils/breakpoints.dart`), each screen keeps its own `Drawer`
+exactly as before — confirmed live on the Android emulator afterward
+that mobile visuals and navigation are byte-for-byte unchanged (drawer
+order, detail screen layout, mic button all identical to pre-change
+screenshots). `lib/widgets/app_nav_destinations.dart` is now the single
+source of truth for the 5 top-level destinations, shared by `AppDrawer`
+and the new `AppNavRail` so they can't drift apart — `AppDrawer` itself
+shrank from 5 hardcoded items to a loop, with `AppRoute` re-exported from
+it (moved to `app_nav_destinations.dart`) so the 5 screens that only
+imported `app_drawer.dart` for that enum didn't all need new imports.
+
+**Mic gating.** `restaurant_detail_screen.dart`'s single "Take a reading
+here" call site got a `kIsWeb` branch — web shows "Take a reading in the
+app" leading to a new shared `showGetAppPrompt` bottom sheet instead of
+dead-ending. `permissions_settings_screen.dart`'s Microphone toggle is
+hidden (not disabled) on web — a greyed toggle would have implied an
+OS-permission state that doesn't exist there. `mic_reading.dart`'s
+previously-unconditional `dart:io Platform` import (the actual web-compile
+blocker) was replaced with `kIsWeb`/`defaultTargetPlatform`, adding a
+`'web'` platform value that's normally unreachable now that capture
+itself is gated. Voice search (`speech_to_text`) was deliberately left
+alone — it already has real web support, a different feature from mic
+decibel metering.
+
+**"Get the app" banner.** New `download_app_banner.dart` (OS detection,
+no new package), `download_banner_service.dart` (dismissal persisted via
+`SharedPreferences`, mirroring `theme_service.dart`'s pattern), and
+`store_links.dart` — the store URLs are explicit placeholders (`idTODO`),
+since the app isn't published to either store yet. Shown globally via
+`MaterialApp.router`'s `builder:` slot, not per-screen.
+
+**Cloudflare Pages deploy.** New `.github/workflows/deploy-web.yml` —
+this repo's first CI pipeline — builds `flutter build web --release` and
+deploys via `wrangler pages deploy`. `web/_redirects`
+(`/* /index.html 200`) added for SPA fallback so direct-URL loads don't
+404 at the CDN. None of the account-side setup is done — no Cloudflare
+API token, no GitHub secrets, no Pages project — all documented as
+ordered steps in `PLATFORM_SETUP.md`'s new "Web" section, explicitly
+Caelan's to do. Flagged, not resolved: the existing "Site URL should
+become `https://cafequiet.com`" open item conflicts with this work's
+`https://app.cafequiet.com` redirect need — one Supabase field, two
+different asks — left as an open decision for Caelan once the marketing
+site's own hosting is real.
+
+**Verification.** `flutter analyze`: 0 issues (one round-trip fixing 5
+files that referenced `AppRoute` only via `app_drawer.dart`'s now-moved
+definition). `flutter build web --release`: succeeded — the strongest
+single signal here, since Dart's type system would reject almost any
+mistake in the 20-route table, the record-typed `extra`s, or the
+`fetchRestaurantByPlaceId` wiring. Ran `flutter run -d web-server` and
+drove it via the browser tool: confirmed a clean boot (Supabase init
+completes, zero console errors) on both `/` and a direct
+`/restaurant/<real-id>` load, and confirmed `usePathUrlStrategy` actually
+keeps the address bar on the plain path with no redirect or 404. **Could
+not get full pixel/semantics-level confirmation of the web UI in this
+session** — the browser tool's own screenshot action failed with "the
+page is not compositing frames," and CanvasKit (Flutter web's renderer)
+never painted a canvas element despite a clean, error-free boot; a manual
+`fetch()` to Supabase and to `gstatic.com` (CanvasKit's CDN) both
+succeeded from the page, so this reads as a WebGL/compositing limitation
+of this specific sandboxed browser tool, not a code defect — but it means
+the web UI's actual visual layout (rail/drawer swap, banner rendering,
+max-width constraints) is unverified beyond code review and the
+successful compile. Worth a real visual pass (a normal desktop browser,
+or once deployed) before calling the web UI itself done, separate from
+"does it build and boot," which is confirmed. Mobile regression check was
+thorough and fully visual (Android emulator, `Pixel_API_36`): drawer,
+sign-in chain (push → nested push → back), and a full restaurant-tile →
+detail-screen navigation with the mic button intact, all screenshotted
+and matching pre-change behavior exactly.
+
+Work is on `feature/web-support`, branched from `docs/session-mistakes-and-updates`
+(itself already pushed). Not yet pushed or PR'd — see below.
+
 ## Open items carried into further build work
+- **Web UI needs a real visual verification pass** — added 2026-08-18. Build/boot/routing verified (`flutter analyze`, `flutter build web`, clean console on direct URL loads), but the actual rendered layout (rail vs. drawer swap, banner, max-width constraints) couldn't be visually confirmed in this session's sandboxed browser tool (CanvasKit never painted — reads as a tool/WebGL limitation, not a code defect, see above). Check in a normal browser (`flutter run -d chrome` locally, or the deployed Cloudflare Pages URL) before considering the web UI itself done.
+- **Cloudflare Pages deployment not set up** — added 2026-08-18. `.github/workflows/deploy-web.yml` exists and will run `flutter build web` on push to `main` even before secrets exist, but the deploy step needs 4 GitHub Actions secrets (`CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`) and Cloudflare-side setup (API token, Pages project, custom domain `app.cafequiet.com`) — all Caelan's, ordered steps in `PLATFORM_SETUP.md`'s "Web" section.
+- **Supabase Site URL conflict, not resolved** — added 2026-08-18. The pre-existing "Site URL → `https://cafequiet.com`" open item (for iOS/Android Universal/App Links) and this session's web app redirect need (`https://app.cafequiet.com`) both want the same single Supabase field. Needs Caelan's call once the marketing site's own hosting is real — see `_config/decisions.md` "Scope" and `PLATFORM_SETUP.md`'s "Web" section.
+- **Store links are placeholders** — `lib/utils/store_links.dart` has `idTODO`/`id=TODO` App Store/Play Store URLs. Replace once the app is actually published; not something to chase speculatively.
+- **`feature/web-support` not yet pushed or PR'd** — same GitHub App repo-access issue as prior sessions (still 404 on this repo via the GitHub connector as of this session). Push happens this session regardless, per the established branch-first pattern; opening the PR is blocked the same way `docs/session-mistakes-and-updates` was.
 - ~~Decide what to do about Popular Times~~ — decided 2026-08-15: dropped for v1, code kept dormant.
 - ~~Decide whether mic readings need a user identity~~ — decided 2026-08-15: real accounts, submission-gated only. See "Account-gated mic readings" above.
 - ~~Whether to add Google/Apple Sign-In~~ — decided 2026-08-15: yes to both. ~~Google~~ — resolved 2026-08-18: Web + Android OAuth clients created, confirmed working end to end on the emulator (real account picker, real credential entry, successful sign-in). iOS client ID still not created — Apple sign-in still waiting on a real device to test.

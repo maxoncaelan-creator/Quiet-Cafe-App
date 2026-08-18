@@ -321,6 +321,83 @@ goes directly into the Supabase dashboard, never into chat or this
 codebase — same pattern as the Outscraper API key and the Supabase service
 role key earlier.
 
+## Web
+
+Added 2026-08-18 (yet another continuation). The app builds and runs for
+web (`flutter run -d chrome` / `flutter build web --release`), targeting
+`app.cafequiet.com` as a subdomain — the root `cafequiet.com` stays
+reserved for the separate marketing site.
+
+**Routing.** The app moved from a plain `MaterialApp` (no router, one
+`home:` screen) to `go_router` (`lib/router.dart`), so every screen has a
+real, bookmarkable URL — e.g. `/list`, `/restaurant/:placeId`,
+`/settings/permissions`. `/restaurant/:placeId` fetches the restaurant by
+id (`SupabaseService.fetchRestaurantByPlaceId`) when opened directly
+(a URL paste or browser refresh, with no in-memory `Restaurant` object
+available) rather than only working when navigated to in-app.
+
+**Persistent nav shell.** `lib/widgets/app_shell.dart` wraps *every*
+route via a root `ShellRoute` — above `kWideLayoutBreakpoint` (840,
+`lib/utils/breakpoints.dart`) it shows a `NavigationRail`
+(`lib/widgets/app_nav_rail.dart`) beside whatever screen is active,
+including auth/detail/settings sub-screens, not just the 5 top-level
+destinations. Below that width, each screen keeps its own `Drawer`
+exactly as before — mobile/native visuals are unchanged.
+`lib/widgets/app_nav_destinations.dart` is the single source of truth
+for the 5 destinations, shared by the drawer and the rail. Non-drawer
+screens get a `MaxWidthContent` wrap (`lib/widgets/max_width_content.dart`,
+640px) or ride `CenteredScrollForm`'s 480px max-width (auth screens) so
+nothing stretches edge-to-edge on wide viewports.
+
+**What's gated off web, and why**:
+- **Mic-based decibel readings** — `noise_meter`/`audio_streamer` don't
+  work on web (confirmed by testing, see `mic_service.dart`'s comments).
+  `restaurant_detail_screen.dart` swaps the "Take a reading here" button
+  for a "Take a reading in the app" prompt on web
+  (`kIsWeb`, `lib/widgets/get_app_prompt.dart`). The Permissions screen's
+  Microphone toggle is hidden (not disabled) on web for the same reason.
+- **Voice search** (`speech_to_text`, `widgets/voice_search_bar.dart`) is
+  **not** gated — it has its own real web implementation via the Web
+  Speech API, a separate feature from mic decibel metering.
+
+**"Get the app" banner** (`lib/widgets/download_app_banner.dart`) shows
+once, globally, only when `kIsWeb` and `defaultTargetPlatform` is iOS or
+Android (Flutter web derives this from the browser's own UA — no extra
+package). Store links (`lib/utils/store_links.dart`) are **placeholders**
+— the app isn't published to either store yet. Replace them once it is;
+tracked as an open item in the workspace's `build-log.md`, not something
+to chase down speculatively.
+
+**Cloudflare Pages deployment** — `.github/workflows/deploy-web.yml`
+(this repo's first CI pipeline) builds and deploys on every push to
+`main`. None of the following is done — dashboard/account access wasn't
+available in the session that added this:
+1. Cloudflare → API Tokens → create one scoped to `Pages: Edit`.
+2. Note the Cloudflare Account ID (Workers & Pages → Overview).
+3. GitHub repo → Settings → Secrets → Actions → add `CLOUDFLARE_API_TOKEN`,
+   `CLOUDFLARE_ACCOUNT_ID`, `SUPABASE_URL`, `SUPABASE_ANON_KEY` (the last
+   two because CI has no local `--dart-define`s — without them the
+   deployed build silently falls back to sample data with submission
+   disabled, an easy failure to miss).
+4. Push to `main` (via the usual branch+PR flow) — first run auto-creates
+   the `quiet-restaurant-finder` Pages project.
+5. Cloudflare → that Pages project → Custom domains → add `app.cafequiet.com`.
+6. Supabase → Authentication → URL Configuration → add
+   `https://app.cafequiet.com` to Redirect URLs.
+
+**Open conflict, not resolved here**: the "Universal Links / App Links"
+section above says Supabase's Auth **Site URL** should become
+`https://cafequiet.com` (the root domain, for iOS/Android link
+verification once that's built). This Web section's redirect needs
+`https://app.cafequiet.com` (the subdomain the web app actually lives
+at). Site URL is a single value — these two asks need reconciling once
+the marketing site's own hosting is real, not picked silently here.
+`web/_redirects` (`/* /index.html 200`) is already in place for
+Cloudflare Pages' SPA fallback, and `usePathUrlStrategy()` is called in
+`main.dart` so URLs are plain paths (`/restaurant/abc`), not
+hash-prefixed (`/#/restaurant/abc`) — both needed for direct-URL loads
+and refreshes to actually work once deployed, not just in-app navigation.
+
 ## Verify
 ```
 flutter run

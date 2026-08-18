@@ -1,11 +1,13 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 import '../models/restaurant.dart';
 import '../services/supabase_service.dart';
 import '../widgets/confidence_indicator.dart';
+import '../widgets/get_app_prompt.dart';
+import '../widgets/max_width_content.dart';
 import '../widgets/noise_level_bar.dart';
-import 'auth_screen.dart';
-import 'take_reading_screen.dart';
 
 class RestaurantDetailScreen extends StatefulWidget {
   final Restaurant restaurant;
@@ -40,9 +42,7 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
 
   Future<void> _toggleFavorite() async {
     if (!_supabaseService.isSignedIn) {
-      final signedIn = await Navigator.of(context).push<bool>(
-        MaterialPageRoute(builder: (_) => const AuthScreen()),
-      );
+      final signedIn = await context.push<bool>('/sign-in');
       if (signedIn != true || !mounted) return;
     }
     setState(() {
@@ -71,18 +71,12 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
     // Prompt for sign-in/sign-up right here, at the point of need, rather
     // than gating the whole app behind auth.
     if (!_supabaseService.isSignedIn) {
-      final signedIn = await Navigator.of(context).push<bool>(
-        MaterialPageRoute(builder: (_) => const AuthScreen()),
-      );
+      final signedIn = await context.push<bool>('/sign-in');
       if (signedIn != true) return; // user backed out or sign-up needs email confirmation first
     }
 
     if (!context.mounted) return;
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => TakeReadingScreen(placeId: restaurant.placeId, name: restaurant.name),
-      ),
-    );
+    context.push('/restaurant/${restaurant.placeId}/reading', extra: restaurant.name);
   }
 
   @override
@@ -101,7 +95,8 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
             ),
         ],
       ),
-      body: ListView(
+      body: MaxWidthContent(
+        child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
           if (restaurant.address != null) Text(restaurant.address!),
@@ -129,12 +124,20 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
             detail: restaurant.popular.subscore == null ? 'No busyness data yet' : null,
           ),
           const SizedBox(height: 32),
-          FilledButton.icon(
-            icon: const Icon(Icons.mic),
-            label: const Text('Take a reading here'),
-            onPressed: () => _startReading(context),
-          ),
+          if (kIsWeb)
+            OutlinedButton.icon(
+              icon: const Icon(Icons.mic_off_outlined),
+              label: const Text('Take a reading in the app'),
+              onPressed: () => showGetAppPrompt(context),
+            )
+          else
+            FilledButton.icon(
+              icon: const Icon(Icons.mic),
+              label: const Text('Take a reading here'),
+              onPressed: () => _startReading(context),
+            ),
         ],
+        ),
       ),
     );
   }

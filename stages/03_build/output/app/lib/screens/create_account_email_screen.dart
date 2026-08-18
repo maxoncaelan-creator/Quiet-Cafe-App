@@ -5,9 +5,9 @@
 // actually set (and confirmed).
 
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 import '../widgets/centered_scroll_form.dart';
-import 'create_account_password_screen.dart';
 
 class CreateAccountEmailScreen extends StatefulWidget {
   /// Threaded through from AuthScreen via CreateAccountScreen — see
@@ -47,17 +47,13 @@ class _CreateAccountEmailScreenState extends State<CreateAccountEmailScreen> {
       _submitting = true;
     });
 
-    final result = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(
-        builder: (_) => CreateAccountPasswordScreen(
-          email: email,
-          onPendingConfirmation: widget.onPendingConfirmation,
-        ),
-      ),
+    final result = await context.push<bool>(
+      '/sign-up/password',
+      extra: (email: email, onPendingConfirmation: widget.onPendingConfirmation),
     );
     if (!mounted) return;
     setState(() => _submitting = false);
-    if (result != null) Navigator.of(context).pop(result);
+    if (result != null) context.pop(result);
   }
 
   @override
