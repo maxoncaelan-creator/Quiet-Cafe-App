@@ -1448,9 +1448,58 @@ trigger (`enforce_mic_reading_cooldown`, `0006_mic_reading_rate_limit.sql`)
 and the Flutter-side message parsing both work correctly together, live —
 this was previously only reasoned-through from code.
 
-Not yet committed — working on `feature/mic-reading-rate-limit`, still
-blocked on the GitHub connector's repo access (see PR blocker below);
-Caelan chose to skip resolving that this session and defer the PR.
+Committed and pushed to `feature/mic-reading-rate-limit`; **merged to
+`main` by Caelan** (PR #1) at the start of the next session.
+
+## Session — 2026-08-18 (continuation): Google/password account-linking question
+
+Caelan asked two account-linking questions: (1) should an email already
+used to sign up via Google be blocked from creating a second, separate
+password account with that same email, and (2) should a Google-signed-in
+user be able to change their password in the app, since it's "linked to
+Google instead."
+
+**Researched against Supabase's own docs** (the actual backend here, not
+generic advice): Supabase Auth automatically links a new identity to an
+existing user whenever both share a verified email — a password `signUp()`
+for an email already tied to a Google identity doesn't create a second
+account. To prevent account enumeration, Supabase deliberately returns an
+ambiguous "check your email" response either way, which is exactly what
+`create_account_password_screen.dart:70`'s `response.session == null`
+handling already does. **Question 1 needed no code change.**
+
+**Question 2's premise was half right.** Not "shouldn't be allowed" —
+Supabase actually supports an OAuth-only user adding a password via
+`updateUser({password: ...})`, as a second sign-in method alongside
+Google. The real gap: `change_password_screen.dart` unconditionally asks
+for a "Current password" and re-verifies it via `signInWithPassword`
+before allowing a change — for a Google-only account with no password set
+yet, that re-verification would always fail with a misleading "Current
+password is incorrect."
+
+Caelan chose the simpler of two options: hide password management
+entirely for Google-only accounts rather than offer a "set a password"
+flow. Implemented: `SupabaseService.hasPasswordIdentity` (new getter,
+`supabase_service.dart`) checks the signed-in user's `identities` for a
+provider of `'email'`. `AccountScreen`'s Security section now shows
+"Change password" only when true; otherwise a static row reading "Signed
+in with Google — manage your password in your Google Account."
+
+`flutter analyze`: 0 issues. `flutter test`: 2/2 passed. **Verified live**
+on `emulator-5554`: signed in fresh via the real Google account picker
+(`maxon.caelan@gmail.com`), Account screen still showed "Change password"
+— traced why via a direct read-only query against `auth.identities`
+(Supabase project `aesorixtfasfuvcqrvem`): this account already has both
+an `email` and a `google` identity linked under the same `user_id`,
+confirming Supabase's automatic linking is real and working, not just
+documented. This also concretely answers question 1 — no duplicate
+account exists for this email. **Not live-verified**: the opposite branch
+(a genuinely Google-only account with zero password identity) — no second
+Google test account was available in this session to create one from
+scratch. The check itself is the same simple boolean condition either way.
+
+Committed to `feature/hide-change-password-for-google-only`, off `main`
+post-merge. Not yet pushed/PR'd — pending Caelan's review of this session.
 
 ## Open items carried into further build work
 - ~~Decide what to do about Popular Times~~ — decided 2026-08-15: dropped for v1, code kept dormant.

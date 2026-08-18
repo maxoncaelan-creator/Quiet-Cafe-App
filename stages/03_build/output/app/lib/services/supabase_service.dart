@@ -62,6 +62,15 @@ class SupabaseService {
 
   String? get currentUserEmail => _client.auth.currentUser?.email;
 
+  /// Whether the signed-in user has an actual app password set — false for
+  /// an account that only ever signed in via Google (or another OAuth
+  /// provider), which has no password to change. Supabase's `updateUser()`
+  /// doesn't check an existing password on its own, so screens that offer
+  /// "Change password" rely on this to know whether that operation even
+  /// makes sense for this account.
+  bool get hasPasswordIdentity =>
+      _client.auth.currentUser?.identities?.any((identity) => identity.provider == 'email') ?? false;
+
   /// Fires on sign-in, sign-out, and token refresh — lets the UI show
   /// current auth state live instead of only checking it once at build time.
   Stream<AuthState> get authStateChanges => _client.auth.onAuthStateChange;

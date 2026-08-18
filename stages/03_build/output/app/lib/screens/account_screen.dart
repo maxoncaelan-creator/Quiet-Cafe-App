@@ -77,14 +77,21 @@ class _AccountScreenState extends State<AccountScreen> {
           ),
           const Divider(height: 32),
           const _SectionHeader('Security'),
-          ListTile(
-            leading: const Icon(Icons.lock_outline),
-            title: const Text('Change password'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const ChangePasswordScreen()),
+          if (_supabaseService.hasPasswordIdentity)
+            ListTile(
+              leading: const Icon(Icons.lock_outline),
+              title: const Text('Change password'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const ChangePasswordScreen()),
+              ),
+            )
+          else
+            const ListTile(
+              leading: Icon(Icons.lock_outline),
+              title: Text('Signed in with Google'),
+              subtitle: Text('Manage your password in your Google Account.'),
             ),
-          ),
           const Divider(height: 32),
           const _SectionHeader('Your activity'),
           _ActivitySection(readings: _readings, error: _readingsError, formatDate: _formatDate),
