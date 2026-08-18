@@ -1006,6 +1006,91 @@ Apple's button is unaffected by any of this (iOS-only, `Platform.isIOS`
 gate untouched) but wasn't itself re-verified this run — Android emulator,
 same as every other session, never shows it.
 
+## Session — 2026-08-18 (yet another continuation): keyboard overflow fixed; sign-up split into email → password steps
+
+Caelan hit a real bug live: a yellow/black "BOTTOM OVERFLOWED BY 109 PIXELS"
+banner on the Create account screen once the keyboard opened. Root cause,
+same across every auth screen: `Scaffold.body` was a bare
+`Padding(child: Column(mainAxisAlignment: center, ...))` — fine until the
+keyboard shrinks the viewport (`viewInsets.bottom`), at which point the
+vertically-centered fixed-height content has nowhere to go. Fixed by
+wrapping every auth screen's form in `SingleChildScrollView` (dropping
+`mainAxisAlignment: center`, which stops mattering once content can
+scroll): `auth_screen.dart`, `forgot_password_screen.dart`,
+`reset_password_screen.dart`, and the two new screens below. Verified live
+by forcing the emulator's soft keyboard on
+(`settings put secure show_ime_with_hard_keyboard 1` — this emulator has a
+hardware-keyboard passthrough that normally suppresses the on-screen IME,
+which is why the bug wasn't caught in earlier sessions' verification) and
+screenshotting the password screen with the keyboard up: form fits cleanly
+above it, no overflow.
+
+**Sign-up restructured into two screens**, per Caelan: create-account used
+to be `AuthScreen` toggled into a second mode sharing one email+password
+pair with sign-in. Now:
+- `AuthScreen` is sign-in only — no more `_isSignUp` toggle, title is
+  always "Sign in". "Don't have an account? Create one" now navigates
+  instead of toggling.
+- New `screens/create_account_screen.dart` — email field only, plus the
+  OAuth buttons (Google/Apple/Facebook create an account and sign in with
+  the same call, so they don't need a second step). "Continue" does a
+  minimal `contains('@')` check (Supabase is the real authority on email
+  validity, proven below) and pushes the new password screen.
+- New `screens/create_account_password_screen.dart` — password + confirm
+  password, checked for a 6-char minimum and that they match before
+  calling `signUp`.
+
+**Extracted `services/oauth_service.dart`** rather than duplicate the
+Google/Apple/Facebook sign-in mechanics (nonce generation, idToken
+exchange, the config flags) across both AuthScreen and the new
+CreateAccountScreen — each screen now just calls
+`OAuthService.signInWithGoogle()` etc. and owns its own
+submitting/error/navigation handling. `forgot_password_screen.dart` also
+switched to this file's shared `oauthRedirectUrl` constant instead of its
+own duplicate.
+
+**Navigation contract**: all three call sites that push `AuthScreen`
+(`home_screen.dart` ×2, `restaurant_detail_screen.dart` ×2,
+`app_drawer.dart` ×1) use `Navigator.push<bool>`, so `AuthScreen` may only
+ever pop with `true`/`false`/`null` — checked this before designing the
+3-screen cascade. `CreateAccountPasswordScreen` pops `true` (session
+established — cascades all the way up through `CreateAccountScreen` and
+`AuthScreen`) or `false` (needs email confirmation — the message reaches
+`AuthScreen` via an `onPendingConfirmation` callback threaded through both
+new screens, decoupled from the pop value itself, then cascades back only
+as far as `AuthScreen` so it can display that message).
+
+`flutter analyze`: 0 issues (two misses along the way, both caught
+immediately by analyze: a nonexistent `SignInWithAppleButtonIfIOS` widget
+name invented while drafting, and `LaunchMode` incorrectly imported from
+`material.dart` instead of `supabase_flutter.dart` in the new service
+file). `flutter test`: 2/2 passed.
+
+**Verified live on the emulator**, extensively:
+- Overflow fix, confirmed above.
+- Create account screen: email-only, no password field, matches Caelan's
+  ask exactly.
+- Continue → Set a password screen, back arrow → returns to Create account
+  with the email preserved (natural `Navigator` pop, no special handling
+  needed).
+- Three real Supabase-side errors surfaced correctly through the new
+  screens' error text, each proving the real API call path works, not just
+  the UI: a password-complexity policy on this project ("should contain at
+  least one character of each: lowercase, uppercase, digit, symbol"), an
+  invalid-domain rejection (`@example.com`), and — after several test
+  emails this session — a real `email rate limit exceeded` from Supabase's
+  own SMTP limits.
+- **Not completed**: the actual success path (immediate session, or the
+  "check your email" pending-confirmation message reaching AuthScreen) —
+  blocked by that same rate limit before a signup could succeed. No test
+  account was created by any attempt (confirmed via
+  `select ... from auth.users` — zero rows), so nothing needed cleaning up.
+  The pop-cascade logic is code-reviewed and reasoned-through, not
+  click-tested end to end. **Heads up for Caelan**: if you try signing up
+  for real soon and get "email rate limit exceeded," that's Supabase's
+  default free-tier SMTP limit (temporary, resets on its own), not a bug —
+  don't spend time debugging it.
+
 ## Open items carried into further build work
 - ~~Decide what to do about Popular Times~~ — decided 2026-08-15: dropped for v1, code kept dormant.
 - ~~Decide whether mic readings need a user identity~~ — decided 2026-08-15: real accounts, submission-gated only. See "Account-gated mic readings" above.
@@ -1015,6 +1100,7 @@ same as every other session, never shows it.
 - ~~Whether to add per-account rate limiting on readings, now that real identity exists~~ — resolved 2026-08-18: 30-second cooldown between submissions from the same account, enforced server-side. See "per-account rate limiting on mic readings" above.
 - **GitHub branch protection on `main` still not set up as an actual repo setting** — no authenticated path to github.com in the 2026-08-18 session (Claude-in-Chrome needed re-auth, no `gh` CLI, no token). Caelan chose a standing behavioral rule (branch + PR, never push to `main` directly) instead for now; revisit setting the real GitHub setting when there's an authenticated path available.
 - **Rate-limit cooldown message not click-tested end to end on-device** — the server-side trigger is verified live against the database; the Flutter snackbar message path (`take_reading_screen.dart`'s `PostgrestException` handling) is reasoned-through from the code, not yet confirmed by actually triggering it twice within 30s through the real UI.
+- **New sign-up success path not click-tested** — `CreateAccountPasswordScreen`'s pop-cascade (`true` for an immediate session, `false` + `onPendingConfirmation` for the "check your email" case) is code-reviewed and reasoned-through, not confirmed live — Supabase's email rate limit blocked every signup attempt this session before reaching success. Worth completing once the rate limit clears.
 - ~~Email can be changed from the Account screen~~ — resolved 2026-08-18: removed entirely, per Caelan (a new email is effectively a new account). See "email is now immutable" above.
 - ~~No way to reset a forgotten password~~ — resolved 2026-08-18: standard Supabase email-recovery flow added. See "forgot-password flow added" above. **Partially click-tested on-device** — rebuilt and ran on the Android emulator (`Pixel_API_36`), verified live: the Email row on Account is no longer tappable, the "Forgot password?" link renders and opens the dialog, and submitting a real address gets Supabase's actual "check your email" confirmation back. **Still open**: the click-through half — tapping the real emailed link and landing on `ResetPasswordScreen` via the deep link — needs Caelan to check his own inbox, since that leg can't be driven from the emulator.
 - Exact score-weighting constants (`DEFAULT_WEIGHTS`, `PLATFORM_WEIGHT`, and now `REVIEW_MENTION_TIERS`/`MIC_READING_TIERS` in `scoring.js`) — starting values per ranking-spec.md, need tuning against real usage data.

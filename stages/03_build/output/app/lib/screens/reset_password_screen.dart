@@ -65,10 +65,9 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Reset password'), automaticallyImplyLeading: false),
-      body: Padding(
+      body: SingleChildScrollView(
         padding: const EdgeInsets.all(24),
         child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             const Text('Choose a new password for your account.', textAlign: TextAlign.center),

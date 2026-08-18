@@ -9,6 +9,8 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../services/oauth_service.dart' show oauthRedirectUrl;
+
 const _skeletonDuration = Duration(milliseconds: 500);
 
 class ForgotPasswordScreen extends StatefulWidget {
@@ -59,7 +61,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       _info = null;
     });
     try {
-      await _client.auth.resetPasswordForEmail(email, redirectTo: kIsWeb ? null : _oauthRedirectUrl);
+      await _client.auth.resetPasswordForEmail(email, redirectTo: kIsWeb ? null : oauthRedirectUrl);
       if (!mounted) return;
       setState(() => _info = 'If $email has an account, a password reset link is on its way.');
     } catch (e) {
@@ -82,8 +84,11 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   }
 
   Widget _buildForm(BuildContext context) {
+    return SingleChildScrollView(child: _buildFormColumn(context));
+  }
+
+  Widget _buildFormColumn(BuildContext context) {
     return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         const Text(
@@ -110,12 +115,6 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     );
   }
 }
-
-// Redirect target for the emailed link on mobile — must exactly match an
-// Additional Redirect URL in Supabase's Auth settings, same value
-// auth_screen.dart uses for every other auth flow. Kept as its own constant
-// here rather than importing auth_screen.dart just for this string.
-const _oauthRedirectUrl = 'quietrestaurantfinder://login-callback';
 
 /// Placeholder shapes mirroring the real form's layout (description, email
 /// field, button), pulsing to read clearly as "loading" rather than
