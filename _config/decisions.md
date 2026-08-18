@@ -16,6 +16,14 @@ Active for v1:
   app, crowdsourced from users. Submitting a reading requires a real
   (email/password) account; browsing the ranked list never does. Decided
   2026-08-15.
+- Loudness votes (Quiet/Normal/Loud) — decided with Caelan 2026-08-18. A
+  lighter-weight alternative to a mic reading, same account gate. If the
+  same user submits a mic reading within 5 minutes of a vote at the same
+  venue, the mic reading wins for scoring purposes, but the vote is still
+  recorded either way. Replaced the detail screen's "Score breakdown"
+  section entirely. See [[quiet-restaurant-finder/stages/02_ranking-design/output/ranking-spec|ranking spec]]
+  "Signals" and [[quiet-restaurant-finder/stages/02_ranking-design/output/data-schema|data schema]]
+  "Loudness votes."
 
 Not active:
 - SoundPrint (third-party decibel data) — considered and skipped 2026-08-15
@@ -81,6 +89,38 @@ string verbatim, which read as confusing enough that the policy itself
 looked wrong. The policy stays as-is; only the *display* was fixed — see
 `utils/friendly_auth_error.dart` in the Flutter app and the build log's
 "raw-backend-error-shown-to-user" mistake entry.
+
+## Account security
+
+**Google-only accounts can't change a password in the app**, decided with
+Caelan 2026-08-18. Supabase actually supports an OAuth-only account adding
+a password (`updateUser({password: ...})`), but Caelan chose the simpler
+of two options: hide password management entirely for accounts with no
+password identity, rather than offer a "set a password" flow. The Account
+screen shows "Signed in with Google — manage your password in your Google
+Account" instead of "Change password" for these accounts
+(`SupabaseService.hasPasswordIdentity`, checking the signed-in user's
+`identities` for an `email` provider).
+
+Separately confirmed the same session: Supabase automatically links a
+Google identity to an existing password account sharing the same verified
+email (checked directly against `auth.identities` for a real test
+account) — so an email already used with Google can't end up with a
+second, duplicate password account. No code change was needed for that
+half; the app's existing "check your email" handling for an ambiguous
+`signUp()` response already covers it correctly.
+
+## Location
+
+**The app uses real device GPS location**, added 2026-08-18, for one
+specific purpose: guessing which restaurant the user is currently at, on
+the Search Assistant screen's empty state ("Are you at X?", within 100m of
+a loaded restaurant; declining sets a 30-minute cooldown before asking
+again). This is not proximity filtering of the list and does not wire up
+the existing Settings → Location GPS toggle — see `ui-design-decisions.md`
+"Location" for how these relate. Requires `ACCESS_FINE_LOCATION`/
+`ACCESS_COARSE_LOCATION` (Android) and `NSLocationWhenInUseUsageDescription`
+(iOS), added to the platform config the same session.
 
 ## Git workflow
 

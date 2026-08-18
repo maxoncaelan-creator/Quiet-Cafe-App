@@ -25,17 +25,21 @@ it. If you're picking this project back up, start with the workspace's
 
 - Ranked list of Sydney restaurants by quietness, with cuisine/suburb/price
   filters and voice search
-- Restaurant detail view with a per-signal score breakdown and a confidence
-  indicator
-- In-app microphone reading, submitted by signed-in users, rate-limited to
-  one submission per 30 seconds per account
+- Restaurant detail view with a confidence indicator; in-app microphone
+  reading (rate-limited to one submission per 30 seconds per account) and
+  a lightweight Quiet/Normal/Loud vote, both signed-in only and both
+  feeding the same quietness score — a mic reading from the same account
+  within 5 minutes of a vote takes precedence for scoring
+- GPS-based venue guess on the Search Assistant screen ("Are you at X?"),
+  signed-in only, with a 30-minute cooldown after declining
 - Favorites (sign-in required)
 - Search Assistant — a Claude-powered chat for finding a restaurant that
   matches what you're after, gated to signed-in accounts with a
   10,000-token/5-hour budget per account
 - Account management: email/password or Google/Apple/Facebook sign-in,
-  password reset and change (both re-verified, not just accepted), account
-  screen with your own reading history
+  password reset and change (both re-verified, not just accepted; hidden
+  entirely for Google-only accounts), account screen with your own reading
+  history
 
 ## Running it
 

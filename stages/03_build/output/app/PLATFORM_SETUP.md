@@ -21,6 +21,22 @@ generic:
 <string>Quiet Restaurant Finder uses your microphone to measure ambient noise level at the restaurant you're at. No audio is recorded or stored.</string>
 ```
 
+**Location permission, added 2026-08-18** for the GPS venue guess (`services/location_service.dart`) — also already applied to the real generated files:
+- Android: `ACCESS_COARSE_LOCATION` and `ACCESS_FINE_LOCATION` added to `android/app/src/main/AndroidManifest.xml`.
+- iOS: `NSLocationWhenInUseUsageDescription` added to `ios/Runner/Info.plist`:
+```xml
+<key>NSLocationWhenInUseUsageDescription</key>
+<string>Quiet Restaurant Finder uses your location to guess which restaurant you're at, so you don't have to search for it.</string>
+```
+Only "when in use" — this feature has no need for background location.
+`geolocator` (^13.0.0) is the package. **Known real risk, found live**: an
+unbounded native location request can hang the whole app hard enough to
+trigger a genuine Android ANR on a poor/absent location fix — `getCurrentPosition()`
+must always be called with an explicit `timeLimit` in `LocationSettings`
+itself, not just a Dart-side `.timeout()` wrapper (which can't interrupt
+work already in flight on the platform side). See build-log.md and
+`MISTAKES.md`'s `unbounded-native-async-call` entry.
+
 **Resolved 2026-08-16:** Caelan enabled Windows Developer Mode
 (`ms-settings:developers`), which had been blocking `flutter pub get`
 ("Building with plugins requires symlink support"). After that:
