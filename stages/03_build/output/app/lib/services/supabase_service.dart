@@ -43,14 +43,6 @@ class SupabaseService {
 
   Future<void> signOut() => _client.auth.signOut();
 
-  /// Supabase sends a confirmation link to the new address (and, depending
-  /// on the project's "secure email change" setting, the old one too)
-  /// before this actually takes effect — the change isn't immediate.
-  Future<void> updateEmail(String newEmail) async {
-    if (!isConfigured) throw SupabaseNotConfigured();
-    await _client.auth.updateUser(UserAttributes(email: newEmail));
-  }
-
   Future<void> updatePassword(String newPassword) async {
     if (!isConfigured) throw SupabaseNotConfigured();
     await _client.auth.updateUser(UserAttributes(password: newPassword));

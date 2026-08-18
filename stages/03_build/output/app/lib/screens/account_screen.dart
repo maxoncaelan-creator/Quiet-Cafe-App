@@ -37,41 +37,6 @@ class _AccountScreenState extends State<AccountScreen> {
     }
   }
 
-  Future<void> _changeEmail() async {
-    final controller = TextEditingController(text: _supabaseService.currentUserEmail);
-    final newEmail = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Change email'),
-        content: TextField(
-          controller: controller,
-          keyboardType: TextInputType.emailAddress,
-          decoration: const InputDecoration(labelText: 'New email'),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(controller.text.trim()),
-            child: const Text('Save'),
-          ),
-        ],
-      ),
-    );
-    if (!mounted || newEmail == null || newEmail.isEmpty) return;
-    if (newEmail == _supabaseService.currentUserEmail) return;
-
-    try {
-      await _supabaseService.updateEmail(newEmail);
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Check your email to confirm the change.')),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not update email: $e')));
-    }
-  }
-
   Future<void> _changePassword() async {
     final controller = TextEditingController();
     final newPassword = await showDialog<String>(
@@ -137,8 +102,6 @@ class _AccountScreenState extends State<AccountScreen> {
             leading: const Icon(Icons.email_outlined),
             title: const Text('Email'),
             subtitle: Text(email),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: _changeEmail,
           ),
           const Divider(height: 32),
           const _SectionHeader('Security'),

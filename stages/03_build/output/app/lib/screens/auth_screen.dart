@@ -128,6 +128,54 @@ class _AuthScreenState extends State<AuthScreen> {
     }
   }
 
+  /// Prompts for the account's email (pre-filled if already typed above)
+  /// and sends a reset link via Supabase Auth's built-in flow. Doesn't
+  /// reveal whether the address has an account — Supabase's API itself
+  /// returns success regardless, so there's nothing more specific to tell
+  /// the user either way.
+  Future<void> _forgotPassword() async {
+    final controller = TextEditingController(text: _emailController.text.trim());
+    final email = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Reset password'),
+        content: TextField(
+          controller: controller,
+          keyboardType: TextInputType.emailAddress,
+          decoration: const InputDecoration(labelText: 'Email'),
+          autofocus: controller.text.isEmpty,
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(controller.text.trim()),
+            child: const Text('Send link'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || email == null || email.isEmpty) return;
+
+    setState(() {
+      _submitting = true;
+      _error = null;
+      _info = null;
+    });
+    try {
+      await _client.auth.resetPasswordForEmail(
+        email,
+        redirectTo: kIsWeb ? null : _oauthRedirectUrl,
+      );
+      if (!mounted) return;
+      setState(() => _info = 'If $email has an account, a password reset link is on its way.');
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = 'Could not send reset link: $e');
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
+  }
+
   Future<void> _signInWithGoogle() async {
     setState(() {
       _submitting = true;
@@ -295,6 +343,14 @@ class _AuthScreenState extends State<AuthScreen> {
               obscureText: true,
               decoration: const InputDecoration(labelText: 'Password'),
             ),
+            if (!_isSignUp)
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: _submitting ? null : _forgotPassword,
+                  child: const Text('Forgot password?'),
+                ),
+              ),
             const SizedBox(height: 20),
             if (_error != null) Text(_error!, style: const TextStyle(color: Colors.red)),
             if (_info != null) Text(_info!, style: const TextStyle(color: Colors.green)),

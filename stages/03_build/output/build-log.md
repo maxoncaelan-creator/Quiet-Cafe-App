@@ -864,6 +864,60 @@ through the actual UI this session) — the server-side behavior is proven,
 the client-side message path is reasoned-through from the code but not
 click-tested end to end.
 
+## Session — 2026-08-18 (continued again): email is now immutable; forgot-password flow added
+
+Two bugs Caelan caught in the just-shipped Account screen.
+
+**Email can no longer be changed from the app.** Caelan's reasoning: needing
+a different email is effectively wanting a new account, not an edit to this
+one — so the capability shouldn't exist. Removed `_changeEmail()` and its
+dialog from `account_screen.dart` entirely; the Email row is now a plain
+`ListTile` with no `onTap`/chevron, display-only. Removed the now-unused
+`SupabaseService.updateEmail()` too rather than leave dead code.
+
+**Forgot password, added.** Nothing existed for a user who's locked out —
+`account_screen.dart`'s change-password only works for someone already
+signed in. Built as Supabase Auth's standard email-based recovery, not a
+custom token scheme:
+- `auth_screen.dart`: new "Forgot password?" link under the password field
+  (sign-in mode only — a fresh signup has no password yet to reset), a
+  dialog for the email (pre-filled from the field above if already typed),
+  calling `_client.auth.resetPasswordForEmail(email, redirectTo: ...)`
+  directly against the Supabase client — matching this file's existing
+  pattern of talking to `_client.auth` directly for every other auth action
+  here, rather than adding a pass-through wrapper to `SupabaseService` that
+  nothing else would call. Reuses `_oauthRedirectUrl`
+  (`quietrestaurantfinder://login-callback`), the same deep link already
+  wired for OAuth and email confirmation — no new native/dashboard config
+  needed beyond what's already pending (see the still-open "Register
+  `quietrestaurantfinder://login-callback`..." item below). Deliberately
+  doesn't reveal whether the address has an account, since Supabase's own
+  API doesn't either — the confirmation message reads "if this address has
+  an account..." either way.
+- New `screens/reset_password_screen.dart`: shown after the user taps the
+  emailed link. Supabase exchanges that link for a temporary recovery
+  session and fires `AuthChangeEvent.passwordRecovery` — the old password is
+  never asked for, by design (the link itself is the proof of ownership).
+  Just a new-password + confirm form calling the existing
+  `SupabaseService.updatePassword()`.
+- **Wired at the app level, not screen level**: `main.dart`'s
+  `QuietRestaurantFinderApp` converted from `StatelessWidget` to
+  `StatefulWidget` specifically to hold a `GlobalKey<NavigatorState>` and a
+  top-level `authStateChanges` subscription. The recovery link can cold-launch
+  the app or land while any arbitrary screen is on top — home_screen.dart's
+  existing auth listener is scoped to that one screen and wouldn't fire
+  reliably here, so this needed to live above all of them, pushing
+  `ResetPasswordScreen` via the navigator key from wherever the app happens
+  to be.
+
+`flutter analyze`: 0 issues. `flutter test`: 2/2 passed. **Not yet verified
+live on-device** — sending a real reset email and completing the link-tap →
+recovery-session → new-password flow through the actual UI hasn't been done
+this session; the code path is reasoned-through, not click-tested.
+
+Still on `feature/mic-reading-rate-limit` — Caelan asked not to push the
+branch yet, more changes to land on it first.
+
 ## Open items carried into further build work
 - ~~Decide what to do about Popular Times~~ — decided 2026-08-15: dropped for v1, code kept dormant.
 - ~~Decide whether mic readings need a user identity~~ — decided 2026-08-15: real accounts, submission-gated only. See "Account-gated mic readings" above.
@@ -873,6 +927,8 @@ click-tested end to end.
 - ~~Whether to add per-account rate limiting on readings, now that real identity exists~~ — resolved 2026-08-18: 30-second cooldown between submissions from the same account, enforced server-side. See "per-account rate limiting on mic readings" above.
 - **GitHub branch protection on `main` still not set up as an actual repo setting** — no authenticated path to github.com in the 2026-08-18 session (Claude-in-Chrome needed re-auth, no `gh` CLI, no token). Caelan chose a standing behavioral rule (branch + PR, never push to `main` directly) instead for now; revisit setting the real GitHub setting when there's an authenticated path available.
 - **Rate-limit cooldown message not click-tested end to end on-device** — the server-side trigger is verified live against the database; the Flutter snackbar message path (`take_reading_screen.dart`'s `PostgrestException` handling) is reasoned-through from the code, not yet confirmed by actually triggering it twice within 30s through the real UI.
+- ~~Email can be changed from the Account screen~~ — resolved 2026-08-18: removed entirely, per Caelan (a new email is effectively a new account). See "email is now immutable" above.
+- ~~No way to reset a forgotten password~~ — resolved 2026-08-18: standard Supabase email-recovery flow added. See "forgot-password flow added" above. **Not yet click-tested on-device** — same gap as the rate-limit message above, code path reasoned-through but not run through a real emailed link end to end.
 - Exact score-weighting constants (`DEFAULT_WEIGHTS`, `PLATFORM_WEIGHT`, and now `REVIEW_MENTION_TIERS`/`MIC_READING_TIERS` in `scoring.js`) — starting values per ranking-spec.md, need tuning against real usage data.
 - ~~Flutter app not yet compiled~~ — resolved 2026-08-16: `flutter pub get`/`analyze`/`test` all ran clean, and `flutter run -d edge` confirmed the app renders live Supabase data correctly. ~~Android build/device run~~ — resolved 2026-08-17: full Android toolchain set up, real emulator created, app built and run on it, verified visually (see "first real run" above). Still needed: iOS build (needs a Mac — no workaround, unrelated to the Android work). ~~Completing a real sign-in + mic-reading submission through the UI on-device~~ — resolved 2026-08-17: full flow verified for real (signup → email confirmation → sign-in → mic capture → submission → pipeline aggregation), see "real sign-in + mic-reading verified on-device" above.
 - ~~Clear the 4 seeded demo rows from the live `restaurants` table~~ — done this session (2026-08-16, continued): confirmed the 4 rows were exactly the known sample set, then deleted. Table is at 0 rows now — needs real pipeline data before the app has anything to show.
