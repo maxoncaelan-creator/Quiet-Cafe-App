@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../widgets/centered_scroll_form.dart';
+import '../widgets/password_field.dart';
 import 'forgot_password_screen.dart';
 
 class SignInEmailScreen extends StatefulWidget {
@@ -66,10 +67,9 @@ class _SignInEmailScreenState extends State<SignInEmailScreen> {
                 decoration: const InputDecoration(labelText: 'Email'),
               ),
               const SizedBox(height: 12),
-              TextField(
+              PasswordField(
                 controller: _passwordController,
-                obscureText: true,
-                decoration: const InputDecoration(labelText: 'Password'),
+                labelText: 'Password',
                 onSubmitted: (_) => _submitting ? null : _submit(),
               ),
               Align(

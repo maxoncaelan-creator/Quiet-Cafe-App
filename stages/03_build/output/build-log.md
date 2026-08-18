@@ -1271,6 +1271,84 @@ explicit instruction. What was done instead:
 
 `flutter analyze`: 0 issues. `flutter test`: 2/2 passed.
 
+## Session — 2026-08-18 (yet another continuation): password visibility toggle, friendly policy-error message, Change password rebuilt as its own re-verified screen
+
+Three related asks from Caelan, arriving in sequence as the conversation
+clarified itself.
+
+**Password visibility toggle.** New `widgets/password_field.dart` — a
+`TextField` wrapping its own `obscureText` bool with an eye
+`IconButton` suffix, so every password field in the app gets the same
+toggle without each screen managing the bool itself. Applied everywhere a
+password is typed: `sign_in_email_screen.dart`,
+`create_account_password_screen.dart` (both fields),
+`reset_password_screen.dart` (both fields), and the (now-replaced, see
+below) change-password dialog.
+
+**The confusing password-policy error, not the policy itself.** Caelan's
+first framing made it sound like the strict Supabase password-complexity
+requirement (upper+lower+digit+symbol, from the "password should contain
+at least one character of each: abcdefg...!@#$%..." error two sessions
+ago) was a mistake to relax. He then corrected that: the policy is
+intentional and correct — what actually needed fixing was that the app was
+displaying Supabase's raw rejection message verbatim, dumping the entire
+allowed-character-set string instead of stating the requirement plainly.
+New `utils/friendly_auth_error.dart` —
+`friendlyPasswordPolicyError(Object error)` detects that specific
+Supabase message (matches on `'password should contain'`, case-
+insensitive) and returns "Password must contain at least one uppercase
+letter, one lowercase letter, one number, and one special character."
+instead; returns null for any other error so callers keep their own normal
+fallback formatting. Wired into every place a password-setting call can
+fail: `create_account_password_screen.dart`, `reset_password_screen.dart`,
+and the change-password flow. Also added a matching hint line under the
+new-password field on all three password-*setting* screens (not
+sign-in, which doesn't set a password) — "Must include an uppercase
+letter, a lowercase letter, a number, and a symbol." — so the requirement
+is visible upfront instead of only discovered after a rejected attempt.
+
+Also flagged plainly to Caelan: the policy itself lives in Supabase's Auth
+project settings (Dashboard → Authentication → Providers → Email →
+"Password Requirements"), not in this app's code or migrations — none of
+the Supabase MCP tools available in this session can read or change that
+setting remotely, so confirming exactly what's configured there was Caelan's
+own check, not something done from here.
+
+**Change password rebuilt as its own screen**, per Caelan, replacing the
+original `showDialog` version — and now asks for the *current* password
+too, not just the new one. New `screens/change_password_screen.dart`:
+Current password + New password (both via the new `PasswordField`, both
+with the policy hint), reached from `account_screen.dart`'s "Change
+password" row via `Navigator.push` instead of `showDialog`. Two-step
+submit, not one: Supabase's `updateUser()` changes the password based on
+the current session alone — it never checks the old password — so this
+screen re-verifies it explicitly first via a real
+`signInWithPassword(email, currentPassword)` call before touching the
+actual update. A wrong current password fails right there with "Current
+password is incorrect." and never reaches the update step. This matters
+for a real, not hypothetical, gap: without it, anyone with the device
+unlocked and this app already signed in could change the password without
+ever knowing the original — re-verification is what makes "change
+password" actually mean the account holder authorized it.
+`account_screen.dart` lost its `_changePassword` method and the
+now-unused `PasswordField`/`friendly_auth_error` imports that moved with
+it.
+
+`flutter analyze`: 0 issues throughout (checked after each of the three
+sub-changes). `flutter test`: 2/2 passed.
+
+**Verified live on the emulator**, all three: (1) opened the change-
+password screen, typed a password, tapped the eye icon — text visibly
+un-masked, icon switched to the crossed-out variant. (2) Entered a
+deliberately wrong current password with a policy-valid new password,
+submitted — got exactly "Current password is incorrect.", confirming the
+re-verify-before-update ordering actually works, not just compiles. Hit
+one unrelated hiccup mid-session: the emulator rendered a solid black
+frame after closing the Google account picker (engine/surface glitch, no
+error in the Flutter run log, unaffected by any code in this session) —
+resolved with a force-stop + relaunch, unrelated to and not caused by any
+of these changes.
+
 ## Open items carried into further build work
 - ~~Decide what to do about Popular Times~~ — decided 2026-08-15: dropped for v1, code kept dormant.
 - ~~Decide whether mic readings need a user identity~~ — decided 2026-08-15: real accounts, submission-gated only. See "Account-gated mic readings" above.

@@ -8,7 +8,9 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../services/oauth_service.dart';
+import '../utils/friendly_auth_error.dart';
 import '../widgets/centered_scroll_form.dart';
+import '../widgets/password_field.dart';
 
 class CreateAccountPasswordScreen extends StatefulWidget {
   final String email;
@@ -72,7 +74,7 @@ class _CreateAccountPasswordScreenState extends State<CreateAccountPasswordScree
         Navigator.of(context).pop(true);
       }
     } on AuthException catch (e) {
-      setState(() => _error = e.message);
+      setState(() => _error = friendlyPasswordPolicyError(e) ?? e.message);
     } catch (e) {
       setState(() => _error = 'Something went wrong: $e');
     } finally {
@@ -89,18 +91,21 @@ class _CreateAccountPasswordScreenState extends State<CreateAccountPasswordScree
           children: [
               Text('Choose a password for ${widget.email}.', textAlign: TextAlign.center),
               const SizedBox(height: 24),
-              TextField(
+              PasswordField(
                 controller: _passwordController,
-                obscureText: true,
+                labelText: 'Password',
                 autofocus: true,
-                decoration: const InputDecoration(labelText: 'Password'),
               ),
               const SizedBox(height: 12),
-              TextField(
+              PasswordField(
                 controller: _confirmController,
-                obscureText: true,
-                decoration: const InputDecoration(labelText: 'Confirm password'),
+                labelText: 'Confirm password',
                 onSubmitted: (_) => _submitting ? null : _submit(),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Must include an uppercase letter, a lowercase letter, a number, and a symbol.',
+                style: Theme.of(context).textTheme.bodySmall,
               ),
               const SizedBox(height: 20),
               if (_error != null) Text(_error!, style: const TextStyle(color: Colors.red)),

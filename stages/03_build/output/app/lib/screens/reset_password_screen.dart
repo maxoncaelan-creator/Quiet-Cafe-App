@@ -9,7 +9,9 @@
 import 'package:flutter/material.dart';
 
 import '../services/supabase_service.dart';
+import '../utils/friendly_auth_error.dart';
 import '../widgets/centered_scroll_form.dart';
+import '../widgets/password_field.dart';
 
 class ResetPasswordScreen extends StatefulWidget {
   const ResetPasswordScreen({super.key});
@@ -56,7 +58,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
       Navigator.of(context).popUntil((route) => route.isFirst);
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = 'Could not update password: $e');
+      setState(() => _error = friendlyPasswordPolicyError(e) ?? 'Could not update password: $e');
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
@@ -70,17 +72,20 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
         children: [
             const Text('Choose a new password for your account.', textAlign: TextAlign.center),
             const SizedBox(height: 24),
-            TextField(
+            PasswordField(
               controller: _passwordController,
-              obscureText: true,
-              decoration: const InputDecoration(labelText: 'New password'),
+              labelText: 'New password',
             ),
             const SizedBox(height: 12),
-            TextField(
+            PasswordField(
               controller: _confirmController,
-              obscureText: true,
-              decoration: const InputDecoration(labelText: 'Confirm new password'),
+              labelText: 'Confirm new password',
               onSubmitted: (_) => _submitting ? null : _submit(),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Must include an uppercase letter, a lowercase letter, a number, and a symbol.',
+              style: Theme.of(context).textTheme.bodySmall,
             ),
             const SizedBox(height: 20),
             if (_error != null) Text(_error!, style: const TextStyle(color: Colors.red)),
