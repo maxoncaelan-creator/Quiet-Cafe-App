@@ -1448,9 +1448,44 @@ trigger (`enforce_mic_reading_cooldown`, `0006_mic_reading_rate_limit.sql`)
 and the Flutter-side message parsing both work correctly together, live —
 this was previously only reasoned-through from code.
 
-Not yet committed — working on `feature/mic-reading-rate-limit`, still
-blocked on the GitHub connector's repo access (see PR blocker below);
-Caelan chose to skip resolving that this session and defer the PR.
+Committed and pushed to `feature/mic-reading-rate-limit`; **merged to
+`main` by Caelan** (PR #1) at the start of the next session.
+
+## Session — 2026-08-18 (continuation): confidence label and reading-button redesign
+
+Two UI requests from Caelan, both cosmetic/UX, no backend change:
+
+**List-item confidence dots → text.** `RestaurantTile`
+(`widgets/restaurant_tile.dart`) showed the same six-dot confidence meter
+as the detail screen, just smaller — cramped and not very legible at that
+size. Added a `showDots` flag to `ConfidenceIndicator`
+(`widgets/confidence_indicator.dart`, default `true`, so the detail
+screen's dots+label rendering is unchanged); when `false`, the label reads
+`'$confidence confidence'` (e.g. "Very Low confidence") instead of the
+bare level name, since without dots for context the level name alone read
+as ambiguous floating text. List tiles now pass `showDots: false` and
+show text only.
+
+**"Take a reading here" button redesigned.** Was a standard
+`FilledButton.icon` pill. Replaced with a new `PulsingMicButton` widget
+(`widgets/pulsing_mic_button.dart`): a circular mic icon button with two
+staggered ripple rings that continuously expand and fade outward (an
+`AnimationController` repeating on a 1800ms cycle, second ring offset half
+a cycle behind the first so there's always one rippling). Wired into
+`restaurant_detail_screen.dart` with "Record how loud this venue is" above
+and "Take a reading here" below, replacing the old single-line button.
+
+`flutter analyze`: 0 issues. `flutter test`: 2/2 passed. **Verified live**
+on `emulator-5554`: List screen shows "Very Low confidence" as plain text
+per row, no dots. MuMu's detail screen shows the new mic button with the
+two label lines; captured two screenshots a second apart and confirmed the
+ripple ring's size/opacity differed between them, i.e. it's actually
+animating and not a static asset.
+
+Committed to `feature/confidence-label-and-reading-button`, branched fresh
+off `main` (not stacked on the still-open Google/password branch, to keep
+the two PRs independently reviewable). Not yet pushed/PR'd — pending
+Caelan's review.
 
 ## Open items carried into further build work
 - ~~Decide what to do about Popular Times~~ — decided 2026-08-15: dropped for v1, code kept dormant.

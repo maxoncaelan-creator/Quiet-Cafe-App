@@ -13,12 +13,14 @@ class ConfidenceIndicator extends StatelessWidget {
 
   final String? confidence;
   final bool showLabel;
+  final bool showDots;
   final double dotSize;
 
   const ConfidenceIndicator({
     super.key,
     required this.confidence,
     this.showLabel = true,
+    this.showDots = true,
     this.dotSize = 6,
   });
 
@@ -55,11 +57,14 @@ class ConfidenceIndicator extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            dots,
+            if (showDots) dots,
             if (showLabel) ...[
-              const SizedBox(width: 6),
+              if (showDots) const SizedBox(width: 6),
               Text(
-                confidence!,
+                // Without the dots, the level name alone ("Very Low") reads
+                // as ambiguous floating text — "confidence" gives it the
+                // context the dots otherwise provided visually.
+                showDots ? confidence! : '$confidence confidence',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
               ),
             ],

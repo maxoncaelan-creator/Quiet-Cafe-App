@@ -4,6 +4,7 @@ import '../models/restaurant.dart';
 import '../services/supabase_service.dart';
 import '../widgets/confidence_indicator.dart';
 import '../widgets/noise_level_bar.dart';
+import '../widgets/pulsing_mic_button.dart';
 import 'auth_screen.dart';
 import 'take_reading_screen.dart';
 
@@ -129,10 +130,25 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
             detail: restaurant.popular.subscore == null ? 'No busyness data yet' : null,
           ),
           const SizedBox(height: 32),
-          FilledButton.icon(
-            icon: const Icon(Icons.mic),
-            label: const Text('Take a reading here'),
-            onPressed: () => _startReading(context),
+          Center(
+            child: Column(
+              children: [
+                Text(
+                  'Record how loud this venue is',
+                  style: Theme.of(context).textTheme.titleMedium,
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 20),
+                PulsingMicButton(onPressed: () => _startReading(context)),
+                const SizedBox(height: 20),
+                Text(
+                  'Take a reading here',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                ),
+              ],
+            ),
           ),
         ],
       ),

@@ -70,7 +70,7 @@ class RestaurantTile extends StatelessWidget {
                 NoiseLevelBar(quietnessScore: restaurant.quietnessScore, compact: true),
                 if (restaurant.confidence != null) ...[
                   const SizedBox(height: 4),
-                  ConfidenceIndicator(confidence: restaurant.confidence, showLabel: false, dotSize: 4),
+                  ConfidenceIndicator(confidence: restaurant.confidence, showDots: false),
                 ],
               ],
             ),
