@@ -1091,6 +1091,65 @@ file). `flutter test`: 2/2 passed.
   default free-tier SMTP limit (temporary, resets on its own), not a bug —
   don't spend time debugging it.
 
+## Session — 2026-08-18 (yet another continuation): auth screens split into choosers, matching cal.com reference
+
+Caelan gave a screenshot of cal.com's sign-in/sign-up pages as the reference
+and asked for four things: a more prominent Google button, sign-up's email
+field moved off the main screen and behind a button, sign-in's email+password
+moved the same way, and every Google button using the real logo.
+
+**`widgets/google_sign_in_button.dart`** (new) — solid near-black pill,
+white bold text, Google's actual four-color "G" mark rather than a generic
+Material icon. Deliberately a literal style match to the reference rather
+than derived from the app's teal theme — the point is contrast against the
+other buttons on the same screen. The logo itself: added
+`assets/icons/google_logo.svg` (Google's standard four-path "G" logomark)
+and the `flutter_svg` package (`^2.0.10+1`, resolved to `2.3.0` — wasn't a
+dependency before, added just for this) to render it.
+
+**`widgets/email_option_button.dart`** (new) — the "Sign in/up with email >"
+secondary button replacing the inline fields on both chooser screens.
+
+**Both `auth_screen.dart` and `create_account_screen.dart` became pure
+choosers** — just the provider buttons (Google now via the new widget,
+Apple/Facebook unchanged) and an email-option button, no text fields of
+their own anymore. The actual fields moved to two new screens:
+- `screens/sign_in_email_screen.dart` — email, password, "Forgot
+  password?", Sign in button. Basically `auth_screen.dart`'s old form,
+  relocated.
+- `screens/create_account_email_screen.dart` — email field + Continue.
+  `create_account_screen.dart`'s old form, relocated.
+
+**Cascade got one hop deeper** on the sign-up side: all 5 sites that push
+`AuthScreen` still expect `Navigator.push<bool>`, so the pop contract
+(`true`/`false`/`null`, same meaning as before) now relays through one more
+screen — `CreateAccountPasswordScreen` → `CreateAccountEmailScreen` →
+`CreateAccountScreen` (chooser) → `AuthScreen` (chooser) → original caller.
+Each hop is the same `if (result != null) Navigator.of(context).pop(result)`
+pattern already established two sessions ago, just threaded one level
+further. Sign-in gained one hop too:
+`SignInEmailScreen` → `AuthScreen` (chooser) → original caller.
+`onPendingConfirmation` (the "check your email" message callback) threads
+through the same chain unchanged.
+
+`flutter analyze`: 0 issues (one miss along the way, caught immediately:
+`create_account_email_screen.dart`'s `_submitting` field was declared but
+never actually set `true` during the push-and-await, same latent gap the
+pre-refactor file had — analyze flagged it as "could be final" once
+isolated in its own file; fixed properly by setting it during the
+navigation instead of just silencing the lint). `flutter test`: 2/2 passed.
+
+**Verified live on the emulator**: both chooser screens screenshot
+pixel-matches the ask — solid black Google button with the real logo,
+"Sign in with email >" / "Sign up with email >" as the only other visible
+option beside Apple/Facebook. Confirmed tapping the email-option button on
+both screens opens the dedicated page with the actual fields, title
+reflecting which flow ("Sign in with email" / "Create account").
+Deeper cascade behavior (the extra hop) is reasoned-through/code-reviewed,
+not independently re-verified this pass beyond what the visual check above
+covers — no reason to expect it broke given it's the same pop pattern used
+one level up, but flagging the distinction honestly.
+
 ## Open items carried into further build work
 - ~~Decide what to do about Popular Times~~ — decided 2026-08-15: dropped for v1, code kept dormant.
 - ~~Decide whether mic readings need a user identity~~ — decided 2026-08-15: real accounts, submission-gated only. See "Account-gated mic readings" above.
