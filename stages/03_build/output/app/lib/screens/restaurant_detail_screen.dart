@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/restaurant.dart';
 import '../services/supabase_service.dart';
 import '../widgets/confidence_indicator.dart';
+import '../widgets/loudness_vote_buttons.dart';
 import '../widgets/noise_level_bar.dart';
 import 'auth_screen.dart';
 import 'take_reading_screen.dart';
@@ -85,6 +86,17 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
     );
   }
 
+  /// Same sign-in gate as _startReading, minus the navigation — used by
+  /// LoudnessVoteButtons, which needs to know whether the vote can proceed
+  /// without itself owning a TakeReadingScreen-style destination.
+  Future<bool> _ensureSignedIn(BuildContext context) async {
+    if (_supabaseService.isSignedIn) return true;
+    final signedIn = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(builder: (_) => const AuthScreen()),
+    );
+    return signedIn == true;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -107,27 +119,8 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
           if (restaurant.address != null) Text(restaurant.address!),
           const SizedBox(height: 16),
           _ScoreHeader(restaurant: restaurant),
-          const SizedBox(height: 24),
-          const Text('Score breakdown', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-          const SizedBox(height: 8),
-          _SignalRow(
-            label: 'Microphone readings',
-            subscore: restaurant.mic.subscore,
-            detail: '${restaurant.mic.totalReadings} reading(s) '
-                '(${restaurant.mic.readingCountIos} iOS, ${restaurant.mic.readingCountAndroid} Android)',
-          ),
-          _SignalRow(
-            label: 'Review mentions',
-            subscore: restaurant.review.subscore,
-            detail: restaurant.review.subscore == null
-                ? 'Not enough review mentions yet'
-                : null,
-          ),
-          _SignalRow(
-            label: 'Popular times',
-            subscore: restaurant.popular.subscore,
-            detail: restaurant.popular.subscore == null ? 'No busyness data yet' : null,
-          ),
+          const SizedBox(height: 32),
+          LoudnessVoteButtons(placeId: restaurant.placeId, ensureSignedIn: _ensureSignedIn),
           const SizedBox(height: 32),
           FilledButton.icon(
             icon: const Icon(Icons.mic),
@@ -156,37 +149,6 @@ class _ScoreHeader extends StatelessWidget {
             const SizedBox(height: 10),
             ConfidenceIndicator(confidence: restaurant.confidence),
           ],
-        ],
-      ),
-    );
-  }
-}
-
-class _SignalRow extends StatelessWidget {
-  final String label;
-  final num? subscore;
-  final String? detail;
-
-  const _SignalRow({required this.label, required this.subscore, this.detail});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(label),
-                if (detail != null)
-                  Text(detail!, style: Theme.of(context).textTheme.bodySmall),
-              ],
-            ),
-          ),
-          Text(subscore == null ? '—' : subscore!.round().toString()),
         ],
       ),
     );

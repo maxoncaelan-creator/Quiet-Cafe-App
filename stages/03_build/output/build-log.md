@@ -1448,11 +1448,103 @@ trigger (`enforce_mic_reading_cooldown`, `0006_mic_reading_rate_limit.sql`)
 and the Flutter-side message parsing both work correctly together, live —
 this was previously only reasoned-through from code.
 
-Not yet committed — working on `feature/mic-reading-rate-limit`, still
-blocked on the GitHub connector's repo access (see PR blocker below);
-Caelan chose to skip resolving that this session and defer the PR.
+Committed and pushed to `feature/mic-reading-rate-limit`; **merged to
+`main` by Caelan** (PR #1) at the start of the next session. Several
+follow-up sessions since then (Google/password account-linking fix,
+confidence-display + reading-button redesign, mic-reading capture moved
+inline) are documented on their own branches, not repeated here — see
+`feature/hide-change-password-for-google-only` and
+`feature/confidence-label-and-reading-button`.
+
+## Session — 2026-08-18 (continuation): loudness votes and a GPS venue guess
+
+Two substantial features from Caelan in one request: a lightweight
+Quiet/Normal/Loud vote (replacing the detail screen's "Score breakdown"
+section) that feeds the same quietness score a mic reading does, plus a
+GPS-based "Are you at X?" guess on the Search Assistant screen's empty
+state.
+
+**Loudness votes.** New `loudness_votes` table
+(`supabase/migrations/0008_loudness_votes.sql`), same account-gated shape
+as `mic_readings`/`favorites` — a vote needs a real user identity so the
+pipeline can apply the precedence rule below. Applied directly to the live
+project (`aesorixtfasfuvcqrvem`); `get_advisors` clean afterward.
+
+Scoring (`data-pipeline/src/scoring.js`): `voteSubscore` averages
+Quiet/Normal/Loud (100/50/0) the way `micSubscore` averages decibels;
+`filterVotesSupersededByMic` drops a vote from scoring when the same user
+has a mic reading at the same venue within 5 minutes either side — the
+vote itself is never deleted from `loudness_votes`, only excluded from
+this run's aggregation. `DEFAULT_WEIGHTS` rebalanced to `{mic: 0.4, review:
+0.25, vote: 0.2, popular: 0.15}` (was `{mic: 0.5, review: 0.3, popular:
+0.2}`) — mic stays highest-trust, matching why a mic reading overrides a
+vote in the first place, not just review's. `combineScores` and its tests
+updated for the 4th signal; `restaurants` gained matching
+`vote_count`/`vote_subscore`/`vote_signal_updated_at` columns, mirroring
+the existing review/mic/popular columns. 6 new pipeline tests, all passing
+alongside the 26 existing ones.
+
+App side: `SupabaseService.submitLoudnessVote`, new
+`widgets/loudness_vote_buttons.dart` (three `OutlinedButton`s, same
+`ensureSignedIn` gate pattern as the mic reading flow, SnackBar
+confirmation). `restaurant_detail_screen.dart`'s "Score breakdown" heading
+and its three signal rows are gone entirely, replaced by "How loud is this
+venue?" and the vote buttons, right above the existing reading control.
+
+**Verified live, fully end to end**: tapped "Quiet" on Cafe Sydney
+Restaurant, got "Thanks for your vote!", confirmed the row landed in
+`loudness_votes` via direct query, ran the pipeline for real, and confirmed
+`vote_count`/`vote_subscore` populated and confidence upgraded (`Very Low`
+→ `Low`) — the whole vote-to-score path proven, not just unit-tested.
+
+**GPS venue guess.** Added `geolocator` (13.0.4), location permission
+strings (Android manifest, iOS Info.plist), and
+`services/location_service.dart` — get the current position or null (never
+an error to surface; this is a convenience feature), plus a 30-minute
+`SharedPreferences`-backed cooldown after the user dismisses a guess.
+`search_assistant_screen.dart`'s empty state now checks (once per screen
+mount, signed-in users only) whether a loaded restaurant's lat/lng is
+within 100m of the device's position; if so, shows "Are you at X?" with
+Yes (pushes `RestaurantDetailScreen`) / No (records the dismissal, reverts
+to the normal splash).
+
+**Found and fixed a real crash risk while testing live**: the first
+`getCurrentPosition()` call had no platform-level bound, only a Dart-side
+`.timeout()`. On this emulator, a `forceLocationManager` attempt hung hard
+enough to trigger a genuine Android ANR (confirmed via `adb logcat`:
+"ANR in system", 80-100%+ kernel CPU); the default FusedLocationProvider
+path didn't ANR outright but could retry a WiFi-based location fix
+indefinitely with no way to interrupt it. Fixed by adding an explicit
+`timeLimit: Duration(seconds: 8)` to `LocationSettings` itself (not just
+wrapping the Future) — this is the actual fix; the outer `.timeout()` is a
+second line of defense, not the primary one. Re-tested live: the same
+Play Services "Location Accuracy" dialog reappeared, but the app stayed
+fully responsive this time, confirming the fix. This isn't purely an
+emulator artifact — a real device on a poor/absent network connection
+could plausibly hit the same unbounded-retry behavior.
+
+**Honest limits of what got verified live**: permission-request UI and the
+ANR fix are directly confirmed on-device. The actual "found a nearby venue,
+showed the guess, tapped Yes/No" path was not — this emulator's Play
+Services location backend never produced a real GPS fix in this session
+(no working network-based resolution path here), and by the end of the
+session the emulator itself had become broadly unstable (a `Bluetooth
+keeps stopping` system crash unrelated to this app, general slowness) —
+continuing to push live GPS testing risked more instability for
+diminishing evidence, so this stopped short of a full live confirmation.
+The guess/dismiss/navigate logic itself is straightforward and follows the
+same `ensureSignedIn`-gated, `Navigator.push`-based patterns already proven
+elsewhere in this exact codebase; `flutter analyze` and `flutter test` are
+both clean.
+
+Committed to a fresh branch, `feature/loudness-votes-and-venue-guess`,
+branched off `main` rather than stacked on the other still-open branches
+(`feature/hide-change-password-for-google-only`,
+`feature/confidence-label-and-reading-button`) to keep the three PRs
+independently reviewable.
 
 ## Open items carried into further build work
+- **GPS venue guess not live-confirmed end to end** — added 2026-08-18 (continuation). Permission-request flow and the ANR-risk fix (native `timeLimit`) are confirmed live; the actual "found a nearby venue → showed 'Are you at X?' → Yes/No" path isn't, since this emulator's Play Services location backend never produced a real fix and the emulator grew unstable by session's end. Worth a real device test, or another emulator session, before trusting this fully.
 - ~~Decide what to do about Popular Times~~ — decided 2026-08-15: dropped for v1, code kept dormant.
 - ~~Decide whether mic readings need a user identity~~ — decided 2026-08-15: real accounts, submission-gated only. See "Account-gated mic readings" above.
 - ~~Whether to add Google/Apple Sign-In~~ — decided 2026-08-15: yes to both. ~~Google~~ — resolved 2026-08-18: Web + Android OAuth clients created, confirmed working end to end on the emulator (real account picker, real credential entry, successful sign-in). iOS client ID still not created — Apple sign-in still waiting on a real device to test.

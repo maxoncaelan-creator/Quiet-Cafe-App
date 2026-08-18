@@ -1,5 +1,40 @@
 [
   {
+    "placeId": "ChIJK2AbsHuvEmsRn_2kVh8Sv5w",
+    "yelpId": null,
+    "name": "Hustlers.Syd",
+    "cuisine": "asian_fusion_restaurant",
+    "priceLevel": 2,
+    "address": "LG, 24 York St, Sydney NSW 2000, Australia",
+    "lat": -33.8681348,
+    "lng": 151.20618199999998,
+    "googleRating": 4.8,
+    "yelpRating": null,
+    "signals": {
+      "review": {
+        "positiveCount": 0,
+        "negativeCount": 0,
+        "subscore": null
+      },
+      "popular": {
+        "busynessPercent": null,
+        "subscore": null
+      },
+      "mic": {
+        "readingCountIos": 0,
+        "readingCountAndroid": 0,
+        "subscore": null
+      },
+      "vote": {
+        "count": 0,
+        "subscore": null
+      }
+    },
+    "quietnessScore": null,
+    "confidence": null,
+    "signalCount": 0
+  },
+  {
     "placeId": "ChIJvyZ8WvCvEmsRTqM2KE94_aw",
     "yelpId": null,
     "name": "Grana",
@@ -24,36 +59,9 @@
         "readingCountIos": 0,
         "readingCountAndroid": 0,
         "subscore": null
-      }
-    },
-    "quietnessScore": null,
-    "confidence": null,
-    "signalCount": 0
-  },
-  {
-    "placeId": "ChIJK2AbsHuvEmsRn_2kVh8Sv5w",
-    "yelpId": null,
-    "name": "Hustlers.Syd",
-    "cuisine": "asian_fusion_restaurant",
-    "priceLevel": 2,
-    "address": "LG, 24 York St, Sydney NSW 2000, Australia",
-    "lat": -33.8681348,
-    "lng": 151.20618199999998,
-    "googleRating": 4.8,
-    "yelpRating": null,
-    "signals": {
-      "review": {
-        "positiveCount": 0,
-        "negativeCount": 0,
-        "subscore": null
       },
-      "popular": {
-        "busynessPercent": null,
-        "subscore": null
-      },
-      "mic": {
-        "readingCountIos": 0,
-        "readingCountAndroid": 0,
+      "vote": {
+        "count": 0,
         "subscore": null
       }
     },
@@ -86,6 +94,10 @@
         "readingCountIos": 0,
         "readingCountAndroid": 0,
         "subscore": null
+      },
+      "vote": {
+        "count": 0,
+        "subscore": null
       }
     },
     "quietnessScore": null,
@@ -117,222 +129,9 @@
         "readingCountIos": 0,
         "readingCountAndroid": 0,
         "subscore": null
-      }
-    },
-    "quietnessScore": null,
-    "confidence": null,
-    "signalCount": 0
-  },
-  {
-    "placeId": "ChIJdRmuCG2vEmsRYPe76JjEY5I",
-    "yelpId": null,
-    "name": "Aalia Restaurant Sydney",
-    "cuisine": "middle_eastern_restaurant",
-    "priceLevel": null,
-    "address": "Shop 7.07-7.08/25 Martin Pl, Sydney NSW 2000, Australia",
-    "lat": -33.8680725,
-    "lng": 151.2093505,
-    "googleRating": 4.7,
-    "yelpRating": null,
-    "signals": {
-      "review": {
-        "positiveCount": 0,
-        "negativeCount": 0,
-        "subscore": null
       },
-      "popular": {
-        "busynessPercent": null,
-        "subscore": null
-      },
-      "mic": {
-        "readingCountIos": 0,
-        "readingCountAndroid": 0,
-        "subscore": null
-      }
-    },
-    "quietnessScore": null,
-    "confidence": null,
-    "signalCount": 0
-  },
-  {
-    "placeId": "ChIJy5rTDTavEmsRMzWjIWyf0yw",
-    "yelpId": null,
-    "name": "Lana",
-    "cuisine": "italian_restaurant",
-    "priceLevel": null,
-    "address": "Level 1/5-7 Young St, Sydney NSW 2000, Australia",
-    "lat": -33.8625166,
-    "lng": 151.2109494,
-    "googleRating": 4.6,
-    "yelpRating": null,
-    "signals": {
-      "review": {
-        "positiveCount": 0,
-        "negativeCount": 0,
-        "subscore": null
-      },
-      "popular": {
-        "busynessPercent": null,
-        "subscore": null
-      },
-      "mic": {
-        "readingCountIos": 0,
-        "readingCountAndroid": 0,
-        "subscore": null
-      }
-    },
-    "quietnessScore": null,
-    "confidence": null,
-    "signalCount": 0
-  },
-  {
-    "placeId": "ChIJOahrAxKuEmsRiJOniUNkOZY",
-    "yelpId": null,
-    "name": "Cafe Sydney Restaurant",
-    "cuisine": "restaurant",
-    "priceLevel": null,
-    "address": "Level 5 Customs House, 31 Alfred St, Sydney NSW 2000, Australia",
-    "lat": -33.862079,
-    "lng": 151.2108919,
-    "googleRating": 4.5,
-    "yelpRating": null,
-    "signals": {
-      "review": {
-        "positiveCount": 1,
-        "negativeCount": 0,
-        "subscore": 100
-      },
-      "popular": {
-        "busynessPercent": null,
-        "subscore": null
-      },
-      "mic": {
-        "readingCountIos": 0,
-        "readingCountAndroid": 0,
-        "subscore": null
-      }
-    },
-    "quietnessScore": 100,
-    "confidence": "Very Low",
-    "signalCount": 1
-  },
-  {
-    "placeId": "ChIJAdgvpTSvEmsRG2zKBNpxNTo",
-    "yelpId": null,
-    "name": "Bouillon L'Entrecôte",
-    "cuisine": "french_restaurant",
-    "priceLevel": 3,
-    "address": "6 Loftus St, Sydney NSW 2000, Australia",
-    "lat": -33.862500499999996,
-    "lng": 151.21059590000002,
-    "googleRating": 4.7,
-    "yelpRating": null,
-    "signals": {
-      "review": {
-        "positiveCount": 1,
-        "negativeCount": 0,
-        "subscore": 100
-      },
-      "popular": {
-        "busynessPercent": null,
-        "subscore": null
-      },
-      "mic": {
-        "readingCountIos": 0,
-        "readingCountAndroid": 0,
-        "subscore": null
-      }
-    },
-    "quietnessScore": 100,
-    "confidence": "Very Low",
-    "signalCount": 1
-  },
-  {
-    "placeId": "ChIJ7w7CsmKvEmsR19M0RHhqZL8",
-    "yelpId": null,
-    "name": "BISTECCA",
-    "cuisine": "steak_house",
-    "priceLevel": null,
-    "address": "3 Dalley St, Sydney NSW 2000, Australia",
-    "lat": -33.8632981,
-    "lng": 151.2078628,
-    "googleRating": 4.7,
-    "yelpRating": null,
-    "signals": {
-      "review": {
-        "positiveCount": 0,
-        "negativeCount": 0,
-        "subscore": null
-      },
-      "popular": {
-        "busynessPercent": null,
-        "subscore": null
-      },
-      "mic": {
-        "readingCountIos": 0,
-        "readingCountAndroid": 0,
-        "subscore": null
-      }
-    },
-    "quietnessScore": null,
-    "confidence": null,
-    "signalCount": 0
-  },
-  {
-    "placeId": "ChIJs3cv0KuvEmsRHcXYwNJ6GU0",
-    "yelpId": null,
-    "name": "Primi Italian",
-    "cuisine": "italian_restaurant",
-    "priceLevel": 2,
-    "address": "168 Clarence St, Sydney NSW 2000, Australia",
-    "lat": -33.8701437,
-    "lng": 151.2056158,
-    "googleRating": 4.8,
-    "yelpRating": null,
-    "signals": {
-      "review": {
-        "positiveCount": 0,
-        "negativeCount": 0,
-        "subscore": null
-      },
-      "popular": {
-        "busynessPercent": null,
-        "subscore": null
-      },
-      "mic": {
-        "readingCountIos": 0,
-        "readingCountAndroid": 0,
-        "subscore": null
-      }
-    },
-    "quietnessScore": null,
-    "confidence": null,
-    "signalCount": 0
-  },
-  {
-    "placeId": "ChIJo3Z1GcCvEmsRAFnrNe37zms",
-    "yelpId": null,
-    "name": "Ho Jiak Town Hall - Junda's Playground (Enter from York Street)",
-    "cuisine": "malaysian_restaurant",
-    "priceLevel": 2,
-    "address": "125 York St, Sydney NSW 2000, Australia",
-    "lat": -33.8717263,
-    "lng": 151.2063255,
-    "googleRating": 4.7,
-    "yelpRating": null,
-    "signals": {
-      "review": {
-        "positiveCount": 0,
-        "negativeCount": 0,
-        "subscore": null
-      },
-      "popular": {
-        "busynessPercent": null,
-        "subscore": null
-      },
-      "mic": {
-        "readingCountIos": 0,
-        "readingCountAndroid": 0,
+      "vote": {
+        "count": 0,
         "subscore": null
       }
     },
@@ -365,6 +164,10 @@
         "readingCountIos": 0,
         "readingCountAndroid": 0,
         "subscore": null
+      },
+      "vote": {
+        "count": 0,
+        "subscore": null
       }
     },
     "quietnessScore": null,
@@ -372,46 +175,15 @@
     "signalCount": 0
   },
   {
-    "placeId": "ChIJ50FHZs2vEmsRrzNw-VqPOHs",
+    "placeId": "ChIJdRmuCG2vEmsRYPe76JjEY5I",
     "yelpId": null,
-    "name": "MuMu",
-    "cuisine": "restaurant",
-    "priceLevel": 2,
-    "address": "330C George St, Sydney NSW 2000, Australia",
-    "lat": -33.8666324,
-    "lng": 151.20733210000003,
-    "googleRating": 4.1,
-    "yelpRating": null,
-    "signals": {
-      "review": {
-        "positiveCount": 1,
-        "negativeCount": 0,
-        "subscore": 100
-      },
-      "popular": {
-        "busynessPercent": null,
-        "subscore": null
-      },
-      "mic": {
-        "readingCountIos": 0,
-        "readingCountAndroid": 0,
-        "subscore": null
-      }
-    },
-    "quietnessScore": 100,
-    "confidence": "Very Low",
-    "signalCount": 1
-  },
-  {
-    "placeId": "ChIJQcmNYGauEmsR84D5HAJJUhw",
-    "yelpId": null,
-    "name": "Bennelong",
-    "cuisine": "australian_restaurant",
-    "priceLevel": 4,
-    "address": "Sydney Opera House, Bennelong Point, Sydney NSW 2000, Australia",
-    "lat": -33.8574468,
-    "lng": 151.21474310000002,
-    "googleRating": 4.5,
+    "name": "Aalia Restaurant Sydney",
+    "cuisine": "middle_eastern_restaurant",
+    "priceLevel": null,
+    "address": "Shop 7.07-7.08/25 Martin Pl, Sydney NSW 2000, Australia",
+    "lat": -33.8680725,
+    "lng": 151.2093505,
+    "googleRating": 4.7,
     "yelpRating": null,
     "signals": {
       "review": {
@@ -427,6 +199,10 @@
         "readingCountIos": 0,
         "readingCountAndroid": 0,
         "subscore": null
+      },
+      "vote": {
+        "count": 0,
+        "subscore": null
       }
     },
     "quietnessScore": null,
@@ -434,15 +210,15 @@
     "signalCount": 0
   },
   {
-    "placeId": "ChIJ-f3oDq2vEmsRIIRqgsnzbPc",
+    "placeId": "ChIJy5rTDTavEmsRMzWjIWyf0yw",
     "yelpId": null,
-    "name": "MEZA Bar and Grill",
-    "cuisine": "restaurant",
-    "priceLevel": 2,
-    "address": "Level 1/95/99 York St, Sydney NSW 2000, Australia",
-    "lat": -33.870014999999995,
-    "lng": 151.2060219,
-    "googleRating": 4.9,
+    "name": "Lana",
+    "cuisine": "italian_restaurant",
+    "priceLevel": null,
+    "address": "Level 1/5-7 Young St, Sydney NSW 2000, Australia",
+    "lat": -33.8625166,
+    "lng": 151.2109494,
+    "googleRating": 4.6,
     "yelpRating": null,
     "signals": {
       "review": {
@@ -458,36 +234,9 @@
         "readingCountIos": 0,
         "readingCountAndroid": 0,
         "subscore": null
-      }
-    },
-    "quietnessScore": null,
-    "confidence": null,
-    "signalCount": 0
-  },
-  {
-    "placeId": "ChIJdxxU1WeuEmsR11c4fswX-Io",
-    "yelpId": null,
-    "name": "Aria Restaurant Sydney",
-    "cuisine": "fine_dining_restaurant",
-    "priceLevel": 4,
-    "address": "1 Macquarie St, Sydney NSW 2000, Australia",
-    "lat": -33.8592041,
-    "lng": 151.21326349999998,
-    "googleRating": 4.5,
-    "yelpRating": null,
-    "signals": {
-      "review": {
-        "positiveCount": 0,
-        "negativeCount": 0,
-        "subscore": null
       },
-      "popular": {
-        "busynessPercent": null,
-        "subscore": null
-      },
-      "mic": {
-        "readingCountIos": 0,
-        "readingCountAndroid": 0,
+      "vote": {
+        "count": 0,
         "subscore": null
       }
     },
@@ -520,6 +269,10 @@
         "readingCountIos": 0,
         "readingCountAndroid": 0,
         "subscore": null
+      },
+      "vote": {
+        "count": 0,
+        "subscore": null
       }
     },
     "quietnessScore": null,
@@ -527,21 +280,21 @@
     "signalCount": 0
   },
   {
-    "placeId": "ChIJnzttoEGuEmsRjBEqGkOTGG8",
+    "placeId": "ChIJAdgvpTSvEmsRG2zKBNpxNTo",
     "yelpId": null,
-    "name": "O Bar and Dining",
-    "cuisine": "restaurant",
-    "priceLevel": null,
-    "address": "Australia Square, level 47/264 George St, Sydney NSW 2000, Australia",
-    "lat": -33.8649023,
-    "lng": 151.207767,
-    "googleRating": 4.4,
+    "name": "Bouillon L'Entrecôte",
+    "cuisine": "french_restaurant",
+    "priceLevel": 3,
+    "address": "6 Loftus St, Sydney NSW 2000, Australia",
+    "lat": -33.862500499999996,
+    "lng": 151.21059590000002,
+    "googleRating": 4.7,
     "yelpRating": null,
     "signals": {
       "review": {
-        "positiveCount": 0,
+        "positiveCount": 1,
         "negativeCount": 0,
-        "subscore": null
+        "subscore": 100
       },
       "popular": {
         "busynessPercent": null,
@@ -551,11 +304,50 @@
         "readingCountIos": 0,
         "readingCountAndroid": 0,
         "subscore": null
+      },
+      "vote": {
+        "count": 0,
+        "subscore": null
       }
     },
-    "quietnessScore": null,
-    "confidence": null,
-    "signalCount": 0
+    "quietnessScore": 100,
+    "confidence": "Very Low",
+    "signalCount": 1
+  },
+  {
+    "placeId": "ChIJOahrAxKuEmsRiJOniUNkOZY",
+    "yelpId": null,
+    "name": "Cafe Sydney Restaurant",
+    "cuisine": "restaurant",
+    "priceLevel": null,
+    "address": "Level 5 Customs House, 31 Alfred St, Sydney NSW 2000, Australia",
+    "lat": -33.862079,
+    "lng": 151.2108919,
+    "googleRating": 4.5,
+    "yelpRating": null,
+    "signals": {
+      "review": {
+        "positiveCount": 1,
+        "negativeCount": 0,
+        "subscore": 100
+      },
+      "popular": {
+        "busynessPercent": null,
+        "subscore": null
+      },
+      "mic": {
+        "readingCountIos": 0,
+        "readingCountAndroid": 0,
+        "subscore": null
+      },
+      "vote": {
+        "count": 1,
+        "subscore": 100
+      }
+    },
+    "quietnessScore": 100,
+    "confidence": "Low",
+    "signalCount": 2
   },
   {
     "placeId": "ChIJT2CGg0GuEmsRYLRNCFoOvv4",
@@ -582,6 +374,10 @@
         "readingCountIos": 0,
         "readingCountAndroid": 0,
         "subscore": null
+      },
+      "vote": {
+        "count": 0,
+        "subscore": null
       }
     },
     "quietnessScore": null,
@@ -589,14 +385,14 @@
     "signalCount": 0
   },
   {
-    "placeId": "ChIJfTxskB6vEmsRXPSIwVlleUA",
+    "placeId": "ChIJVyiVBxiuEmsRvRl_kNMT5-A",
     "yelpId": null,
-    "name": "Bopp & Tone",
-    "cuisine": "restaurant",
-    "priceLevel": 3,
-    "address": "60 Carrington St, Sydney NSW 2000, Australia",
-    "lat": -33.8668185,
-    "lng": 151.2064637,
+    "name": "NOMAD Sydney",
+    "cuisine": "australian_restaurant",
+    "priceLevel": 4,
+    "address": "16 Foster St, Surry Hills NSW 2010, Australia",
+    "lat": -33.8799057,
+    "lng": 151.2103612,
     "googleRating": 4.6,
     "yelpRating": null,
     "signals": {
@@ -612,6 +408,290 @@
       "mic": {
         "readingCountIos": 0,
         "readingCountAndroid": 0,
+        "subscore": null
+      },
+      "vote": {
+        "count": 0,
+        "subscore": null
+      }
+    },
+    "quietnessScore": null,
+    "confidence": null,
+    "signalCount": 0
+  },
+  {
+    "placeId": "ChIJs3cv0KuvEmsRHcXYwNJ6GU0",
+    "yelpId": null,
+    "name": "Primi Italian",
+    "cuisine": "italian_restaurant",
+    "priceLevel": 2,
+    "address": "168 Clarence St, Sydney NSW 2000, Australia",
+    "lat": -33.8701437,
+    "lng": 151.2056158,
+    "googleRating": 4.8,
+    "yelpRating": null,
+    "signals": {
+      "review": {
+        "positiveCount": 0,
+        "negativeCount": 0,
+        "subscore": null
+      },
+      "popular": {
+        "busynessPercent": null,
+        "subscore": null
+      },
+      "mic": {
+        "readingCountIos": 0,
+        "readingCountAndroid": 0,
+        "subscore": null
+      },
+      "vote": {
+        "count": 0,
+        "subscore": null
+      }
+    },
+    "quietnessScore": null,
+    "confidence": null,
+    "signalCount": 0
+  },
+  {
+    "placeId": "ChIJ7w7CsmKvEmsR19M0RHhqZL8",
+    "yelpId": null,
+    "name": "BISTECCA",
+    "cuisine": "steak_house",
+    "priceLevel": null,
+    "address": "3 Dalley St, Sydney NSW 2000, Australia",
+    "lat": -33.8632981,
+    "lng": 151.2078628,
+    "googleRating": 4.7,
+    "yelpRating": null,
+    "signals": {
+      "review": {
+        "positiveCount": 0,
+        "negativeCount": 0,
+        "subscore": null
+      },
+      "popular": {
+        "busynessPercent": null,
+        "subscore": null
+      },
+      "mic": {
+        "readingCountIos": 0,
+        "readingCountAndroid": 0,
+        "subscore": null
+      },
+      "vote": {
+        "count": 0,
+        "subscore": null
+      }
+    },
+    "quietnessScore": null,
+    "confidence": null,
+    "signalCount": 0
+  },
+  {
+    "placeId": "ChIJo3Z1GcCvEmsRAFnrNe37zms",
+    "yelpId": null,
+    "name": "Ho Jiak Town Hall - Junda's Playground (Enter from York Street)",
+    "cuisine": "malaysian_restaurant",
+    "priceLevel": 2,
+    "address": "125 York St, Sydney NSW 2000, Australia",
+    "lat": -33.8717263,
+    "lng": 151.2063255,
+    "googleRating": 4.7,
+    "yelpRating": null,
+    "signals": {
+      "review": {
+        "positiveCount": 0,
+        "negativeCount": 0,
+        "subscore": null
+      },
+      "popular": {
+        "busynessPercent": null,
+        "subscore": null
+      },
+      "mic": {
+        "readingCountIos": 0,
+        "readingCountAndroid": 0,
+        "subscore": null
+      },
+      "vote": {
+        "count": 0,
+        "subscore": null
+      }
+    },
+    "quietnessScore": null,
+    "confidence": null,
+    "signalCount": 0
+  },
+  {
+    "placeId": "ChIJQcmNYGauEmsR84D5HAJJUhw",
+    "yelpId": null,
+    "name": "Bennelong",
+    "cuisine": "australian_restaurant",
+    "priceLevel": 4,
+    "address": "Sydney Opera House, Bennelong Point, Sydney NSW 2000, Australia",
+    "lat": -33.8574468,
+    "lng": 151.21474310000002,
+    "googleRating": 4.5,
+    "yelpRating": null,
+    "signals": {
+      "review": {
+        "positiveCount": 0,
+        "negativeCount": 0,
+        "subscore": null
+      },
+      "popular": {
+        "busynessPercent": null,
+        "subscore": null
+      },
+      "mic": {
+        "readingCountIos": 0,
+        "readingCountAndroid": 0,
+        "subscore": null
+      },
+      "vote": {
+        "count": 0,
+        "subscore": null
+      }
+    },
+    "quietnessScore": null,
+    "confidence": null,
+    "signalCount": 0
+  },
+  {
+    "placeId": "ChIJ9dO8PvWvEmsRFRueqLabau8",
+    "yelpId": null,
+    "name": "Kazan Japanese Dining",
+    "cuisine": "japanese_restaurant",
+    "priceLevel": 3,
+    "address": "Shop 8.01/25 Martin Pl, Sydney NSW 2000, Australia",
+    "lat": -33.868614099999995,
+    "lng": 151.20904539999998,
+    "googleRating": 4.7,
+    "yelpRating": null,
+    "signals": {
+      "review": {
+        "positiveCount": 0,
+        "negativeCount": 0,
+        "subscore": null
+      },
+      "popular": {
+        "busynessPercent": null,
+        "subscore": null
+      },
+      "mic": {
+        "readingCountIos": 0,
+        "readingCountAndroid": 0,
+        "subscore": null
+      },
+      "vote": {
+        "count": 0,
+        "subscore": null
+      }
+    },
+    "quietnessScore": null,
+    "confidence": null,
+    "signalCount": 0
+  },
+  {
+    "placeId": "ChIJ50FHZs2vEmsRrzNw-VqPOHs",
+    "yelpId": null,
+    "name": "MuMu",
+    "cuisine": "restaurant",
+    "priceLevel": 2,
+    "address": "330C George St, Sydney NSW 2000, Australia",
+    "lat": -33.8666324,
+    "lng": 151.20733210000003,
+    "googleRating": 4.1,
+    "yelpRating": null,
+    "signals": {
+      "review": {
+        "positiveCount": 1,
+        "negativeCount": 0,
+        "subscore": 100
+      },
+      "popular": {
+        "busynessPercent": null,
+        "subscore": null
+      },
+      "mic": {
+        "readingCountIos": 0,
+        "readingCountAndroid": 6,
+        "subscore": 100
+      },
+      "vote": {
+        "count": 0,
+        "subscore": null
+      }
+    },
+    "quietnessScore": 100,
+    "confidence": "Moderate",
+    "signalCount": 2
+  },
+  {
+    "placeId": "ChIJ-f3oDq2vEmsRIIRqgsnzbPc",
+    "yelpId": null,
+    "name": "MEZA Bar and Grill",
+    "cuisine": "restaurant",
+    "priceLevel": 2,
+    "address": "Level 1/95/99 York St, Sydney NSW 2000, Australia",
+    "lat": -33.870014999999995,
+    "lng": 151.2060219,
+    "googleRating": 4.9,
+    "yelpRating": null,
+    "signals": {
+      "review": {
+        "positiveCount": 0,
+        "negativeCount": 0,
+        "subscore": null
+      },
+      "popular": {
+        "busynessPercent": null,
+        "subscore": null
+      },
+      "mic": {
+        "readingCountIos": 0,
+        "readingCountAndroid": 0,
+        "subscore": null
+      },
+      "vote": {
+        "count": 0,
+        "subscore": null
+      }
+    },
+    "quietnessScore": null,
+    "confidence": null,
+    "signalCount": 0
+  },
+  {
+    "placeId": "ChIJc0mMtOavEmsRDppT8X7Muus",
+    "yelpId": null,
+    "name": "Sydney Common",
+    "cuisine": "restaurant",
+    "priceLevel": 3,
+    "address": "161 Elizabeth St, Sydney NSW 2000, Australia",
+    "lat": -33.8715478,
+    "lng": 151.20971,
+    "googleRating": 4.5,
+    "yelpRating": null,
+    "signals": {
+      "review": {
+        "positiveCount": 0,
+        "negativeCount": 0,
+        "subscore": null
+      },
+      "popular": {
+        "busynessPercent": null,
+        "subscore": null
+      },
+      "mic": {
+        "readingCountIos": 0,
+        "readingCountAndroid": 0,
+        "subscore": null
+      },
+      "vote": {
+        "count": 0,
         "subscore": null
       }
     },

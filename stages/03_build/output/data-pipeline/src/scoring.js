@@ -21,10 +21,23 @@ export const MAX_DBA = 90;
 // Android accuracy varies by device with no reliable cross-device calibration.
 export const PLATFORM_WEIGHT = { ios: 1.0, android: 0.5 };
 
-// Starting weights for combining the three sub-scores. Renormalized at
+// Starting weights for combining the four sub-scores. Renormalized at
 // combine time over whichever signals are actually present for a venue.
-// Marked as an open tuning item in ranking-spec.md.
-export const DEFAULT_WEIGHTS = { mic: 0.5, review: 0.3, popular: 0.2 };
+// Marked as an open tuning item in ranking-spec.md. mic stays highest —
+// a decibel reading is more trustworthy than a self-reported vote, which
+// is itself why a mic reading within VOTE_PRECEDENCE_WINDOW_MS overrides a
+// vote from the same user in the first place (see filterVotesSupersededByMic).
+export const DEFAULT_WEIGHTS = { mic: 0.4, review: 0.25, vote: 0.2, popular: 0.15 };
+
+// Quiet/Normal/Loud votes, added 2026-08-18 per Caelan: a lightweight
+// alternative to a mic reading, feeding into the same score.
+export const VOTE_SUBSCORE = { quiet: 100, normal: 50, loud: 0 };
+export const VOTE_TIERS = [3, 10];
+
+// A mic reading from the same user, at the same venue, within this window
+// either side of a vote supersedes it for scoring purposes — the vote is
+// still recorded in loudness_votes either way, just excluded here.
+export const VOTE_PRECEDENCE_WINDOW_MS = 5 * 60 * 1000;
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
@@ -87,17 +100,51 @@ export function micSubscore(readings) {
   return dbaToSubscore(weightedDba);
 }
 
+/**
+ * Vote sub-score: averages Quiet/Normal/Loud votes onto the same 0-100
+ * quietness scale micSubscore uses, unweighted (a vote doesn't carry a
+ * platform-accuracy distinction the way iOS/Android mic readings do).
+ * Returns null if there are no countable votes.
+ * @param {Array<{vote: 'quiet'|'normal'|'loud'}>} votes already filtered by
+ *   the caller via filterVotesSupersededByMic
+ */
+export function voteSubscore(votes) {
+  if (!votes || votes.length === 0) return null;
+  const total = votes.reduce((sum, v) => sum + VOTE_SUBSCORE[v.vote], 0);
+  return clamp(total / votes.length, 0, 100);
+}
+
+/**
+ * Drops any vote that has a mic reading from the *same user*, at the same
+ * venue, within VOTE_PRECEDENCE_WINDOW_MS either side of it — the decibel
+ * reading is the more trustworthy signal in that case. The vote itself
+ * still stays in loudness_votes regardless; this only affects scoring.
+ * @param {Array<{userId: string, submittedAt: string|number|Date}>} votes
+ * @param {Array<{userId: string, submittedAt: string|number|Date}>} micReadings same venue's mic readings
+ */
+export function filterVotesSupersededByMic(votes, micReadings) {
+  return votes.filter((vote) => {
+    const voteTime = new Date(vote.submittedAt).getTime();
+    return !micReadings.some((reading) => {
+      if (reading.userId !== vote.userId) return false;
+      const readingTime = new Date(reading.submittedAt).getTime();
+      return Math.abs(readingTime - voteTime) <= VOTE_PRECEDENCE_WINDOW_MS;
+    });
+  });
+}
+
 // Confidence — six graduated levels, added 2026-08-17 (was three buckets
 // purely based on how many signal types were present). Now also weighs how
 // much data backs each signal: a venue with 1 review mention and one with
 // 20 both "have the review signal," but they shouldn't read as equally
 // trustworthy. Each present signal contributes 1-3 points depending on its
 // data volume (0 if absent); points sum and clamp to 1-6, mapping 1:1 onto
-// the six labels below. Today's max reachable total is exactly 6 (review's
-// 3 + mic's 3 — Popular Times is dormant, contributing 0); if it's ever
-// revived its extra points simply saturate at "Certain" rather than needing
-// a 7th tier. Thresholds are a starting point, same as DEFAULT_WEIGHTS —
-// flagged as an open tuning item, not a final calibration.
+// the six labels below. Votes (added 2026-08-18) count the same way, on
+// VOTE_TIERS. Max reachable total now exceeds 6 (review's 3 + mic's 3 +
+// vote's 3 — Popular Times is still dormant, contributing 0); it simply
+// saturates at "Certain" rather than needing more tiers. Thresholds are a
+// starting point, same as DEFAULT_WEIGHTS — flagged as an open tuning item,
+// not a final calibration.
 export const REVIEW_MENTION_TIERS = [3, 6];
 export const MIC_READING_TIERS = [3, 10];
 export const CONFIDENCE_LEVELS = ['Very Low', 'Low', 'Moderate', 'High', 'Very High', 'Certain'];
@@ -112,7 +159,7 @@ function tierPoints(count, tiers) {
 }
 
 /**
- * Combines the three sub-scores into a single quietness score, renormalizing
+ * Combines the four sub-scores into a single quietness score, renormalizing
  * weights over whichever signals are present (cold-start handling), and
  * computes a graduated confidence level from each present signal's data
  * volume.
@@ -120,13 +167,19 @@ function tierPoints(count, tiers) {
  *   review: { subscore: number|null, count?: number },
  *   popular: { subscore: number|null },
  *   mic: { subscore: number|null, count?: number },
- * }} signals `count` is the mention/reading total backing that signal.
- * @param {{review: number, popular: number, mic: number}} weights
+ *   vote: { subscore: number|null, count?: number },
+ * }} signals `count` is the mention/reading/vote total backing that signal.
+ * @param {{review: number, popular: number, mic: number, vote: number}} weights
  * @returns {{score: number|null, confidence: string|null, signalCount: number}}
  */
 export function combineScores(signals, weights = DEFAULT_WEIGHTS) {
-  const { review = {}, popular = {}, mic = {} } = signals;
-  const subscores = { review: review.subscore, popular: popular.subscore, mic: mic.subscore };
+  const { review = {}, popular = {}, mic = {}, vote = {} } = signals;
+  const subscores = {
+    review: review.subscore,
+    popular: popular.subscore,
+    mic: mic.subscore,
+    vote: vote.subscore,
+  };
   const present = Object.entries(subscores).filter(([, v]) => v !== null && v !== undefined);
 
   if (present.length === 0) {
@@ -138,8 +191,9 @@ export function combineScores(signals, weights = DEFAULT_WEIGHTS) {
 
   const reviewPoints = tierPoints(review.count, REVIEW_MENTION_TIERS);
   const micPoints = tierPoints(mic.count, MIC_READING_TIERS);
+  const votePoints = tierPoints(vote.count, VOTE_TIERS);
   const popularPoints = popular.subscore !== null && popular.subscore !== undefined ? 3 : 0;
-  const confidenceLevel = Math.min(6, Math.max(1, reviewPoints + micPoints + popularPoints));
+  const confidenceLevel = Math.min(6, Math.max(1, reviewPoints + micPoints + votePoints + popularPoints));
   const confidence = CONFIDENCE_LEVELS[confidenceLevel - 1];
 
   return { score: clamp(score, 0, 100), confidence, signalCount: present.length };

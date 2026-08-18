@@ -17,9 +17,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 
+import '../models/restaurant.dart';
+import '../services/location_service.dart';
 import '../services/supabase_service.dart';
 import '../widgets/app_drawer.dart';
 import 'auth_screen.dart';
+import 'restaurant_detail_screen.dart';
 
 class _ChatMessage {
   final String role; // 'user' | 'assistant'
@@ -35,9 +38,15 @@ class SearchAssistantScreen extends StatefulWidget {
 }
 
 class _SearchAssistantScreenState extends State<SearchAssistantScreen> {
+  // Beyond this, a GPS fix is more likely to be "somewhere on this block"
+  // than "actually inside this venue" — no research behind this number,
+  // just a reasonable starting point for a building-level guess.
+  static const _guessProximityMeters = 100.0;
+
   final _controller = TextEditingController();
   final _scrollController = ScrollController();
   final _supabaseService = SupabaseService();
+  final _locationService = LocationService();
   final List<_ChatMessage> _messages = [];
   bool _sending = false;
 
@@ -45,25 +54,83 @@ class _SearchAssistantScreenState extends State<SearchAssistantScreen> {
   bool _signedIn = false;
   DateTime? _rateLimitedUntil;
   Timer? _rateLimitRefreshTimer;
+  Restaurant? _guessedRestaurant;
 
   @override
   void initState() {
     super.initState();
     if (SupabaseService.isConfigured) {
       _signedIn = _supabaseService.isSignedIn;
-      if (_signedIn) _checkRateLimitStatus();
+      if (_signedIn) {
+        _checkRateLimitStatus();
+        _maybeGuessVenue();
+      }
       _authSubscription = _supabaseService.authStateChanges.listen((_) {
         if (!mounted) return;
         final signedIn = _supabaseService.isSignedIn;
         setState(() => _signedIn = signedIn);
         if (signedIn) {
           _checkRateLimitStatus();
+          _maybeGuessVenue();
         } else {
           _rateLimitRefreshTimer?.cancel();
-          setState(() => _rateLimitedUntil = null);
+          setState(() {
+            _rateLimitedUntil = null;
+            _guessedRestaurant = null;
+          });
         }
       });
     }
+  }
+
+  /// Replaces the empty-state splash with "Are you at X?" when a GPS fix
+  /// lands within _guessProximityMeters of exactly one loaded restaurant.
+  /// Silently gives up at any step (no permission, service off, no fix, no
+  /// nearby venue, still in the post-"No" cooldown) — this is a convenience
+  /// on top of the normal splash, never something to show an error for.
+  Future<void> _maybeGuessVenue() async {
+    if (!await LocationService.canGuessAgain()) return;
+
+    final position = await _locationService.getCurrentPosition();
+    if (position == null || !mounted) return;
+
+    List<Restaurant> restaurants;
+    try {
+      restaurants = await _supabaseService.fetchRankedRestaurants();
+    } catch (_) {
+      return;
+    }
+    if (!mounted) return;
+
+    Restaurant? nearest;
+    double? nearestDistance;
+    for (final restaurant in restaurants) {
+      final lat = restaurant.lat;
+      final lng = restaurant.lng;
+      if (lat == null || lng == null) continue;
+      final distance = LocationService.distanceMeters(position.latitude, position.longitude, lat, lng);
+      if (distance <= _guessProximityMeters && (nearestDistance == null || distance < nearestDistance)) {
+        nearest = restaurant;
+        nearestDistance = distance;
+      }
+    }
+
+    if (nearest != null && mounted) {
+      setState(() => _guessedRestaurant = nearest);
+    }
+  }
+
+  void _confirmGuess() {
+    final restaurant = _guessedRestaurant;
+    if (restaurant == null) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => RestaurantDetailScreen(restaurant: restaurant)),
+    );
+  }
+
+  Future<void> _dismissGuess() async {
+    await LocationService.recordDismissal();
+    if (mounted) setState(() => _guessedRestaurant = null);
   }
 
   /// A plain table read under RLS (search_assistant_usage's own-row SELECT
@@ -170,7 +237,13 @@ class _SearchAssistantScreenState extends State<SearchAssistantScreen> {
                     children: [
                       Expanded(
                         child: _messages.isEmpty
-                            ? const _EmptyState()
+                            ? (_guessedRestaurant != null
+                                ? _VenueGuessPrompt(
+                                    restaurant: _guessedRestaurant!,
+                                    onYes: _confirmGuess,
+                                    onNo: _dismissGuess,
+                                  )
+                                : const _EmptyState())
                             : _MessageList(
                                 messages: _messages,
                                 sending: _sending,
@@ -296,6 +369,49 @@ class _EmptyState extends StatelessWidget {
               'Ready to start searching for quiet eating spots?',
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.titleMedium,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _VenueGuessPrompt extends StatelessWidget {
+  final Restaurant restaurant;
+  final VoidCallback onYes;
+  final VoidCallback onNo;
+
+  const _VenueGuessPrompt({required this.restaurant, required this.onYes, required this.onNo});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 40),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircleAvatar(
+              radius: 40,
+              backgroundColor: scheme.primaryContainer,
+              child: Icon(Icons.place_outlined, color: scheme.onPrimaryContainer, size: 36),
+            ),
+            const SizedBox(height: 24),
+            Text(
+              'Are you at ${restaurant.name}?',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 20),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                OutlinedButton(onPressed: onNo, child: const Text('No')),
+                const SizedBox(width: 12),
+                FilledButton(onPressed: onYes, child: const Text('Yes')),
+              ],
             ),
           ],
         ),

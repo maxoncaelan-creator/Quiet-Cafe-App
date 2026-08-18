@@ -183,6 +183,20 @@ class SupabaseService {
     });
   }
 
+  /// [vote] must be one of 'quiet' | 'normal' | 'loud' — matches
+  /// loudness_votes' check constraint (0008_loudness_votes.sql). Always
+  /// recorded, even when the pipeline later excludes it from scoring
+  /// because a mic reading from the same account followed within 5
+  /// minutes — see filterVotesSupersededByMic in the data pipeline.
+  Future<void> submitLoudnessVote(String placeId, String vote) async {
+    if (!isConfigured) throw SupabaseNotConfigured();
+
+    await _client.from('loudness_votes').insert({
+      'place_id': placeId,
+      'vote': vote,
+    });
+  }
+
   /// Maps a `restaurants` table row (see 0001_init.sql) onto the same
   /// [Restaurant] model the bundled-JSON path uses, so screens don't need
   /// to know which data source they're reading from.
