@@ -6,8 +6,9 @@ import 'package:go_router/go_router.dart';
 import '../models/restaurant.dart';
 import '../services/restaurant_repository.dart';
 import '../services/supabase_service.dart';
-import '../utils/text_format.dart';
 import '../widgets/app_drawer.dart';
+import '../widgets/filter_drawer.dart';
+import '../widgets/noise_level_bar.dart';
 import '../widgets/restaurant_tile.dart';
 import '../widgets/voice_search_bar.dart';
 
@@ -21,10 +22,14 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final _repository = RestaurantRepository();
   final _supabaseService = SupabaseService();
+  final _scaffoldKey = GlobalKey<ScaffoldState>();
 
   List<Restaurant> _all = [];
   String? _suburbFilter;
   String? _cuisineFilter;
+  int? _loudnessFilterIndex; // index into NoiseLevelBar.categories; null = any
+  double? _minRatingFilter;
+  SortOption _sortBy = SortOption.quietestFirst;
   String _searchQuery = '';
   bool _loading = true;
   Object? _error;
@@ -126,12 +131,56 @@ class _HomeScreenState extends State<HomeScreen> {
     return _all.where((r) {
       if (_suburbFilter != null && r.suburb != _suburbFilter) return false;
       if (_cuisineFilter != null && r.cuisine != _cuisineFilter) return false;
+      if (_loudnessFilterIndex != null &&
+          NoiseLevelBar.categoryIndexFor(r.quietnessScore) != _loudnessFilterIndex) {
+        return false;
+      }
+      if (_minRatingFilter != null && (r.googleRating == null || r.googleRating! < _minRatingFilter!)) {
+        return false;
+      }
       if (query.isNotEmpty) {
         final haystack = [r.name, r.cuisine, r.suburb].whereType<String>().join(' ').toLowerCase();
         if (!haystack.contains(query)) return false;
       }
       return true;
     }).toList();
+  }
+
+  /// Starts from the repository's quietest-first ranking (already limited to
+  /// restaurants with enough data to score) and re-orders it when a
+  /// different Sort By option is selected — Loudest First is just that same
+  /// list reversed, Rating sorts push restaurants with no rating yet to the
+  /// end regardless of direction rather than clumping them at the top.
+  List<Restaurant> get _sortedRanked {
+    final quietestFirst = _repository.rankedByQuietness(_filtered);
+    switch (_sortBy) {
+      case SortOption.quietestFirst:
+        return quietestFirst;
+      case SortOption.loudestFirst:
+        return quietestFirst.reversed.toList();
+      case SortOption.ratingHighest:
+        return [...quietestFirst]..sort((a, b) => _compareRating(a, b, descending: true));
+      case SortOption.ratingLowest:
+        return [...quietestFirst]..sort((a, b) => _compareRating(a, b, descending: false));
+    }
+  }
+
+  int _compareRating(Restaurant a, Restaurant b, {required bool descending}) {
+    final ar = a.googleRating;
+    final br = b.googleRating;
+    if (ar == null && br == null) return 0;
+    if (ar == null) return 1; // no rating yet sorts last either way
+    if (br == null) return -1;
+    return descending ? br.compareTo(ar) : ar.compareTo(br);
+  }
+
+  void _clearFilters() {
+    setState(() {
+      _suburbFilter = null;
+      _cuisineFilter = null;
+      _loudnessFilterIndex = null;
+      _minRatingFilter = null;
+    });
   }
 
   @override
@@ -143,16 +192,43 @@ class _HomeScreenState extends State<HomeScreen> {
       return Scaffold(body: Center(child: Text('Could not load restaurants: $_error')));
     }
 
-    final ranked = _repository.rankedByQuietness(_filtered);
+    final ranked = _sortedRanked;
     final needsData = _repository.withoutEnoughData(_filtered);
     final suburbs = _all.map((r) => r.suburb).whereType<String>().toSet().toList()..sort();
     final cuisines = _all.map((r) => r.cuisine).whereType<String>().toSet().toList()..sort();
+    final hasActiveFilters =
+        _suburbFilter != null || _cuisineFilter != null || _loudnessFilterIndex != null || _minRatingFilter != null;
 
     return Scaffold(
+      key: _scaffoldKey,
       drawer: const AppDrawer(currentRoute: AppRoute.list),
+      endDrawer: FilterDrawer(
+        suburbs: suburbs,
+        cuisines: cuisines,
+        selectedSuburb: _suburbFilter,
+        selectedCuisine: _cuisineFilter,
+        selectedLoudnessIndex: _loudnessFilterIndex,
+        selectedMinRating: _minRatingFilter,
+        sortBy: _sortBy,
+        onSuburbChanged: (v) => setState(() => _suburbFilter = v),
+        onCuisineChanged: (v) => setState(() => _cuisineFilter = v),
+        onLoudnessChanged: (v) => setState(() => _loudnessFilterIndex = v),
+        onRatingChanged: (v) => setState(() => _minRatingFilter = v),
+        onSortByChanged: (v) => setState(() => _sortBy = v),
+        onClear: _clearFilters,
+      ),
       appBar: AppBar(
         title: const Text('Quietest in Sydney'),
         actions: [
+          IconButton(
+            tooltip: 'Filters',
+            icon: Badge(
+              isLabelVisible: hasActiveFilters,
+              smallSize: 8,
+              child: const Icon(Icons.filter_list),
+            ),
+            onPressed: () => _scaffoldKey.currentState?.openEndDrawer(),
+          ),
           if (SupabaseService.isConfigured)
             IconButton(
               tooltip: _signedInEmail != null ? 'Signed in as $_signedInEmail' : 'Sign in',
@@ -164,14 +240,6 @@ class _HomeScreenState extends State<HomeScreen> {
       body: Column(
         children: [
           VoiceSearchBar(onQueryChanged: (q) => setState(() => _searchQuery = q)),
-          _FilterBar(
-            suburbs: suburbs,
-            cuisines: cuisines,
-            selectedSuburb: _suburbFilter,
-            selectedCuisine: _cuisineFilter,
-            onSuburbChanged: (v) => setState(() => _suburbFilter = v),
-            onCuisineChanged: (v) => setState(() => _cuisineFilter = v),
-          ),
           Expanded(
             child: _all.isEmpty
                 ? const _EmptyState()
@@ -236,58 +304,3 @@ class _EmptyState extends StatelessWidget {
   }
 }
 
-class _FilterBar extends StatelessWidget {
-  final List<String> suburbs;
-  final List<String> cuisines;
-  final String? selectedSuburb;
-  final String? selectedCuisine;
-  final ValueChanged<String?> onSuburbChanged;
-  final ValueChanged<String?> onCuisineChanged;
-
-  const _FilterBar({
-    required this.suburbs,
-    required this.cuisines,
-    required this.selectedSuburb,
-    required this.selectedCuisine,
-    required this.onSuburbChanged,
-    required this.onCuisineChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      child: Row(
-        children: [
-          Expanded(
-            child: DropdownButtonFormField<String>(
-              initialValue: selectedSuburb,
-              isExpanded: true,
-              decoration: const InputDecoration(labelText: 'Suburb'),
-              items: [
-                const DropdownMenuItem(value: null, child: Text('All suburbs')),
-                for (final s in suburbs)
-                  DropdownMenuItem(value: s, child: Text(s, overflow: TextOverflow.ellipsis)),
-              ],
-              onChanged: onSuburbChanged,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: DropdownButtonFormField<String>(
-              initialValue: selectedCuisine,
-              isExpanded: true,
-              decoration: const InputDecoration(labelText: 'Cuisine'),
-              items: [
-                const DropdownMenuItem(value: null, child: Text('All cuisines')),
-                for (final c in cuisines)
-                  DropdownMenuItem(value: c, child: Text(humanizeSnakeCase(c), overflow: TextOverflow.ellipsis)),
-              ],
-              onChanged: onCuisineChanged,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
