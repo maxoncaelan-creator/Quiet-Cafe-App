@@ -2329,8 +2329,30 @@ checking once deployed: does Google's own rendered button actually show
 up where the custom pill used to be, and does tapping it complete a real
 session.
 
+## Session — 2026-08-19 (continued again): Google sign-in on web — one dashboard step left, Caelan's
+
+Progress, not another code fix: Google's own rendered button now shows
+and responds to a real tap — the `google_auth_button_web.dart` redesign
+worked. Tapping it lands on `accounts.google.com` and fails there with
+`Access blocked: Authorization Error — no registered origin — Error 401:
+invalid_client`. This is Google Cloud Console configuration, not app code
+— the OAuth Web application client's **Authorized JavaScript origins**
+list was never updated to include the deployed site's real URL (only
+`localhost` entries exist, from the original local-dev setup instructions
+— nobody had reason to add the production origin before now, since web
+Google sign-in never actually got this far until today). Updated
+`PLATFORM_SETUP.md`'s Google section with the missing step and the two
+origins that need adding (`quiet-restaurant-finder.pages.dev` now,
+`app.cafequiet.com` pre-emptively so this doesn't need a second trip once
+that custom domain is attached).
+
+Nothing to verify by build here — this is a dashboard-only change with no
+code involved, same category as several other Google/Cloudflare/Supabase
+setup steps already logged as Caelan's throughout this project.
+
 ## Open items carried into further build work
-- **Google sign-in on web not click-tested live** — added 2026-08-19. The button is now structurally different (Google's own widget, not a custom one), which itself needs a first real look, on top of confirming the sign-in flow actually completes and establishes a session.
+- **Google OAuth client missing the production origin** — added 2026-08-19, Caelan's. Add `https://quiet-restaurant-finder.pages.dev` and `https://app.cafequiet.com` to the Web application client's Authorized JavaScript origins in Google Cloud Console (see `PLATFORM_SETUP.md` step 7). Blocks Google sign-in on web entirely until done — the button renders and responds, it's the actual OAuth handshake that 401s.
+- **Google sign-in on web not click-tested end to end** — added 2026-08-19. Confirmed as far as Google's own consent screen (button renders, tap navigates to accounts.google.com); the full flow (successful auth → redirect back → Supabase session established) still needs a real pass once the origin is registered.
 - **Mic calibration not click-tested live** — added 2026-08-19. Same root cause as the item below. Specifically worth checking once deployed: does the screen actually trigger on a fresh sign-in and on an already-signed-in cold launch, does skipping correctly leave it due next time, and does a submitted calibration actually shift a subsequent reading's effective score.
 - **This session's UI/backend changes not click-tested live** — added 2026-08-19. Loudness vote buttons (does a real submission actually land in `loudness_votes`?), web mic capture (does a real browser's permission prompt and decibel numbers look sane?), and the filter drawer redesign all need a pass in a real browser once deployed — same root cause as every "not visually confirmed" item this session (sandboxed browser can't composite Flutter web's canvas).
 - **"Get the app" banner's copy is now partly stale** — added 2026-08-19. `download_app_banner.dart`/`get_app_prompt.dart` exist partly because mic reading was native-only; that's no longer true. Not changed — the banner may still earn its place for other reasons (notifications, general engagement), so this is Caelan's call, not assumed.

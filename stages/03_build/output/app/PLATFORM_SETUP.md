@@ -116,12 +116,21 @@ only shows on iOS), and email/password (via "Sign in with email" /
 
 ### Google — free
 
-**Status as of 2026-08-18: confirmed working end to end on Android.** Web
-and Android OAuth clients both created; verified live on the
-`Pixel_API_36` emulator — real Google account picker scoped to the app,
-real credential entry (Caelan's own), successful sign-in, session
-persisted. iOS client ID not created yet — the button will stay Android/Web
--only until that's done (see step 3).
+**Status as of 2026-08-18: confirmed working end to end on Android.**
+**Status as of 2026-08-19: web needed real rework, not just config** — the
+custom button used on Android/iOS can't drive sign-in on web at all
+(`google_sign_in_web` throws `UnimplementedError` from `authenticate()` by
+design — Google's GIS SDK only allows its own rendered button to start a
+web sign-in). Fixed in code (`widgets/google_auth_button_web.dart` now
+renders Google's own button and listens for completion instead), but that
+surfaced the next real gap: **the deployed site's origin was never added
+to the OAuth client's Authorized JavaScript origins**, so tapping Google's
+own button hits `Error 401: invalid_client` / "no registered origin" —
+see step 7, still Caelan's to do. Web and Android OAuth clients both
+created; Android verified live on the `Pixel_API_36` emulator — real
+Google account picker scoped to the app, real credential entry (Caelan's
+own), successful sign-in, session persisted. iOS client ID not created
+yet — the button will stay Android/Web-only until that's done (see step 3).
 
 1. A Google Cloud account (your normal Google account is enough).
 2. Go to **console.cloud.google.com** → create or pick a project → **APIs & Services → Credentials** → **Create Credentials → OAuth client ID**.
@@ -138,6 +147,18 @@ persisted. iOS client ID not created yet — the button will stay Android/Web
    ```
    flutter run --dart-define=GOOGLE_WEB_CLIENT_ID=335462034836-93k0vrqkqha1kmaf87j5ne05t1vaafvc.apps.googleusercontent.com --dart-define=GOOGLE_IOS_CLIENT_ID=...
    ```
+7. **Web only, found missing 2026-08-19**: on the same Web application
+   client's edit page, add every real origin the site is actually served
+   from to **Authorized JavaScript origins** — not just `localhost` for
+   local dev. Missing this produces `Error 401: invalid_client` / "no
+   registered origin" when Google's own sign-in button is tapped (the
+   button renders fine either way; this only breaks the flow once you
+   actually try to sign in). Still open as of 2026-08-19:
+   - `https://quiet-restaurant-finder.pages.dev`
+   - `https://app.cafequiet.com` (add now even though it isn't attached
+     as a custom domain yet — see the Cloudflare Pages custom domain open
+     item — so this doesn't need a second trip back here later)
+   Google's own docs say changes can take a few minutes to propagate.
 
 ### Apple — activated 2026-08-16
 
