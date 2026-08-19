@@ -16,10 +16,6 @@ dependencies:
   go_router: ^14.6.2
   supabase_flutter: ^2.5.0
   google_sign_in: ^7.2.0
-  # Endorsed federated plugin, normally transitive-only — needed as a direct
-  # dependency because google_auth_button_web.dart imports web_only.dart
-  # directly (renderButton()), per this package's own README.
-  google_sign_in_web: ^1.1.0
   sign_in_with_apple: ^8.1.0
   crypto: ^3.0.5
   shared_preferences: ^2.3.2

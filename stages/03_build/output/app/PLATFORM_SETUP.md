@@ -116,21 +116,29 @@ only shows on iOS), and email/password (via "Sign in with email" /
 
 ### Google — free
 
-**Status as of 2026-08-18: confirmed working end to end on Android.**
-**Status as of 2026-08-19: web needed real rework, not just config** — the
-custom button used on Android/iOS can't drive sign-in on web at all
-(`google_sign_in_web` throws `UnimplementedError` from `authenticate()` by
-design — Google's GIS SDK only allows its own rendered button to start a
-web sign-in). Fixed in code (`widgets/google_auth_button_web.dart` now
-renders Google's own button and listens for completion instead), but that
-surfaced the next real gap: **the deployed site's origin was never added
-to the OAuth client's Authorized JavaScript origins**, so tapping Google's
-own button hits `Error 401: invalid_client` / "no registered origin" —
-see step 7, still Caelan's to do. Web and Android OAuth clients both
-created; Android verified live on the `Pixel_API_36` emulator — real
-Google account picker scoped to the app, real credential entry (Caelan's
-own), successful sign-in, session persisted. iOS client ID not created
-yet — the button will stay Android/Web-only until that's done (see step 3).
+**Status as of 2026-08-18: confirmed working end to end on Android** —
+still the case, unchanged by everything below.
+
+**Status as of 2026-08-19: web went through five straight real bugs in
+the GIS/ID-token approach** (re-init crash, unguarded null-check, wrong
+init param on web, `authenticate()` unsupported on web by design, then a
+nonce mismatch — see build-log.md for the blow-by-blow) before the root
+cause was addressed instead of the next symptom: **web now uses
+Supabase's redirect-based `signInWithOAuth`** (same mechanism Facebook
+already used here), not the `google_sign_in` package at all. This
+removes the button-rendering/init-once/nonce machinery entirely for web
+— none of it exists in this flow. Android/iOS are untouched, still on
+the native ID-token flow confirmed working above.
+
+**New requirement from this switch**: the OAuth redirect flow needs a
+**Client Secret** in Supabase's Google provider config, which the old
+ID-token flow didn't (it only needed the Client ID, already entered —
+step 4 below). Add it (step 4a, new) before this will work. Web and
+Android OAuth clients both created; Android verified live on the
+`Pixel_API_36` emulator — real Google account picker scoped to the app,
+real credential entry (Caelan's own), successful sign-in, session
+persisted. iOS client ID not created yet — the button will stay
+Android/Web-only until that's done (see step 3).
 
 1. A Google Cloud account (your normal Google account is enough).
 2. Go to **console.cloud.google.com** → create or pick a project → **APIs & Services → Credentials** → **Create Credentials → OAuth client ID**.
@@ -142,6 +150,14 @@ yet — the button will stay Android/Web-only until that's done (see step 3).
      - SHA-1 (debug keystore): `E3:68:E9:E5:08:76:1D:D6:E7:30:30:4F:68:05:75:05:7E:BA:79:8B`
      - This is the **debug** keystore's fingerprint — fine for testing on the emulator/a device via `flutter run`, but a real release build (Play Store) signs with a different key and will need its own Android client ID with that release fingerprint, later.
 4. In your [Supabase dashboard](https://supabase.com/dashboard/project/aesorixtfasfuvcqrvem/auth/providers) → **Authentication → Providers → Google**, enable it and paste in the **Web** client ID. **Done 2026-08-18** — Google shows Enabled in the dashboard.
+4a. **New, 2026-08-19, still open — needed for web specifically.** On the
+    same Web application client's edit page (Google Cloud Console), generate
+    a **Client Secret** if one doesn't already exist, and paste it into the
+    same Supabase Google provider screen as step 4, in the **Client Secret**
+    field (currently blank — the ID-token flow this replaced for web never
+    needed one). Without this, `signInWithOAuth`'s redirect flow will fail
+    once you get to actually testing it. Android/iOS are unaffected — they
+    still use the ID-token flow, which only ever needed the Client ID.
 5. In `ios/Runner/Info.plist`, add a `CFBundleURLTypes` entry containing your iOS client ID *reversed* (Google's console shows you the exact reversed string to copy). Not yet done — iOS client ID not created yet.
 6. Run with both IDs:
    ```

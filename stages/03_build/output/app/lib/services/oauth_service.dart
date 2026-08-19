@@ -60,37 +60,64 @@ class OAuthService {
   // its own undefined-behavior case.
   static Future<void>? _googleInitialization;
 
+  // Set alongside _googleInitialization, once, the first time this runs —
+  // see the nonce comment on initialize() below for why it lives here
+  // rather than being generated fresh per sign-in attempt.
+  static String? _googleRawNonce;
+
   static Future<void> _ensureGoogleInitialized() {
-    _googleInitialization ??= GoogleSignIn.instance
-        .initialize(
-          // The actual root cause of the "Null check operator" crash,
-          // found 2026-08-19 after the accessToken fix below didn't make it
-          // go away: google_sign_in_web's init() only ever reads
-          // `params.clientId` (falling back to a <meta
-          // name="google-signin-client_id"> tag this app's web/index.html
-          // doesn't have) — it ignores `serverClientId` entirely and even
-          // asserts it must be null on web. Passing the web client ID as
-          // serverClientId (correct on iOS/Android, where it sets the ID
-          // token's audience to match what Supabase's Google provider is
-          // configured with) left `clientId` null on web specifically,
-          // so google_sign_in_web's own `appClientId!` — unguarded, no
-          // fallback error — is what actually threw. Splitting the
-          // parameter by platform fixes both without changing native
-          // behavior.
-          serverClientId: kIsWeb ? null : _googleWebClientId,
-          clientId: kIsWeb
-              ? _googleWebClientId
-              : (_googleIosClientId.isNotEmpty ? _googleIosClientId : null),
-        )
-        // If initialize() itself throws (e.g. a transient network error),
-        // don't leave the failure memoized forever — that would brick
-        // Google sign-in for the rest of the session after one hiccup.
-        // Only a genuinely *successful* call counts as "the one" the docs
-        // require; clearing on failure lets the next attempt retry cleanly.
-        .catchError((Object error, StackTrace stackTrace) {
-          _googleInitialization = null;
-          Error.throwWithStackTrace(error, stackTrace);
-        });
+    if (_googleInitialization == null) {
+      // Found live 2026-08-19 (Caelan): signInWithIdToken failed with
+      // "Passed nonce and nonce in id_token should either both exist or
+      // not" — google_sign_in's initialize() embeds `nonce` into every ID
+      // token it subsequently produces (see its doc comment), but this call
+      // wasn't passing one, so Supabase saw a nonce claim in the token with
+      // nothing supplied to check it against. Same rawNonce/hashedNonce
+      // pattern signInWithApple() already uses below, adapted to this
+      // package's shape: Apple takes a nonce per call, but
+      // GoogleSignIn.instance.initialize() only accepts one at
+      // initialization time and reuses it for every authenticate() call for
+      // the lifetime of this singleton (its own contract: call exactly
+      // once) — so the raw nonce is generated here, once, and stashed for
+      // completeGoogleSignIn() to pass to signInWithIdToken later, rather
+      // than minted fresh per attempt the way Apple's is.
+      final rawNonce = _client.auth.generateRawNonce();
+      _googleRawNonce = rawNonce;
+      final hashedNonce = sha256.convert(utf8.encode(rawNonce)).toString();
+
+      _googleInitialization = GoogleSignIn.instance
+          .initialize(
+            // The actual root cause of the "Null check operator" crash,
+            // found 2026-08-19 after the accessToken fix below didn't make it
+            // go away: google_sign_in_web's init() only ever reads
+            // `params.clientId` (falling back to a <meta
+            // name="google-signin-client_id"> tag this app's web/index.html
+            // doesn't have) — it ignores `serverClientId` entirely and even
+            // asserts it must be null on web. Passing the web client ID as
+            // serverClientId (correct on iOS/Android, where it sets the ID
+            // token's audience to match what Supabase's Google provider is
+            // configured with) left `clientId` null on web specifically,
+            // so google_sign_in_web's own `appClientId!` — unguarded, no
+            // fallback error — is what actually threw. Splitting the
+            // parameter by platform fixes both without changing native
+            // behavior.
+            serverClientId: kIsWeb ? null : _googleWebClientId,
+            clientId: kIsWeb
+                ? _googleWebClientId
+                : (_googleIosClientId.isNotEmpty ? _googleIosClientId : null),
+            nonce: hashedNonce,
+          )
+          // If initialize() itself throws (e.g. a transient network error),
+          // don't leave the failure memoized forever — that would brick
+          // Google sign-in for the rest of the session after one hiccup.
+          // Only a genuinely *successful* call counts as "the one" the docs
+          // require; clearing on failure lets the next attempt retry cleanly.
+          .catchError((Object error, StackTrace stackTrace) {
+            _googleInitialization = null;
+            _googleRawNonce = null;
+            Error.throwWithStackTrace(error, stackTrace);
+          });
+    }
     return _googleInitialization!;
   }
 
@@ -151,20 +178,32 @@ class OAuthService {
       provider: OAuthProvider.google,
       idToken: idToken,
       accessToken: accessToken,
+      nonce: _googleRawNonce,
     );
   }
 
-  /// Web-only signal for when Google's own rendered button
-  /// (`google_auth_button_web.dart`) completes a sign-in — there's no
-  /// tap-and-await path on web the way `signInWithGoogle()` has on mobile,
-  /// since the button itself is entirely Google's UI, outside this app's
-  /// control. Initialization is required first, same as `signInWithGoogle()`
-  /// — `google_auth_button_web.dart` awaits `ensureGoogleInitializedForWeb()`
-  /// before subscribing.
-  static Stream<GoogleSignInAuthenticationEvent> get googleAuthenticationEvents =>
-      GoogleSignIn.instance.authenticationEvents;
-
-  static Future<void> ensureGoogleInitializedForWeb() => _ensureGoogleInitialized();
+  /// Web only, added 2026-08-19 to replace the ID-token/GIS-button approach
+  /// entirely, after it produced five separate real bugs in a row across
+  /// two sessions (re-init crash, unguarded null-check, wrong init param on
+  /// web, authenticate() unsupported on web by design, then this nonce
+  /// mismatch) — each one a genuinely different failure mode in
+  /// google_sign_in_web's web integration, not the same bug recurring. Root
+  /// cause wasn't any single one of those; it's that the ID-token flow
+  /// forces this app to reimplement Google's web integration itself
+  /// (button rendering, a once-per-session init contract, manual nonce
+  /// wiring). Switching to Supabase's redirect-based signInWithOAuth here
+  /// — the exact mechanism signInWithFacebook() already uses below —
+  /// removes all of that: no Flutter-side Google SDK involved on web at
+  /// all, Supabase's own server completes the OAuth exchange with Google
+  /// and redirects back. Deliberately NOT touching signInWithGoogle()
+  /// above: the native ID-token flow is confirmed working end to end on
+  /// Android already, so mobile has no reason to change.
+  static Future<void> signInWithGoogleOAuth() async {
+    await _client.auth.signInWithOAuth(
+      OAuthProvider.google,
+      authScreenLaunchMode: LaunchMode.platformDefault,
+    );
+  }
 
   static Future<void> signInWithApple() async {
     final rawNonce = _client.auth.generateRawNonce();
