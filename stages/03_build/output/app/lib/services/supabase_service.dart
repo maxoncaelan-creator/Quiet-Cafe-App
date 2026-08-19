@@ -193,6 +193,33 @@ class SupabaseService {
     });
   }
 
+  /// The signed-in user's most recent mic calibration, or null if they've
+  /// never done one — see 0010_mic_calibrations.sql and
+  /// mic_calibration_screen.dart. Used to decide whether one is due
+  /// (never done, or the last one was more than ~3 months ago).
+  Future<DateTime?> fetchLatestCalibrationAt() async {
+    if (!isConfigured || !isSignedIn) return null;
+    final rows = await _client
+        .from('mic_calibrations')
+        .select('recorded_at')
+        .order('recorded_at', ascending: false)
+        .limit(1);
+    final list = rows as List;
+    if (list.isEmpty) return null;
+    return DateTime.parse((list.first as Map<String, dynamic>)['recorded_at'] as String);
+  }
+
+  /// user_id is filled server-side (defaults to auth.uid()), same pattern
+  /// as favorites/loudness_votes — a client can't submit under someone
+  /// else's identity even by mistake.
+  Future<void> submitMicCalibration(double decibelValue, String platform) async {
+    if (!isConfigured) throw SupabaseNotConfigured();
+    await _client.from('mic_calibrations').insert({
+      'decibel_value': decibelValue,
+      'platform': platform,
+    });
+  }
+
   /// A lightweight "Quiet / Normal / Loud" alternative to a mic reading —
   /// same account gate (see 0008_loudness_votes.sql), user_id filled
   /// server-side same as favorites. [vote] must be 'quiet', 'normal', or

@@ -8,8 +8,11 @@ import {
   micSubscore,
   voteSubscore,
   filterVotesSupersededByMic,
+  calibrationOffset,
+  applyCalibrationOffsets,
   combineScores,
   MIN_REVIEW_MENTIONS,
+  HUMAN_VOICE_REFERENCE_DBA,
 } from '../src/scoring.js';
 
 test('reviewSubscore returns null below the minimum mention count', () => {
@@ -88,6 +91,42 @@ test('micSubscore weights web readings lower than android', () => {
   ]);
   const expectedDba = (60 * 1.0 + 80 * 0.35) / 1.35;
   assert.equal(score, dbaToSubscore(expectedDba));
+});
+
+test('HUMAN_VOICE_REFERENCE_DBA is 60', () => {
+  assert.equal(HUMAN_VOICE_REFERENCE_DBA, 60);
+});
+
+test('calibrationOffset is positive when a user reads loud, negative when quiet', () => {
+  assert.equal(calibrationOffset(68), 8);
+  assert.equal(calibrationOffset(52), -8);
+  assert.equal(calibrationOffset(60), 0);
+});
+
+test('applyCalibrationOffsets corrects a reading using its submitting user\'s offset', () => {
+  const readings = [{ decibel: 70, platform: 'ios', userId: 'u1' }];
+  const byUser = new Map([['u1', 68]]); // offset +8 -> corrected decibel 62
+  const [corrected] = applyCalibrationOffsets(readings, byUser);
+  assert.equal(corrected.decibel, 62);
+  assert.equal(corrected.platform, 'ios'); // untouched fields pass through
+});
+
+test('applyCalibrationOffsets leaves a reading unchanged when its user has no calibration on file', () => {
+  const readings = [{ decibel: 70, platform: 'ios', userId: 'u2' }];
+  const byUser = new Map([['u1', 68]]);
+  assert.deepEqual(applyCalibrationOffsets(readings, byUser), readings);
+});
+
+test('applyCalibrationOffsets leaves a reading unchanged when it has no userId at all', () => {
+  const readings = [{ decibel: 70, platform: 'ios' }];
+  const byUser = new Map([['u1', 68]]);
+  assert.deepEqual(applyCalibrationOffsets(readings, byUser), readings);
+});
+
+test('applyCalibrationOffsets is a no-op with an empty or missing calibration map', () => {
+  const readings = [{ decibel: 70, platform: 'ios', userId: 'u1' }];
+  assert.deepEqual(applyCalibrationOffsets(readings, new Map()), readings);
+  assert.deepEqual(applyCalibrationOffsets(readings, undefined), readings);
 });
 
 test('voteSubscore returns null with no votes', () => {

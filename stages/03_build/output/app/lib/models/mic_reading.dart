@@ -24,7 +24,7 @@ class MicReading {
     return MicReading(
       placeId: placeId,
       decibelValue: decibelValue,
-      platform: _capturePlatform(),
+      platform: capturePlatform(),
       recordedAt: DateTime.now(),
     );
   }
@@ -32,8 +32,10 @@ class MicReading {
   // dart:io's Platform isn't available on web, hence kIsWeb rather than
   // defaultTargetPlatform for that branch. 'web' is a real, reachable value
   // as of 2026-08-19 — mic_service_web.dart added actual Web Audio capture,
-  // and mic_readings_platform_check (0009) now accepts it.
-  static String _capturePlatform() {
+  // and mic_readings_platform_check (0009) now accepts it. Public — also
+  // used by mic_calibration_screen.dart, which submits to a different table
+  // but needs the exact same platform string.
+  static String capturePlatform() {
     if (kIsWeb) return 'web';
     return defaultTargetPlatform == TargetPlatform.iOS ? 'ios' : 'android';
   }

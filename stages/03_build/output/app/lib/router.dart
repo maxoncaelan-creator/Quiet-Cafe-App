@@ -16,6 +16,7 @@ import 'screens/create_account_screen.dart';
 import 'screens/favourites_screen.dart';
 import 'screens/forgot_password_screen.dart';
 import 'screens/home_screen.dart';
+import 'screens/mic_calibration_screen.dart';
 import 'screens/reset_password_screen.dart';
 import 'screens/restaurant_detail_screen.dart';
 import 'screens/search_assistant_screen.dart';
@@ -78,6 +79,7 @@ final GoRouter appRouter = GoRouter(
           builder: (context, state) => ForgotPasswordScreen(initialEmail: (state.extra as String?) ?? ''),
         ),
         GoRoute(path: '/reset-password', builder: (context, state) => const ResetPasswordScreen()),
+        GoRoute(path: '/mic-calibration', builder: (context, state) => const MicCalibrationScreen()),
         GoRoute(
           path: '/restaurant/:placeId',
           builder: (context, state) {

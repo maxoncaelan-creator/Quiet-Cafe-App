@@ -42,14 +42,34 @@ class _QuietRestaurantFinderAppState extends State<QuietRestaurantFinderApp> {
     // Global, not screen-scoped — the recovery link (tapped from an email,
     // possibly cold-launching the app) can land while any screen happens to
     // be on top, so this can't live inside one screen's State the way
-    // home_screen.dart's own auth listener does.
+    // home_screen.dart's own auth listener does. Mic calibration (added
+    // 2026-08-19) piggybacks on the same listener for the same reason: it
+    // needs to fire regardless of which screen someone's on, both right
+    // after a fresh sign-in (signedIn) and when an already-persisted
+    // session is restored on cold launch (initialSession — supabase_flutter
+    // emits this once on subscribe, which is what makes the "every 3
+    // months" recheck work without requiring an actual new sign-in event).
     if (SupabaseService.isConfigured) {
       _authSubscription = SupabaseService().authStateChanges.listen((state) {
         if (state.event == AuthChangeEvent.passwordRecovery) {
           appRouter.push('/reset-password');
         }
+        if (state.event == AuthChangeEvent.signedIn || state.event == AuthChangeEvent.initialSession) {
+          _maybeShowMicCalibration();
+        }
       });
     }
+  }
+
+  /// Due if the signed-in user has never calibrated, or their last
+  /// calibration was more than ~3 months (90 days) ago. Push happens on the
+  /// GoRouter directly (not via a screen's context) since this can fire
+  /// before any particular screen is guaranteed mounted.
+  Future<void> _maybeShowMicCalibration() async {
+    if (!SupabaseService().isSignedIn) return;
+    final lastCalibration = await SupabaseService().fetchLatestCalibrationAt();
+    final due = lastCalibration == null || DateTime.now().difference(lastCalibration) >= const Duration(days: 90);
+    if (due) appRouter.push('/mic-calibration');
   }
 
   @override

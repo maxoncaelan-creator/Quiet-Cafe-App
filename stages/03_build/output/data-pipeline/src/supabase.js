@@ -63,6 +63,28 @@ export async function fetchVotesByPlace(pool, placeIds) {
   return byPlace;
 }
 
+/**
+ * Every user's most recent mic_calibrations reading, keyed by user_id — not
+ * scoped to a set of place_ids the way the fetches above are, since a
+ * calibration isn't tied to any one venue and needs to correct that user's
+ * readings everywhere. `distinct on` + `order by ... recorded_at desc` picks
+ * only the latest row per user directly in Postgres rather than fetching
+ * everyone's whole calibration history and reducing it in JS.
+ */
+export async function fetchLatestCalibrationByUser(pool) {
+  const { rows } = await pool.query(
+    `select distinct on (user_id) user_id, decibel_value
+     from mic_calibrations
+     order by user_id, recorded_at desc`
+  );
+
+  const byUser = new Map();
+  for (const row of rows) {
+    byUser.set(row.user_id, Number(row.decibel_value));
+  }
+  return byUser;
+}
+
 const UPSERT_QUERY = `
   insert into restaurants (
     place_id, yelp_id, name, cuisine, price_level, google_rating, yelp_rating,

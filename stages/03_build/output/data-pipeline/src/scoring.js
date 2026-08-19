@@ -16,6 +16,15 @@ export const MIN_REVIEW_MENTIONS = 1;
 export const MIN_DBA = 50;
 export const MAX_DBA = 90;
 
+// An average human speaking voice measures ~60 dBA. Added 2026-08-19 per
+// Caelan: every signed-in user is walked through a "say something" screen
+// once on first sign-in and again every 3 months (see mic_calibration_screen.dart);
+// comparing their recording against this reference works out how far off
+// their specific device/browser mic reads on a "true" dBA scale, which then
+// corrects that user's future ambient readings before they're weighted into
+// micSubscore. See calibrationOffset/applyCalibrationOffsets below.
+export const HUMAN_VOICE_REFERENCE_DBA = 60;
+
 // Android microphone readings are trusted at half the weight of iOS readings,
 // per the research brief: iPhone hardware is uniform (~2 dBA accuracy),
 // Android accuracy varies by device with no reliable cross-device calibration.
@@ -76,9 +85,41 @@ export function dbaToSubscore(dba) {
 }
 
 /**
+ * A user's calibration recording (them speaking normally) minus the human-
+ * voice reference — positive means their mic/device reads loud relative to
+ * "true," negative means quiet. Applied to that user's readings as a
+ * subtraction (see applyCalibrationOffsets) so a chronically-loud-reading
+ * phone doesn't just make every venue that user visits look noisier.
+ * @param {number} calibrationDba
+ */
+export function calibrationOffset(calibrationDba) {
+  return calibrationDba - HUMAN_VOICE_REFERENCE_DBA;
+}
+
+/**
+ * Corrects each reading's decibel value using the submitting user's own
+ * calibration offset, where known. Readings from a user with no calibration
+ * on file (or with no userId at all — e.g. the bundled sample dataset) pass
+ * through unchanged rather than being dropped; an uncorrected reading is
+ * still better than no reading.
+ * @param {Array<{decibel: number, platform: string, userId?: string}>} readings
+ * @param {Map<string, number>} latestCalibrationByUser userId -> their most recent calibration's dBA
+ */
+export function applyCalibrationOffsets(readings, latestCalibrationByUser) {
+  if (!latestCalibrationByUser || latestCalibrationByUser.size === 0) return readings;
+  return readings.map((r) => {
+    const calibrationDba = r.userId ? latestCalibrationByUser.get(r.userId) : undefined;
+    if (calibrationDba === undefined) return r;
+    return { ...r, decibel: r.decibel - calibrationOffset(calibrationDba) };
+  });
+}
+
+/**
  * Microphone sub-score: averages within each platform first, then combines
  * platforms using PLATFORM_WEIGHT, per ranking-spec.md. Returns null if
- * there are no readings at all.
+ * there are no readings at all. Expects readings already corrected by
+ * applyCalibrationOffsets, if calibration data exists — this function
+ * itself has no opinion on calibration.
  * @param {Array<{decibel: number, platform: 'ios'|'android'|'web'}>} readings
  */
 export function micSubscore(readings) {

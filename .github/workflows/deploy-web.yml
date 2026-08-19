@@ -5,6 +5,16 @@ name: Deploy web
 # SUPABASE_ANON_KEY. See PLATFORM_SETUP.md's "Web" section (in
 # stages/03_build/output/app/) for where each comes from.
 #
+# GOOGLE_WEB_CLIENT_ID below is hardcoded, not a secret — per
+# oauth_service.dart's own comment, an OAuth client ID is "not secret, but
+# environment-specific" (Google's model treats it as public; it's already
+# committed in plain text in PLATFORM_SETUP.md). Found missing here
+# 2026-08-19 after Caelan noticed the Google sign-in button silently
+# absent on the deployed site — not a code bug, the app deliberately hides
+# unconfigured sign-in options rather than showing a broken one
+# (OAuthService.googleConfigured), so a missing dart-define here just
+# looks like a missing button, not a build failure.
+#
 # This file must live at the repo root's .github/workflows/ — GitHub
 # Actions never looks inside subdirectories for workflow files. The
 # Flutter app itself lives at stages/03_build/output/app/, several
@@ -33,7 +43,8 @@ jobs:
       - run: |
           flutter build web --release \
             --dart-define=SUPABASE_URL=${{ secrets.SUPABASE_URL }} \
-            --dart-define=SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
+            --dart-define=SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }} \
+            --dart-define=GOOGLE_WEB_CLIENT_ID=335462034836-93k0vrqkqha1kmaf87j5ne05t1vaafvc.apps.googleusercontent.com
 
       # wrangler pages deploy does NOT auto-create the Pages project (despite
       # what earlier docs here assumed, corrected 2026-08-19 after a real
