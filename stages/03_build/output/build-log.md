@@ -2234,8 +2234,48 @@ Logged as mistake `google-signin-blocked-on-optional-access-token`.
 succeeded. **Not click-tested live** — same sandbox limitation as
 everything else this session.
 
+## Session — 2026-08-19 (continued again): Google sign-in — same error persisted after the access-token fix, real second bug found
+
+Caelan retried after the access-token fix deployed — identical error,
+`Null check operator used on a null value`. Read that as a signal to
+re-derive the failure from source again rather than assume the fix simply
+hadn't shipped yet, since the accessToken fix was for a genuinely
+different code path that runs *after* the one actually crashing.
+
+Found it by re-scanning `google_sign_in_web` 1.1.3 for every unguarded
+`!`, not just the one already fixed: `google_sign_in_web.dart`'s `init()`
+does `clientId: appClientId!` where
+`appClientId = params.clientId ?? autoDetectedClientId`. This app's
+`_ensureGoogleInitialized()` was passing the web client ID as
+`serverClientId` (the right parameter on iOS/Android — it sets the ID
+token's audience to match Supabase's configured Google provider) and only
+conditionally setting `clientId` for iOS. On web, that left `clientId`
+null with no fallback (`autoDetectedClientId` needs a
+`<meta name="google-signin-client_id">` tag `web/index.html` never had),
+so the package's own unguarded `!` is what actually threw — confirmed
+against both `google_sign_in_web`'s `init()` source and its README's
+documented web setup, not guessed.
+
+**Fixed**: split the `initialize()` call by platform — `clientId` on web
+(what `google_sign_in_web` actually reads), `serverClientId` on
+iOS/Android (unchanged, still correct there per Google's normal
+server-audience pattern). This is the third real bug in this same flow
+this session; logged separately from the other two since each is a
+distinct, independently-diagnosed root cause; class
+`google-signin-wrong-param-for-web-client-id`. Worth noting for whoever
+reads this next: a persisting identical-looking error after a real,
+verified fix does not mean the fix was wrong — it can mean a second bug
+in the same path was masked behind the first the whole time.
+
+**Verification**: `flutter analyze` — 0 issues. `flutter test` — passing.
+`flutter build web --release` with the real `GOOGLE_WEB_CLIENT_ID` —
+succeeded. **Not click-tested live** — same sandbox limitation as
+everything else this session; this is now the fourth Google-sign-in fix
+in a row without a real click-test, so a real pass once deployed matters
+more than usual here.
+
 ## Open items carried into further build work
-- **Google sign-in not click-tested live after either fix** — added 2026-08-19. Both the re-initialization fix and the access-token-made-optional fix are verified by reading source/docs and clean builds, but neither has been re-tried in an actual browser yet. Worth a full pass: fresh sign-in, a retry after cancelling, and confirming a session actually gets established even when the access-token step fails.
+- **Google sign-in not click-tested live after any of the three fixes** — added 2026-08-19. Re-initialization, access-token-made-optional, and the clientId/serverClientId platform split are each independently verified by reading source/docs and clean builds, but none has been re-tried in an actual browser. Worth a full pass once deployed: fresh sign-in on web, a retry after cancelling, and confirming a session actually gets established.
 - **Mic calibration not click-tested live** — added 2026-08-19. Same root cause as the item below. Specifically worth checking once deployed: does the screen actually trigger on a fresh sign-in and on an already-signed-in cold launch, does skipping correctly leave it due next time, and does a submitted calibration actually shift a subsequent reading's effective score.
 - **This session's UI/backend changes not click-tested live** — added 2026-08-19. Loudness vote buttons (does a real submission actually land in `loudness_votes`?), web mic capture (does a real browser's permission prompt and decibel numbers look sane?), and the filter drawer redesign all need a pass in a real browser once deployed — same root cause as every "not visually confirmed" item this session (sandboxed browser can't composite Flutter web's canvas).
 - **"Get the app" banner's copy is now partly stale** — added 2026-08-19. `download_app_banner.dart`/`get_app_prompt.dart` exist partly because mic reading was native-only; that's no longer true. Not changed — the banner may still earn its place for other reasons (notifications, general engagement), so this is Caelan's call, not assumed.

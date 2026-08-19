@@ -63,8 +63,24 @@ class OAuthService {
   static Future<void> _ensureGoogleInitialized() {
     _googleInitialization ??= GoogleSignIn.instance
         .initialize(
-          serverClientId: _googleWebClientId,
-          clientId: _googleIosClientId.isNotEmpty ? _googleIosClientId : null,
+          // The actual root cause of the "Null check operator" crash,
+          // found 2026-08-19 after the accessToken fix below didn't make it
+          // go away: google_sign_in_web's init() only ever reads
+          // `params.clientId` (falling back to a <meta
+          // name="google-signin-client_id"> tag this app's web/index.html
+          // doesn't have) — it ignores `serverClientId` entirely and even
+          // asserts it must be null on web. Passing the web client ID as
+          // serverClientId (correct on iOS/Android, where it sets the ID
+          // token's audience to match what Supabase's Google provider is
+          // configured with) left `clientId` null on web specifically,
+          // so google_sign_in_web's own `appClientId!` — unguarded, no
+          // fallback error — is what actually threw. Splitting the
+          // parameter by platform fixes both without changing native
+          // behavior.
+          serverClientId: kIsWeb ? null : _googleWebClientId,
+          clientId: kIsWeb
+              ? _googleWebClientId
+              : (_googleIosClientId.isNotEmpty ? _googleIosClientId : null),
         )
         // If initialize() itself throws (e.g. a transient network error),
         // don't leave the failure memoized forever — that would brick
