@@ -68,6 +68,22 @@ Active for v1:
   UI was finally wired up (found while doing an unrelated detail-screen
   redesign). Worth checking decisions.md against what's actually merged
   before trusting a "decided/done" entry at face value.
+- **Mic calibration** — decided with Caelan 2026-08-19. An average human
+  speaking voice measures ~60 dBA; every signed-in user is walked through a
+  "say something" screen (`mic_calibration_screen.dart`) once on their
+  first sign-in and again every ~3 months (90 days — a calendar-month
+  interpretation was possible but not specified, flagged as a judgment
+  call), comparing their recording against that reference. The resulting
+  per-user offset (`scoring.js`'s `calibrationOffset`) corrects that user's
+  future ambient mic readings before they're weighted into `micSubscore` —
+  a chronically loud- or quiet-reading phone shouldn't just make every
+  venue that user visits look noisier or quieter than it is. Triggered from
+  `main.dart`'s global auth-state listener (`signedIn` and
+  `initialSession` events — the latter is what makes the periodic recheck
+  work without needing an actual new sign-in), not gated to one screen.
+  **Skippable** — a "Skip for now" action, not a hard block; not explicitly
+  specified either way, flagged as a judgment call matching this app's
+  general pattern of never force-gating a screen the user can't get past.
 
 Not active:
 - SoundPrint (third-party decibel data) — considered and skipped 2026-08-15

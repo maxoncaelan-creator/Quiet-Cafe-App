@@ -2077,7 +2077,71 @@ Google"/"Sign up with Google" went from absent to present.
 earlier today) restyled as an `ActionChip` per Caelan, replacing the
 plain `TextButton.icon`.
 
+## Session — 2026-08-19 (continued again): mic calibration — first sign-in + every 3 months, corrects future readings
+
+Caelan's request: an average human speaking voice measures ~60 dBA; walk
+every signed-in user through a "say something" screen once on first
+sign-in and again every 3 months, and use the recording to get more
+accurate readings.
+
+**Schema**: `0010_mic_calibrations.sql` (applied live) — `mic_calibrations`
+(user_id, decibel_value, platform, recorded_at), same RLS shape as
+`mic_readings`/`loudness_votes`: authenticated users insert/read their
+own, `pipeline_service` reads all.
+
+**Scoring**: `HUMAN_VOICE_REFERENCE_DBA = 60` in scoring.js.
+`calibrationOffset(calibrationDba)` = that minus 60 — positive means the
+user's mic reads loud relative to "true," negative means quiet.
+`applyCalibrationOffsets(readings, latestCalibrationByUser)` subtracts
+each reading's submitting user's offset before scoring; a reading from a
+user with no calibration on file (or no `userId` at all — e.g. the sample
+dataset) passes through unchanged rather than being dropped.
+`supabase.js`'s new `fetchLatestCalibrationByUser` uses `distinct on
+(user_id) ... order by user_id, recorded_at desc` to get one row per user
+directly in Postgres. Wired into `pipeline.js`'s `main()`: fetched once
+per run (not scoped to place_ids — a calibration corrects a user
+everywhere, not at one venue) and applied when merging each restaurant's
+`micReadings`, before `computeScoredRestaurants` ever sees them —
+`micSubscore` itself needed no changes, it just receives already-corrected
+values.
+
+**App**: `MicReading._capturePlatform` made public
+(`MicReading.capturePlatform`) so the new
+`mic_calibration_screen.dart` can reuse the exact same platform-detection
+logic rather than duplicating it. The screen itself mirrors
+`take_reading_screen.dart`'s structure (same `MicService`, now genuinely
+cross-platform since this session's web mic work) but submits to
+`mic_calibrations` via `SupabaseService.submitMicCalibration` instead of
+`mic_readings`. **Made it skippable** (a "Skip for now" action) rather
+than a hard block — not explicitly specified either way; this app never
+force-gates a screen the user can't get past elsewhere (browsing needs no
+account, "Take a reading" prompts inline), so skip-ability matched that
+existing pattern. Skipping doesn't submit anything, so the same due-ness
+check surfaces it again next time it's evaluated, not "successfully
+dismissed forever."
+
+**Trigger**: piggybacked on `main.dart`'s existing global auth-state
+listener (already used for the password-recovery deep link) rather than
+adding a new one — fires `_maybeShowMicCalibration()` on both
+`AuthChangeEvent.signedIn` (a fresh sign-in) and `.initialSession`
+(supabase_flutter emits this once when a persisted session is restored on
+launch, which is what makes the periodic recheck actually work without
+requiring a brand-new sign-in event every 3 months). Due-ness: no
+calibration on file, or the last one is ≥90 days old — a calendar-month
+interpretation of "3 months" was possible but not specified, went with a
+fixed 90-day window instead, flagged as a judgment call.
+
+**Verification**: `flutter analyze` — 0 issues. `flutter test` — passing.
+`flutter build web --release` — succeeded. `data-pipeline`'s `npm test` —
+48/48 (6 new: `HUMAN_VOICE_REFERENCE_DBA`, `calibrationOffset` sign in
+both directions, `applyCalibrationOffsets` ×4 covering the corrected case
+and each pass-through case). **Not click-tested live** — same sandbox
+limitation as every other UI check this session; the actual calibration
+flow (mic permission prompt, a real recording, the resulting offset
+landing correctly on a subsequent reading) needs a real browser or device.
+
 ## Open items carried into further build work
+- **Mic calibration not click-tested live** — added 2026-08-19. Same root cause as the item below. Specifically worth checking once deployed: does the screen actually trigger on a fresh sign-in and on an already-signed-in cold launch, does skipping correctly leave it due next time, and does a submitted calibration actually shift a subsequent reading's effective score.
 - **This session's UI/backend changes not click-tested live** — added 2026-08-19. Loudness vote buttons (does a real submission actually land in `loudness_votes`?), web mic capture (does a real browser's permission prompt and decibel numbers look sane?), and the filter drawer redesign all need a pass in a real browser once deployed — same root cause as every "not visually confirmed" item this session (sandboxed browser can't composite Flutter web's canvas).
 - **"Get the app" banner's copy is now partly stale** — added 2026-08-19. `download_app_banner.dart`/`get_app_prompt.dart` exist partly because mic reading was native-only; that's no longer true. Not changed — the banner may still earn its place for other reasons (notifications, general engagement), so this is Caelan's call, not assumed.
 - **Web mic reading count not tracked separately** — added 2026-08-19. `restaurants.mic_reading_count_ios`/`_android` have no web counterpart column; web readings correctly feed the aggregate `mic_subscore` but don't show up in any per-platform count. Not added since the only place that displayed those counts (the old Score breakdown) was just removed — revisit if a web-specific count is ever needed for display again.

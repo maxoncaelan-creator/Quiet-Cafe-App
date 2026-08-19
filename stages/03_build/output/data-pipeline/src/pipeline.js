@@ -6,13 +6,20 @@ import { optionalEnv } from './env.js'; // loads data-pipeline/.env as a side ef
 import { searchRestaurants, createRequestBudget } from './places.js';
 import { SEARCH_AREAS } from './searchAreas.js';
 import { mineNoiseMentions } from './reviewMining.js';
-import { getDbPool, fetchMicReadingsByPlace, fetchVotesByPlace, upsertScoredRestaurants } from './supabase.js';
+import {
+  getDbPool,
+  fetchMicReadingsByPlace,
+  fetchVotesByPlace,
+  fetchLatestCalibrationByUser,
+  upsertScoredRestaurants,
+} from './supabase.js';
 import {
   reviewSubscore,
   popularSubscore,
   micSubscore,
   voteSubscore,
   filterVotesSupersededByMic,
+  applyCalibrationOffsets,
   combineScores,
 } from './scoring.js';
 
@@ -141,15 +148,21 @@ async function main() {
     // in case this gets revisited.
 
     if (hasSupabase) {
-      console.log('SUPABASE_DB_URL found — fetching crowdsourced mic readings and votes as pipeline_service.');
+      console.log(
+        'SUPABASE_DB_URL found — fetching crowdsourced mic readings, votes, and mic calibrations as pipeline_service.'
+      );
       const pool = getDbPool();
       try {
         const placeIds = restaurants.map((r) => r.placeId);
         const readingsByPlace = await fetchMicReadingsByPlace(pool, placeIds);
         const votesByPlace = await fetchVotesByPlace(pool, placeIds);
+        // Not scoped to placeIds — a calibration corrects a user's readings
+        // everywhere, not just at one venue. One query for the whole run
+        // rather than per-restaurant.
+        const calibrationByUser = await fetchLatestCalibrationByUser(pool);
         restaurants = restaurants.map((r) => ({
           ...r,
-          micReadings: readingsByPlace.get(r.placeId) ?? [],
+          micReadings: applyCalibrationOffsets(readingsByPlace.get(r.placeId) ?? [], calibrationByUser),
           votes: votesByPlace.get(r.placeId) ?? [],
         }));
       } finally {
