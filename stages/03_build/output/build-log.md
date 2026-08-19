@@ -2350,9 +2350,56 @@ Nothing to verify by build here — this is a dashboard-only change with no
 code involved, same category as several other Google/Cloudflare/Supabase
 setup steps already logged as Caelan's throughout this project.
 
+## Session — 2026-08-19 (continued yet again): Google sign-in on web — nonce mismatch, fifth fix in this saga
+
+Caelan added the production origins to the Google Cloud Console client
+(previous open item), unblocking the button past `accounts.google.com`
+— then hit a new, real error on the actual handshake:
+`AuthApiException(message: Passed nonce and nonce in id_token should
+either both exist or not., statusCode: 400, code: null)`, caught via a
+live screenshot of the failed sign-in screen.
+
+Root cause: `GoogleSignIn.instance.initialize()` (google_sign_in
+7.2.0) accepts a `nonce` and, once given one, embeds it in every ID
+token the singleton subsequently produces — but
+`_ensureGoogleInitialized()` never passed one, so the ID token GIS
+returned had no nonce claim while... actually the reverse turned out
+to be true operationally: Supabase's `signInWithIdToken` was being
+called with no `nonce:` argument at all, and the mismatch is Supabase
+enforcing that a nonce must be supplied consistently on both sides
+once either side uses one. `signInWithApple()` right below in the same
+file already does this correctly (raw/hashed nonce pair); Google's
+path just never had it wired in.
+
+**Fixed in `oauth_service.dart`**: generate a raw nonce once, the
+first time `_ensureGoogleInitialized()` runs (stashed in
+`_googleRawNonce`, cleared alongside `_googleInitialization` on
+init failure so a retry regenerates cleanly), pass its SHA-256 hash to
+`initialize()`, and pass the raw nonce to `signInWithIdToken` in
+`completeGoogleSignIn()`. Note this differs from Apple's per-call
+nonce: Google's `initialize()` contract only accepts one, once, for
+the singleton's lifetime, so it can't be minted fresh per sign-in
+attempt the way Apple's is — a real, if minor, difference in nonce
+freshness between the two providers worth knowing about, not
+something worth fighting the plugin's own initialize-once contract
+over.
+
+**Verification**: `flutter analyze` — 0 issues. `flutter test` — 4/4
+passed. Pushed as its own branch,
+`fix/google-signin-nonce-mismatch`, off `main` (not the docs-sync
+branch that was mid-flight) — PR still needs opening the same way as
+the last one, see below.
+
+This is the fifth consecutive live-caught Google-sign-in-on-web fix
+across two sessions (re-initialization, an unguarded null-check,
+wrong init parameter on web, custom-button-unsupported-on-web, now
+this) — worth noting for the pattern, not just this instance: each
+fix has been a genuinely different failure mode, not the same bug
+recurring, which is what real click-testing at each step is for.
+
 ## Open items carried into further build work
-- **Google OAuth client missing the production origin** — added 2026-08-19, Caelan's. Add `https://quiet-restaurant-finder.pages.dev` and `https://app.cafequiet.com` to the Web application client's Authorized JavaScript origins in Google Cloud Console (see `PLATFORM_SETUP.md` step 7). Blocks Google sign-in on web entirely until done — the button renders and responds, it's the actual OAuth handshake that 401s.
-- **Google sign-in on web not click-tested end to end** — added 2026-08-19. Confirmed as far as Google's own consent screen (button renders, tap navigates to accounts.google.com); the full flow (successful auth → redirect back → Supabase session established) still needs a real pass once the origin is registered.
+- **Google sign-in on web still not click-tested end to end with the nonce fix in place** — added 2026-08-19 (this session). Confirmed as far as the failing nonce handshake; the fix above hasn't itself been through a live tap yet since it's not deployed. Needs `fix/google-signin-nonce-mismatch` merged and deployed, then a real pass: does tapping through now actually complete (redirect back → Supabase session established), or does the single-nonce-per-singleton-lifetime design surface anything unexpected on a second sign-in attempt in the same page session (e.g. after a sign-out).
+- ~~Google OAuth client missing the production origin~~ — resolved 2026-08-19: Caelan added both origins in Google Cloud Console; confirmed working past that step since the failure moved to the nonce handshake instead.
 - **Mic calibration not click-tested live** — added 2026-08-19. Same root cause as the item below. Specifically worth checking once deployed: does the screen actually trigger on a fresh sign-in and on an already-signed-in cold launch, does skipping correctly leave it due next time, and does a submitted calibration actually shift a subsequent reading's effective score.
 - **This session's UI/backend changes not click-tested live** — added 2026-08-19. Loudness vote buttons (does a real submission actually land in `loudness_votes`?), web mic capture (does a real browser's permission prompt and decibel numbers look sane?), and the filter drawer redesign all need a pass in a real browser once deployed — same root cause as every "not visually confirmed" item this session (sandboxed browser can't composite Flutter web's canvas).
 - **"Get the app" banner's copy is now partly stale** — added 2026-08-19. `download_app_banner.dart`/`get_app_prompt.dart` exist partly because mic reading was native-only; that's no longer true. Not changed — the banner may still earn its place for other reasons (notifications, general engagement), so this is Caelan's call, not assumed.
