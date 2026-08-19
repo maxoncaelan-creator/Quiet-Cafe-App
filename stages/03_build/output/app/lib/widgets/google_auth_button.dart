@@ -1,16 +1,57 @@
-// Platform-conditional export, added 2026-08-19 — Google's web SDK doesn't
-// allow a custom button to imperatively trigger sign-in the way
-// GoogleSignInButton + OAuthService.signInWithGoogle() does on mobile.
-// google_sign_in_web's authenticate() throws UnimplementedError outright:
-// "authenticate is not supported on the web. Instead, use renderButton to
-// create a sign-in widget." (confirmed live, Caelan). So web needs a
-// genuinely different widget — Google's own rendered button, completion
-// reported via a stream rather than an awaited call — behind the same
-// GoogleAuthButton API both auth_screen.dart and create_account_screen.dart
-// use, so neither screen needs to know which platform it's on.
-//
-// dart.library.html is Flutter's standard "am I compiling for web"
-// conditional-import flag — same pattern as mic_service.dart earlier this
-// session, for the same reason (google_auth_button_web.dart's
-// google_sign_in_web import isn't meant to compile for a native target).
-export 'google_auth_button_io.dart' if (dart.library.html) 'google_auth_button_web.dart';
+// Unified as of 2026-08-19 — this used to be a dart.library.html-conditional
+// export between separate mobile/web implementations (google_auth_button_io.dart
+// / google_auth_button_web.dart), because Google's web SDK couldn't drive
+// sign-in from a custom button at all (authenticate() throws
+// UnimplementedError on web by design). Now that web goes through
+// OAuthService.signInWithGoogleOAuth() — Supabase's redirect-based flow,
+// the same mechanism the Facebook button below uses — there's no
+// web-specific SDK involved here anymore, so one widget covers both
+// platforms: same pill button, different OAuthService call underneath.
+
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/material.dart';
+
+import '../services/oauth_service.dart';
+import 'google_sign_in_button.dart';
+
+class GoogleAuthButton extends StatelessWidget {
+  final String label;
+  final bool submitting;
+  final VoidCallback onSignedIn;
+  final ValueChanged<Object> onError;
+
+  const GoogleAuthButton({
+    super.key,
+    required this.label,
+    required this.submitting,
+    required this.onSignedIn,
+    required this.onError,
+  });
+
+  Future<void> _signIn() async {
+    try {
+      if (kIsWeb) {
+        // Redirect-based flow — the tab navigates to Google and back to
+        // Supabase's own origin, so this Future may never resolve here
+        // (the page can leave before it does). Completion is picked up by
+        // the global auth-state listener in main.dart, not this callback —
+        // same reasoning as the Facebook button in auth_screen.dart, which
+        // is why onSignedIn() is deliberately not called on this branch.
+        await OAuthService.signInWithGoogleOAuth();
+      } else {
+        await OAuthService.signInWithGoogle();
+        onSignedIn();
+      }
+    } catch (e) {
+      onError(e);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GoogleSignInButton(
+      label: label,
+      onPressed: submitting ? null : _signIn,
+    );
+  }
+}

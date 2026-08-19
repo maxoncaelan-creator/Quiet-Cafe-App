@@ -182,17 +182,28 @@ class OAuthService {
     );
   }
 
-  /// Web-only signal for when Google's own rendered button
-  /// (`google_auth_button_web.dart`) completes a sign-in — there's no
-  /// tap-and-await path on web the way `signInWithGoogle()` has on mobile,
-  /// since the button itself is entirely Google's UI, outside this app's
-  /// control. Initialization is required first, same as `signInWithGoogle()`
-  /// — `google_auth_button_web.dart` awaits `ensureGoogleInitializedForWeb()`
-  /// before subscribing.
-  static Stream<GoogleSignInAuthenticationEvent> get googleAuthenticationEvents =>
-      GoogleSignIn.instance.authenticationEvents;
-
-  static Future<void> ensureGoogleInitializedForWeb() => _ensureGoogleInitialized();
+  /// Web only, added 2026-08-19 to replace the ID-token/GIS-button approach
+  /// entirely, after it produced five separate real bugs in a row across
+  /// two sessions (re-init crash, unguarded null-check, wrong init param on
+  /// web, authenticate() unsupported on web by design, then this nonce
+  /// mismatch) — each one a genuinely different failure mode in
+  /// google_sign_in_web's web integration, not the same bug recurring. Root
+  /// cause wasn't any single one of those; it's that the ID-token flow
+  /// forces this app to reimplement Google's web integration itself
+  /// (button rendering, a once-per-session init contract, manual nonce
+  /// wiring). Switching to Supabase's redirect-based signInWithOAuth here
+  /// — the exact mechanism signInWithFacebook() already uses below —
+  /// removes all of that: no Flutter-side Google SDK involved on web at
+  /// all, Supabase's own server completes the OAuth exchange with Google
+  /// and redirects back. Deliberately NOT touching signInWithGoogle()
+  /// above: the native ID-token flow is confirmed working end to end on
+  /// Android already, so mobile has no reason to change.
+  static Future<void> signInWithGoogleOAuth() async {
+    await _client.auth.signInWithOAuth(
+      OAuthProvider.google,
+      authScreenLaunchMode: LaunchMode.platformDefault,
+    );
+  }
 
   static Future<void> signInWithApple() async {
     final rawNonce = _client.auth.generateRawNonce();
