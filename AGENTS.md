@@ -16,7 +16,8 @@ research/design decisions and the build log — see
 ## Scope
 
 One city: Sydney, NSW. Confirmed with Caelan.
-Platform: iOS and Android. Confirmed with Caelan.
+Platform: iOS, Android, and Web (added 2026-08-18, live 2026-08-19 at
+`quiet-restaurant-finder.pages.dev`).
 
 See `_config/decisions.md` for the full, current set of confirmed
 product decisions — scope, platform, and which noise signals are active.
