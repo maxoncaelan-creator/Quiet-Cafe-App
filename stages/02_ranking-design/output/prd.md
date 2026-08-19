@@ -6,17 +6,17 @@ Input: [[quiet-restaurant-finder/stages/01_research/output/research-brief|Resear
 See also: [[quiet-restaurant-finder/stages/02_ranking-design/output/ranking-spec|Ranking spec]] (scoring detail), [[quiet-restaurant-finder/stages/02_ranking-design/output/data-schema|Data schema]] (field-level detail)
 
 ## Objective
-Help people in Sydney find restaurants where they can hear each other talk. The app ranks restaurants by how quiet they are, using two combined signals: review-text mining and first-party crowdsourced microphone readings from app users. (A third signal, Google Popular Times, was designed but dropped for v1 — see "Assumptions and constraints".)
+Help people in Sydney and across the wider NSW footprint (see Scope) find restaurants where they can hear each other talk. The app ranks restaurants by how quiet they are, using two combined signals: review-text mining and first-party crowdsourced microphone readings from app users. (A third signal, Google Popular Times, was designed but dropped for v1 — see "Assumptions and constraints".)
 
 ## Problem statement
-Noise level is one of the hardest things to judge about a restaurant before you arrive. Star ratings and photos say nothing about it. People who care about a quiet meal — for conversation, for a work meeting, for sensory sensitivity — currently have no reliable way to check this in advance. No mainstream app in Sydney solves this directly.
+Noise level is one of the hardest things to judge about a restaurant before you arrive. Star ratings and photos say nothing about it. People who care about a quiet meal — for conversation, for a work meeting, for sensory sensitivity — currently have no reliable way to check this in advance. No mainstream app in this market solves this directly.
 
 ## Target users
-Anyone choosing a restaurant in Sydney who wants to know the noise level before they book or walk in. Includes people with hearing loss or sensory sensitivity, people wanting a conversation-friendly date or work meeting, and anyone who has been burned by a restaurant too loud to talk in.
+Anyone choosing a restaurant in the coverage area (see Scope) who wants to know the noise level before they book or walk in. Includes people with hearing loss or sensory sensitivity, people wanting a conversation-friendly date or work meeting, and anyone who has been burned by a restaurant too loud to talk in.
 
 ## Scope
-- City: Sydney, NSW.
-- Platform: iOS and Android, built with Flutter (decided 2026-08-15).
+- Coverage: Greater Sydney, plus out to Dubbo, north to Newcastle, south to Moss Vale, and into the Illawarra as far as Kiama (expanded 2026-08-19 from the original "Sydney, NSW only"). Sydney remains the centre of gravity — where coverage is densest and what the marketing leads with. See `_config/decisions.md` for the full decision and `data-pipeline/src/searchAreas.js` for the area queries that implement it.
+- Platform: iOS, Android, and Web, built with Flutter (iOS/Android decided 2026-08-15; Web added 2026-08-18, live 2026-08-19 at `quiet-restaurant-finder.pages.dev`).
 - Backend: Supabase (decided 2026-08-15) — stores restaurant/score data and crowdsourced mic readings.
 - Account required to submit a mic reading; browsing the ranked list stays open to everyone, no account needed (decided 2026-08-15).
 - One version of the ranking, not personalized per user, for v1.
@@ -31,7 +31,7 @@ Each restaurant record carries identity and location fields, per-signal data (re
 Restaurants are ranked by combined quietness score, quietest first. Users can filter by cuisine, price, suburb, and time of day, since noise varies by hour and the microphone data is timestamped for this. Each restaurant's detail view shows the score breakdown, not just a single number, since transparency matters when data confidence varies (e.g. a venue with 2 Android readings vs. one with 50 iOS readings). Detail: [[quiet-restaurant-finder/stages/02_ranking-design/output/ranking-spec|ranking spec]].
 
 ## Success metrics
-- Number of restaurants with at least one crowdsourced microphone reading, in Sydney.
+- Number of restaurants with at least one crowdsourced microphone reading, across the coverage area.
 - Number of active users submitting readings (the app depends on this to work).
 - User-reported accuracy: does the app's quietness ranking match what people experience when they arrive?
 
