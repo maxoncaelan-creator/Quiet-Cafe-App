@@ -1884,7 +1884,55 @@ the delete's own `returning` clause: all 4 rows gone
 `ChIJhehZb03K14kRuAjwco4Vhd4`, `ChIJbWsJDlTK14kRQ5AMXem65-Y`). Local
 `data/restaurants.json` filtered to match (1,221 → 1,217 rows).
 
+## Session — 2026-08-19 (continued again): filters moved into a popout drawer, Loudness/Rating filters + Sort By added
+
+Caelan asked for the Suburb/Cuisine filters (previously two inline dropdowns
+under the search bar) to move into a popout panel like the existing
+hamburger menu, plus two new filter categories (Loudness, Rating) and a
+Sort By control with four options.
+
+New `widgets/filter_drawer.dart` — a `Scaffold.endDrawer`, the same `Drawer`
+widget `AppDrawer` already uses for the left-side hamburger menu, so the
+scrim/slide behavior is identical, just opening from the right via a new
+filter icon in the AppBar (badged when any filter is active). All four
+filter categories are labeled dropdowns inside it, plus a Sort By dropdown
+and a "Clear all filters" button (only shown when a filter is active;
+doesn't touch Sort By, which isn't treated as a filter).
+
+Two design calls made without a spec to point to, flagged here rather than
+silently decided:
+- **Loudness filter reuses `NoiseLevelBar.categories`** (Silent, Very
+  Quiet, Quiet, Moderate, Loud, Very Loud, Earsplitting) — the same 7-tier
+  taxonomy already shown on every tile and the detail screen, rather than
+  inventing separate filter vocabulary. A restaurant with no quietness
+  score yet won't match any specific tier (consistent with how "Not enough
+  data yet" already excludes it from the ranked list).
+- **Rating filter is a minimum-threshold dropdown** (Any, 3.0+, 3.5+,
+  4.0+, 4.5+) rather than exact-star buckets — ratings are Google's raw
+  0-5 values, and "4.0+" is the pattern most rating filters use elsewhere.
+
+Sort By: Quietest First (existing default, unchanged), Loudest First (the
+same ranked list reversed), Rating Highest/Lowest (re-sorts the same
+ranked list by `googleRating`, nulls pushed to the end regardless of
+direction). All four options only reorder the "enough data" section — the
+existing "Not enough data yet" split underneath is untouched, since that's
+specifically about quietness signal coverage and changing that split
+wasn't asked for.
+
+**Verification**: `flutter analyze` — 0 issues. `flutter test` — all
+passing (no new unit tests added for the screen-level filter/sort
+logic — this codebase has no prior widget-level tests for `HomeScreen`
+either, and the logic is straightforward enough that `analyze` + a real
+release build cover it). `flutter build web --release` — succeeded, same
+"strongest available signal" this environment has relied on before since
+the sandboxed browser tool still can't composite Flutter web's canvas
+(confirmed again this session: clean console, DDC loads all 967 modules,
+no errors — just can't get pixels). **Not visually confirmed** — same
+open item as the pre-existing "Web UI's actual rendered layout" one below;
+worth a real look once deployed or in a normal browser.
+
 ## Open items carried into further build work
+- **Filter drawer redesign not visually confirmed** — added 2026-08-19, same root cause as the item below (sandboxed browser can't composite Flutter web). Worth a specific pass on the new drawer once a real browser is available: does the badge show/hide correctly, do all four dropdowns and Sort By actually reorder/filter the list as expected live.
 - **~8 old leftover demo rows with no suburb** — added 2026-08-19, low priority. Pre-date this session's area-list run entirely; harmless, just slightly stale given the no-delete design. Worth a one-time cleanup pass if it's ever worth Caelan's time, not urgent.
 - **App branding still says "Sydney" only** — added 2026-08-19. AppBar title (`home_screen.dart`) and README/store copy weren't touched when scope expanded to Greater NSW; Caelan's call on whether/how to rename.
 - **Search area list is a curated regional spread, not exhaustive** — added 2026-08-19. 63 queries across Greater Sydney/Newcastle/Dubbo/Moss Vale/Kiama, each only pulled page 1 (~20 results) since no area actually needed pagination yet; extend `searchAreas.js` (or swap in a real suburb dataset) if live testing finds a gap.
