@@ -1869,8 +1869,22 @@ given no-delete).
 **Cost of this fix: $0** — zero Places API requests, just local string
 parsing and a normal DB write.
 
+**The 4 non-Australian rows were then confirmed and deleted.** Caelan
+double-checked the reasoning first (right call, given cascading deletes
+aren't reversible) — verified none of the four addresses contain the word
+"Australia" anywhere (`New Zealand` × 2, `Canada` × 2, and the postcodes
+themselves are non-Australian formats: NZ's `7220`, Canada's `K0K 2T0`, not
+a 4-digit AU postcode). Deleted via the Supabase MCP `execute_sql` tool
+(`pipeline_service` still has no delete grant — this went through a
+higher-privileged path deliberately, as a one-off, not by changing the
+pipeline's normal access). `mic_readings` and `favorites` both have
+`on delete cascade` on `place_id`, so no orphaned rows either. Confirmed by
+the delete's own `returning` clause: all 4 rows gone
+(`ChIJddN3Nlc5OW0RdTI0-TxF3G0`, `ChIJIxOnYWw5OW0RJDC2CTu3q_Q`,
+`ChIJhehZb03K14kRuAjwco4Vhd4`, `ChIJbWsJDlTK14kRQ5AMXem65-Y`). Local
+`data/restaurants.json` filtered to match (1,221 → 1,217 rows).
+
 ## Open items carried into further build work
-- **4 non-Australian rows still live in the `restaurants` table** — added 2026-08-19 (New Zealand/Canada Picton namesakes, place IDs logged in the backfill script's output above). Not deleted — `pipeline_service` has no delete grant by design; needs an explicit service-role/dashboard step. Caelan's call on whether/when to remove them.
 - **~8 old leftover demo rows with no suburb** — added 2026-08-19, low priority. Pre-date this session's area-list run entirely; harmless, just slightly stale given the no-delete design. Worth a one-time cleanup pass if it's ever worth Caelan's time, not urgent.
 - **App branding still says "Sydney" only** — added 2026-08-19. AppBar title (`home_screen.dart`) and README/store copy weren't touched when scope expanded to Greater NSW; Caelan's call on whether/how to rename.
 - **Search area list is a curated regional spread, not exhaustive** — added 2026-08-19. 63 queries across Greater Sydney/Newcastle/Dubbo/Moss Vale/Kiama, each only pulled page 1 (~20 results) since no area actually needed pagination yet; extend `searchAreas.js` (or swap in a real suburb dataset) if live testing finds a gap.

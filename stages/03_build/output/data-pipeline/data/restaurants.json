@@ -34816,38 +34816,6 @@
     "signalCount": 0
   },
   {
-    "placeId": "ChIJddN3Nlc5OW0RdTI0-TxF3G0",
-    "yelpId": null,
-    "name": "Fork & Fable Restaurant, Pizzeria + Bar",
-    "cuisine": "restaurant",
-    "priceLevel": 2,
-    "address": "1 High Street, Picton 7220, New Zealand",
-    "suburb": null,
-    "lat": -41.2890636,
-    "lng": 174.00669249999999,
-    "googleRating": 4.1,
-    "yelpRating": null,
-    "signals": {
-      "review": {
-        "positiveCount": 0,
-        "negativeCount": 1,
-        "subscore": 0
-      },
-      "popular": {
-        "busynessPercent": null,
-        "subscore": null
-      },
-      "mic": {
-        "readingCountIos": 0,
-        "readingCountAndroid": 0,
-        "subscore": null
-      }
-    },
-    "quietnessScore": 0,
-    "confidence": "Very Low",
-    "signalCount": 1
-  },
-  {
     "placeId": "ChIJW2uK3xP_EmsRbn9Slv5EAdk",
     "yelpId": null,
     "name": "Picton Social",
@@ -35136,38 +35104,6 @@
     "signalCount": 0
   },
   {
-    "placeId": "ChIJIxOnYWw5OW0RJDC2CTu3q_Q",
-    "yelpId": null,
-    "name": "Toastie Lords - Picton",
-    "cuisine": "sandwich_shop",
-    "priceLevel": 1,
-    "address": "10 London Quay, Picton 7220, New Zealand",
-    "suburb": null,
-    "lat": -41.288935099999996,
-    "lng": 174.00767689999998,
-    "googleRating": 4.7,
-    "yelpRating": null,
-    "signals": {
-      "review": {
-        "positiveCount": 0,
-        "negativeCount": 0,
-        "subscore": null
-      },
-      "popular": {
-        "busynessPercent": null,
-        "subscore": null
-      },
-      "mic": {
-        "readingCountIos": 0,
-        "readingCountAndroid": 0,
-        "subscore": null
-      }
-    },
-    "quietnessScore": null,
-    "confidence": null,
-    "signalCount": 0
-  },
-  {
     "placeId": "ChIJr1zBMgn_EmsRuY1b2GQbhCQ",
     "yelpId": null,
     "name": "The Old Cheese Factory",
@@ -35242,38 +35178,6 @@
     "lat": -34.1661605,
     "lng": 150.6119232,
     "googleRating": 4,
-    "yelpRating": null,
-    "signals": {
-      "review": {
-        "positiveCount": 0,
-        "negativeCount": 0,
-        "subscore": null
-      },
-      "popular": {
-        "busynessPercent": null,
-        "subscore": null
-      },
-      "mic": {
-        "readingCountIos": 0,
-        "readingCountAndroid": 0,
-        "subscore": null
-      }
-    },
-    "quietnessScore": null,
-    "confidence": null,
-    "signalCount": 0
-  },
-  {
-    "placeId": "ChIJhehZb03K14kRuAjwco4Vhd4",
-    "yelpId": null,
-    "name": "The Lighthouse Restaurant",
-    "cuisine": "restaurant",
-    "priceLevel": 1,
-    "address": "33 Bridge St, Prince Edward, ON K0K 2T0, Canada",
-    "suburb": null,
-    "lat": 44.008736,
-    "lng": -77.136789,
-    "googleRating": 4.7,
     "yelpRating": null,
     "signals": {
       "review": {
@@ -35390,38 +35294,6 @@
     "quietnessScore": null,
     "confidence": null,
     "signalCount": 0
-  },
-  {
-    "placeId": "ChIJbWsJDlTK14kRQ5AMXem65-Y",
-    "yelpId": null,
-    "name": "Hartley's Tavern",
-    "cuisine": "fine_dining_restaurant",
-    "priceLevel": 4,
-    "address": "19 Elizabeth St, Picton, ON K0K 2T0, Canada",
-    "suburb": null,
-    "lat": 44.0071595,
-    "lng": -77.1434208,
-    "googleRating": 4.7,
-    "yelpRating": null,
-    "signals": {
-      "review": {
-        "positiveCount": 1,
-        "negativeCount": 0,
-        "subscore": 100
-      },
-      "popular": {
-        "busynessPercent": null,
-        "subscore": null
-      },
-      "mic": {
-        "readingCountIos": 0,
-        "readingCountAndroid": 0,
-        "subscore": null
-      }
-    },
-    "quietnessScore": 100,
-    "confidence": "Very Low",
-    "signalCount": 1
   },
   {
     "placeId": "ChIJ67TPblGjE2sR4wEl78Kd4PQ",
