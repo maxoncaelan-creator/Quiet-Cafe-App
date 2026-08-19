@@ -134,3 +134,12 @@ deploy-web.yml's flutter build web step only ever passed SUPABASE_URL/SUPABASE_A
 **Standard:** A deploy workflow's build-time flags need to include every dart-define a feature's own config-check depends on, not just the ones needed for the build to succeed at all — 'builds successfully' and 'ships a working feature' aren't the same check when a feature is designed to fail silent.
 **Fix:** Added --dart-define=GOOGLE_WEB_CLIENT_ID=... to deploy-web.yml (the value is a public OAuth client ID, not a secret, so hardcoded directly rather than added as a GitHub secret). Verified locally: rebuilding with the same flag makes 'Sign in with Google'/'Sign up with Google' appear in the compiled bundle where they were absent before.
 
+## google-signin-reinitialized-per-call
+
+OAuthService.signInWithGoogle() called GoogleSignIn.instance.initialize() fresh on every invocation instead of once per app lifetime. google_sign_in's own doc comment is explicit: 'Clients must call this method exactly once... Calling this method more than once will result in undefined behavior.' Worked on the very first attempt (nothing had ever actually exercised a second attempt, since the button itself was missing on web until this session's earlier fix), then threw 'Bad state: init() has already been called' on any retry - caught live by Caelan tapping the newly-visible button.
+
+### 2026-08-19 | 03_build | caught: user
+OAuthService.signInWithGoogle() called GoogleSignIn.instance.initialize() fresh on every invocation instead of once per app lifetime. google_sign_in's own doc comment is explicit: 'Clients must call this method exactly once... Calling this method more than once will result in undefined behavior.' Worked on the very first attempt (nothing had ever actually exercised a second attempt, since the button itself was missing on web until this session's earlier fix), then threw 'Bad state: init() has already been called' on any retry - caught live by Caelan tapping the newly-visible button.
+**Standard:** A third-party SDK's own documented lifecycle contract (init-exactly-once, singleton clients, etc.) has to be honored structurally (memoized/guarded), not just called correctly once and hoped to only run once.
+**Fix:** Memoized the initialize() call behind a cached Future (_googleInitialization), not just a bool guard, so concurrent calls before the first resolves also share the one real initialize() rather than racing. Also clears the memoized future on failure so a transient error doesn't permanently brick Google sign-in for the rest of the session.
+

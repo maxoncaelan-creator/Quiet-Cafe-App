@@ -47,12 +47,40 @@ class OAuthService {
 
   static SupabaseClient get _client => Supabase.instance.client;
 
+  // GoogleSignIn.instance.initialize() carries an explicit contract in its
+  // own doc comment: "Clients must call this method exactly once, and wait
+  // for its future to complete... Calling this method more than once will
+  // result in undefined behavior." Found live 2026-08-19 (Caelan) — calling
+  // it fresh inside signInWithGoogle() on every tap works the first time
+  // and throws "Bad state: init() has already been called" on any retry
+  // (a cancelled attempt, backing out and trying again, a second visit to
+  // the sign-in screen). Memoizing the Future — not just guarding with a
+  // bool — also covers two taps landing close enough together that the
+  // first initialize() hasn't resolved yet, which the docs call out as
+  // its own undefined-behavior case.
+  static Future<void>? _googleInitialization;
+
+  static Future<void> _ensureGoogleInitialized() {
+    _googleInitialization ??= GoogleSignIn.instance
+        .initialize(
+          serverClientId: _googleWebClientId,
+          clientId: _googleIosClientId.isNotEmpty ? _googleIosClientId : null,
+        )
+        // If initialize() itself throws (e.g. a transient network error),
+        // don't leave the failure memoized forever — that would brick
+        // Google sign-in for the rest of the session after one hiccup.
+        // Only a genuinely *successful* call counts as "the one" the docs
+        // require; clearing on failure lets the next attempt retry cleanly.
+        .catchError((Object error, StackTrace stackTrace) {
+          _googleInitialization = null;
+          Error.throwWithStackTrace(error, stackTrace);
+        });
+    return _googleInitialization!;
+  }
+
   static Future<void> signInWithGoogle() async {
+    await _ensureGoogleInitialized();
     final googleSignIn = GoogleSignIn.instance;
-    await googleSignIn.initialize(
-      serverClientId: _googleWebClientId,
-      clientId: _googleIosClientId.isNotEmpty ? _googleIosClientId : null,
-    );
 
     final googleUser = await googleSignIn.authenticate();
     const scopes = ['email', 'profile'];

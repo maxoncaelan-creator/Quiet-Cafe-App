@@ -2165,7 +2165,46 @@ container and position.
 Not click-tested live — same sandbox limitation as everything else this
 session.
 
+## Session — 2026-08-19 (continued again): Google sign-in throwing "Bad state: init() has already been called"
+
+The previous fix (adding `GOOGLE_WEB_CLIENT_ID` to the deploy workflow)
+got the button showing — Caelan then actually tapped it live and hit a
+real second bug: `Sign-in failed: Bad state: init() has already been
+called. Calling init() more than once results in undefined behavior.`
+
+Root cause confirmed against the package's own doc comment, not guessed:
+`GoogleSignIn.instance.initialize()` in `google_sign_in` 7.2.0 states
+outright — "Clients must call this method exactly once, and wait for its
+future to complete... Calling this method more than once will result in
+undefined behavior." `OAuthService.signInWithGoogle()` called
+`initialize()` fresh on every single invocation. This is exactly why it
+looked fine right up until now: the button itself was missing on web
+until earlier this session's deploy fix, so nothing had ever actually
+exercised a *second* attempt in a live session before — the first tap
+always worked, only a retry (cancelled attempt, backing out and trying
+again) would have hit this.
+
+**Fixed**: memoized the `initialize()` call behind a cached `Future`
+(`_googleInitialization`), not just a bool flag — a bool guard alone
+would still let two nearly-simultaneous taps both see "not yet
+initialized" and both call `initialize()` before either resolves, which
+the docs separately call out as its own undefined-behavior case. Also
+clears the memoized future specifically on failure, so a transient error
+(e.g. a flaky network request during init) doesn't permanently brick
+Google sign-in for the rest of that session — only a genuinely
+*successful* initialize counts as "the one."
+
+Logged as mistake `google-signin-reinitialized-per-call`.
+
+**Verification**: `flutter analyze` — 0 issues. `flutter test` — passing.
+`flutter build web --release` with the real `GOOGLE_WEB_CLIENT_ID` —
+succeeded. **Not click-tested live** — same sandbox limitation as
+everything else this session; specifically worth Caelan re-testing a
+sign-in *retry* (cancel once, try again) now that this is deployed, since
+that's the exact scenario that was broken.
+
 ## Open items carried into further build work
+- **Google sign-in retry not click-tested live** — added 2026-08-19. The fix is verified by reading the package's documented contract and a clean build, but the actual failure mode (tap, cancel or fail, tap again) hasn't been re-tried live yet.
 - **Mic calibration not click-tested live** — added 2026-08-19. Same root cause as the item below. Specifically worth checking once deployed: does the screen actually trigger on a fresh sign-in and on an already-signed-in cold launch, does skipping correctly leave it due next time, and does a submitted calibration actually shift a subsequent reading's effective score.
 - **This session's UI/backend changes not click-tested live** — added 2026-08-19. Loudness vote buttons (does a real submission actually land in `loudness_votes`?), web mic capture (does a real browser's permission prompt and decibel numbers look sane?), and the filter drawer redesign all need a pass in a real browser once deployed — same root cause as every "not visually confirmed" item this session (sandboxed browser can't composite Flutter web's canvas).
 - **"Get the app" banner's copy is now partly stale** — added 2026-08-19. `download_app_banner.dart`/`get_app_prompt.dart` exist partly because mic reading was native-only; that's no longer true. Not changed — the banner may still earn its place for other reasons (notifications, general engagement), so this is Caelan's call, not assumed.
