@@ -17,19 +17,47 @@ export function getDbPool() {
   return new Pool({ connectionString, ssl: { rejectUnauthorized: false } });
 }
 
-/** Fetches all mic readings for a set of place IDs, grouped by place_id. */
+/**
+ * Fetches all mic readings for a set of place IDs, grouped by place_id.
+ * Includes user_id/submitted_at (not just decibel/platform) so the caller
+ * can apply the "mic reading beats a same-user vote within 5 minutes" rule
+ * in scoring.js — needed for votes, not for micSubscore itself.
+ */
 export async function fetchMicReadingsByPlace(pool, placeIds) {
   if (placeIds.length === 0) return new Map();
 
   const { rows } = await pool.query(
-    'select place_id, decibel_value, platform from mic_readings where place_id = any($1)',
+    'select place_id, decibel_value, platform, user_id, submitted_at from mic_readings where place_id = any($1)',
     [placeIds]
   );
 
   const byPlace = new Map();
   for (const row of rows) {
     const list = byPlace.get(row.place_id) ?? [];
-    list.push({ decibel: Number(row.decibel_value), platform: row.platform });
+    list.push({
+      decibel: Number(row.decibel_value),
+      platform: row.platform,
+      userId: row.user_id,
+      submittedAt: row.submitted_at,
+    });
+    byPlace.set(row.place_id, list);
+  }
+  return byPlace;
+}
+
+/** Fetches all loudness votes for a set of place IDs, grouped by place_id. */
+export async function fetchVotesByPlace(pool, placeIds) {
+  if (placeIds.length === 0) return new Map();
+
+  const { rows } = await pool.query(
+    'select place_id, vote, user_id, submitted_at from loudness_votes where place_id = any($1)',
+    [placeIds]
+  );
+
+  const byPlace = new Map();
+  for (const row of rows) {
+    const list = byPlace.get(row.place_id) ?? [];
+    list.push({ vote: row.vote, userId: row.user_id, submittedAt: row.submitted_at });
     byPlace.set(row.place_id, list);
   }
   return byPlace;
@@ -42,6 +70,7 @@ const UPSERT_QUERY = `
     review_positive_count, review_negative_count, review_subscore, review_signal_updated_at,
     popular_busyness_percent, popular_subscore, popular_signal_updated_at,
     mic_reading_count_ios, mic_reading_count_android, mic_subscore, mic_signal_updated_at,
+    vote_count, vote_subscore, vote_signal_updated_at,
     quietness_score, confidence, score_updated_at
   ) values (
     $1, $2, $3, $4, $5, $6, $7,
@@ -49,7 +78,8 @@ const UPSERT_QUERY = `
     $12, $13, $14, now(),
     $15, $16, now(),
     $17, $18, $19, now(),
-    $20, $21, now()
+    $20, $21, now(),
+    $22, $23, now()
   )
   on conflict (place_id) do update set
     yelp_id = excluded.yelp_id,
@@ -73,6 +103,9 @@ const UPSERT_QUERY = `
     mic_reading_count_android = excluded.mic_reading_count_android,
     mic_subscore = excluded.mic_subscore,
     mic_signal_updated_at = excluded.mic_signal_updated_at,
+    vote_count = excluded.vote_count,
+    vote_subscore = excluded.vote_subscore,
+    vote_signal_updated_at = excluded.vote_signal_updated_at,
     quietness_score = excluded.quietness_score,
     confidence = excluded.confidence,
     score_updated_at = excluded.score_updated_at
@@ -101,6 +134,8 @@ export async function upsertScoredRestaurants(pool, scoredRestaurants) {
       r.signals.mic.readingCountIos,
       r.signals.mic.readingCountAndroid,
       r.signals.mic.subscore,
+      r.signals.vote.count,
+      r.signals.vote.subscore,
       r.quietnessScore,
       r.confidence,
     ]);

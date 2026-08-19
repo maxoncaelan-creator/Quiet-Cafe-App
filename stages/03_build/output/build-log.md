@@ -1931,10 +1931,121 @@ no errors — just can't get pixels). **Not visually confirmed** — same
 open item as the pre-existing "Web UI's actual rendered layout" one below;
 worth a real look once deployed or in a normal browser.
 
+## Session — 2026-08-19 (continued again): List/detail screen overhaul — filter/sign-in placement, boxed loudness indicator, loudness votes finally wired up, real web mic capture
+
+Caelan's requests, worked through in order:
+
+**List screen.** AppBar title "Quietest in Sydney" → "List View". The
+filter icon moved out of the AppBar into a Row beside the search bar
+(`VoiceSearchBar` stays untouched — just wrapped in `Expanded` alongside
+the filter `IconButton`, no internal changes needed). The account icon,
+when signed out, is now a `TextButton.icon` reading "Sign In" instead of a
+bare outlined-circle icon — signed-in state is unchanged (icon +
+tooltip). `ConfidenceIndicator` removed from `RestaurantTile` entirely
+(detail screen's confidence dots untouched — the ask was specifically
+about list entries).
+
+**Boxed loudness indicator.** `NoiseLevelBar` redesigned: the 7-segment
+bar is gone, replaced with a single `Container` holding the category word,
+sized around the text (compact for the tile, larger for the detail
+screen). Same category taxonomy and the same red→amber→teal color ramp as
+before (`_colorForQuietness`, untouched) — Silent now renders as solid
+calmest-teal, Earsplitting as solid angriest-red, instead of a mostly-grey
+bar with one lit segment. Text color picked via
+`ThemeData.estimateBrightnessForColor` so it stays readable across the
+whole ramp. Same public API (`quietnessScore`, `compact`,
+`categoryIndexFor`), so `home_screen.dart`'s loudness filter and
+`restaurant_tile.dart`/`restaurant_detail_screen.dart` needed no changes
+beyond what's described above.
+
+**Loudness vote buttons — a real gap found and closed.** Caelan asked for
+three Quiet/Normal/Loud buttons where the detail screen's "Score
+breakdown" section used to be. Went looking for prior art first rather
+than building from scratch, since `_config/decisions.md` already claimed
+this was "decided with Caelan 2026-08-18" and had "replaced the Score
+breakdown section entirely" — but the live code still had the old Score
+breakdown, and grepping the whole app for "vote" turned up nothing. Found
+the actual explanation on `feature/loudness-votes-and-venue-guess`, an
+unmerged branch: the backend (0008_loudness_votes.sql migration,
+scoring.js's voteSubscore/filterVotesSupersededByMic/DEFAULT_WEIGHTS) had
+already been built *and applied live* back on 2026-08-18 (confirmed via
+`list_migrations`/`information_schema` — the table and the
+`restaurants.vote_*` columns were already sitting in production), but the
+app-side `LoudnessVoteButtons` widget and its wiring into the detail
+screen were only ever committed to that branch, which then diverged too
+far from `main` (missing web support, the app-shell restructuring, and
+more) to merge directly. Corrected the decisions.md entry to say so
+explicitly rather than leave a false "done" claim in place.
+
+Ported what was needed rather than merging the stale branch: added
+`0008_loudness_votes.sql` to the migrations folder (documents what's
+already live, doesn't change anything — `if not exists` throughout),
+copied `loudness_vote_buttons.dart` across using this codebase's actual
+sign-in pattern (`_ensureSignedIn`, matching `_startReading`'s existing
+one), added `SupabaseService.submitLoudnessVote`, and manually reapplied
+the branch's scoring.js/pipeline.js/supabase.js diff onto the *current*
+(much-changed-since) versions of those files — `DEFAULT_WEIGHTS` now
+`{mic: 0.4, review: 0.25, vote: 0.2, popular: 0.15}`,
+`filterVotesSupersededByMic`/`voteSubscore` added, `fetchVotesByPlace`
+added to supabase.js, `computeScoredRestaurants` and `main()` in
+pipeline.js updated to fetch and score votes. One existing test's expected
+value changed with the new weights (`combineScores renormalizes weights
+over present signals only`, 60 → 62.5) — recalculated, not just changed to
+pass. `_SignalRow` and the old Score breakdown markup deleted from
+`restaurant_detail_screen.dart` entirely.
+
+**Web mic decibel capture — built from scratch, not a flag flip.**
+Checked before assuming this was simple: `audio_streamer` (which
+`noise_meter` wraps) declares only `android`/`ios` in its own
+`pubspec.yaml` — zero web platform support exists at the plugin level, so
+there was no gate to just remove. Built a real Web Audio API
+implementation instead: `mic_service_web.dart` uses `getUserMedia` for the
+raw stream, an `AnalyserNode` for time-domain amplitude samples
+(`getByteTimeDomainData`), and computes RMS → dB the same way
+(`20*log10(amplitude)`) `noise_meter` does natively, so both platforms
+feed `scoring.js`'s `micSubscore` the same dBA-shaped scale. No audio is
+recorded or stored, same privacy constraint as native. Split the old
+`mic_service.dart` into `mic_service_io.dart` (unchanged content, just
+moved) and `mic_service_web.dart`, with `mic_service.dart` becoming a
+`dart.library.html`-conditional export — Flutter's standard pattern for
+this, since `dart:js_interop`/`package:web` can't compile for a native
+target. Added `web: ^1.1.0` to `pubspec.yaml`. `flutter build web
+--release` compiled the interop code correctly on the first real attempt
+(confirms the `package:web` 1.1.1 API surface guessed — `MediaStreamConstraints`,
+`getUserMedia().toDart`, `createMediaStreamSource`, `createAnalyser`,
+`Uint8List.toJS`/`getTracks().toDart` — was actually right, not just
+type-checked in isolation).
+
+Also needed, and done: `mic_readings_platform_check` only allowed
+`'ios'`/`'android'` (0001_init.sql) — added 0009_mic_readings_allow_web.sql
+(applied live) to add `'web'`. `PLATFORM_WEIGHT.web = 0.35` in
+scoring.js — lower than Android's 0.5, since browsers commonly apply their
+own automatic gain control/noise suppression on top of device-to-device
+variance, an explicit judgment call flagged as tunable like the rest of
+this weighting. `MicReading._capturePlatform()`'s `'web'` branch and its
+stale "should be unreachable" comment predate this — updated. Removed the
+`restaurant_detail_screen.dart` `kIsWeb` gate that showed "Take a reading
+in the app" (with a "Get the app" prompt) instead of the real button on
+web — web now gets the same `FilledButton`/`_startReading` flow as native.
+
+**Verification**: `flutter analyze` — 0 issues (checked after each major
+piece, not just once at the end). `flutter test` — all passing. `data-pipeline`'s
+`npm test` — 42/42 (6 new: web-platform mic weighting, voteSubscore,
+filterVotesSupersededByMic ×3, combineScores-with-vote). `flutter build
+web --release` — succeeded, the real compile-and-tree-shake test for the
+new JS-interop mic code, not just static analysis. **Not click-tested
+live**: the actual vote-button submission flow and the web mic capture's
+real browser permission prompt/decibel numbers — both need a real browser
+(this sandbox's known canvas-compositing gap, same as every other UI
+verification this session) or a deployed check.
+
 ## Open items carried into further build work
-- **Filter drawer redesign not visually confirmed** — added 2026-08-19, same root cause as the item below (sandboxed browser can't composite Flutter web). Worth a specific pass on the new drawer once a real browser is available: does the badge show/hide correctly, do all four dropdowns and Sort By actually reorder/filter the list as expected live.
+- **This session's UI/backend changes not click-tested live** — added 2026-08-19. Loudness vote buttons (does a real submission actually land in `loudness_votes`?), web mic capture (does a real browser's permission prompt and decibel numbers look sane?), and the filter drawer redesign all need a pass in a real browser once deployed — same root cause as every "not visually confirmed" item this session (sandboxed browser can't composite Flutter web's canvas).
+- **"Get the app" banner's copy is now partly stale** — added 2026-08-19. `download_app_banner.dart`/`get_app_prompt.dart` exist partly because mic reading was native-only; that's no longer true. Not changed — the banner may still earn its place for other reasons (notifications, general engagement), so this is Caelan's call, not assumed.
+- **Web mic reading count not tracked separately** — added 2026-08-19. `restaurants.mic_reading_count_ios`/`_android` have no web counterpart column; web readings correctly feed the aggregate `mic_subscore` but don't show up in any per-platform count. Not added since the only place that displayed those counts (the old Score breakdown) was just removed — revisit if a web-specific count is ever needed for display again.
+- **`PLATFORM_WEIGHT.web = 0.35` is a starting guess, not measured** — added 2026-08-19, same tuning-item status as the rest of `scoring.js`'s weights.
 - **~8 old leftover demo rows with no suburb** — added 2026-08-19, low priority. Pre-date this session's area-list run entirely; harmless, just slightly stale given the no-delete design. Worth a one-time cleanup pass if it's ever worth Caelan's time, not urgent.
-- **App branding still says "Sydney" only** — added 2026-08-19. AppBar title (`home_screen.dart`) and README/store copy weren't touched when scope expanded to Greater NSW; Caelan's call on whether/how to rename.
+- **App branding: README/store copy still says "Sydney" only** — added 2026-08-19 (AppBar title itself is now "List View", see above). Caelan's call on whether/how to rename the rest.
 - **Search area list is a curated regional spread, not exhaustive** — added 2026-08-19. 63 queries across Greater Sydney/Newcastle/Dubbo/Moss Vale/Kiama, each only pulled page 1 (~20 results) since no area actually needed pagination yet; extend `searchAreas.js` (or swap in a real suburb dataset) if live testing finds a gap.
 - **Web UI's actual rendered layout still not visually confirmed** — the live `.pages.dev` boot/routing check above confirms the app *works*, but didn't specifically re-check the rail/drawer swap at different widths, the download banner, or the max-width constraints now that a real browser is available. Worth a specific pass, not just "does it load."
 - ~~Cloudflare Pages deployment not set up~~ — resolved 2026-08-19: live at `https://quiet-restaurant-finder.pages.dev`, see session above. Still open: attach `app.cafequiet.com` as a custom domain (Cloudflare dashboard, Caelan's).

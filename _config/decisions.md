@@ -13,20 +13,26 @@ suburb filter turned out to only ever show "All suburbs" — see build log
 `data-pipeline/src/searchAreas.js` holds the 60+ area queries used to cover
 this footprint; it's a curated regional spread, not an exhaustive suburb
 list (Greater Sydney alone has 600+ gazetted suburbs) — extend it if
-real-world testing turns up a gap. The app's AppBar title ("Quietest in
-Sydney") and README/marketing copy still say "Sydney" only — **not changed
-yet, flagged for Caelan** since renaming the app's branding is a separate
-call from expanding the data footprint.
+real-world testing turns up a gap. The List screen's AppBar title changed
+from "Quietest in Sydney" to "List View" 2026-08-19 (per Caelan); the
+README/store copy still says "Sydney" only — **not changed yet, flagged
+for Caelan** since that's a separate branding pass.
 Platform: iOS, Android, and Web. Web added 2026-08-18, deployed and
 confirmed live 2026-08-19 at `https://quiet-restaurant-finder.pages.dev`
 (Cloudflare Pages) — `app.cafequiet.com` as the custom domain is still
-Caelan's to attach. Mic-based decibel reading is native-only (no web
-equivalent exists); everything else works across all three. See
+Caelan's to attach. **Mic-based decibel reading works on web as of
+2026-08-19** — previously native-only (the audio_streamer plugin
+noise_meter wraps declares no web platform at all); `mic_service_web.dart`
+is a from-scratch Web Audio API (getUserMedia + AnalyserNode) capture, not
+that plugin, so it's a genuinely different implementation behind the same
+`MicService` interface (conditional export in `mic_service.dart`). See
 [[quiet-restaurant-finder/stages/03_build/output/build-log|build log]]
 "Web support: routing, responsive shell, mic gating, Cloudflare Pages
 deploy" and "Cloudflare Pages deploy — live, after three real fixes" for
-the implementation and the deploy debugging, and `app/PLATFORM_SETUP.md`'s
-"Web" section for what's still needed from Caelan.
+the original web-support work and its deploy debugging, and "List/detail
+screen UI overhaul" for the web mic capture itself, and
+`app/PLATFORM_SETUP.md`'s "Web" section for what's still needed from
+Caelan.
 
 ## Display formatting
 
@@ -53,7 +59,15 @@ Active for v1:
   recorded either way. Replaced the detail screen's "Score breakdown"
   section entirely. See [[quiet-restaurant-finder/stages/02_ranking-design/output/ranking-spec|ranking spec]]
   "Signals" and [[quiet-restaurant-finder/stages/02_ranking-design/output/data-schema|data schema]]
-  "Loudness votes."
+  "Loudness votes." **Correction, 2026-08-19**: this was decided and the
+  backend (migration, scoring.js) was built and applied live on
+  2026-08-18, but the app-side UI (the actual vote buttons) shipped on
+  `feature/loudness-votes-and-venue-guess`, a branch that was never
+  merged to `main` — so despite this entry reading as done, the Score
+  breakdown section was still live in the app until 2026-08-19, when the
+  UI was finally wired up (found while doing an unrelated detail-screen
+  redesign). Worth checking decisions.md against what's actually merged
+  before trusting a "decided/done" entry at face value.
 
 Not active:
 - SoundPrint (third-party decibel data) — considered and skipped 2026-08-15

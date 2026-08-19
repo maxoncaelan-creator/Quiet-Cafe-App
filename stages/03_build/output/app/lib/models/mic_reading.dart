@@ -29,10 +29,10 @@ class MicReading {
     );
   }
 
-  // dart:io's Platform isn't available on web, and mic capture itself is
-  // gated off web (see restaurant_detail_screen.dart) — this 'web' branch
-  // should be unreachable in practice, but the file still needs to compile
-  // for the web target.
+  // dart:io's Platform isn't available on web, hence kIsWeb rather than
+  // defaultTargetPlatform for that branch. 'web' is a real, reachable value
+  // as of 2026-08-19 — mic_service_web.dart added actual Web Audio capture,
+  // and mic_readings_platform_check (0009) now accepts it.
   static String _capturePlatform() {
     if (kIsWeb) return 'web';
     return defaultTargetPlatform == TargetPlatform.iOS ? 'ios' : 'android';

@@ -1,60 +1,11 @@
-// Wraps the noise_meter package for on-device decibel metering.
-// Reads ambient sound level only (meanDecibel/maxDecibel from the device
-// microphone's amplitude stream) — no audio is recorded or stored, per the
-// privacy constraint in the PRD.
-
-import 'dart:async';
-
-import 'package:noise_meter/noise_meter.dart';
-import 'package:permission_handler/permission_handler.dart';
-
-class MicPermissionDenied implements Exception {}
-
-class MicService {
-  final NoiseMeter _noiseMeter = NoiseMeter();
-  StreamSubscription<NoiseReading>? _subscription;
-
-  /// Requests microphone permission if needed. Throws [MicPermissionDenied]
-  /// if the user declines — the caller should show the app's own honest
-  /// explanation before this triggers the OS prompt (App Store / Play Store
-  /// review both expect a specific purpose string, not a generic one).
-  Future<void> ensurePermission() async {
-    final status = await Permission.microphone.request();
-    if (!status.isGranted) {
-      throw MicPermissionDenied();
-    }
-  }
-
-  /// Starts metering and calls [onReading] with each sample's mean decibel
-  /// level, or [onError] if the underlying platform stream fails (e.g. on a
-  /// platform audio_streamer doesn't support, like web — confirmed by
-  /// testing: this previously failed silently with no readings and no
-  /// visible error, which looked indistinguishable from "nothing happened
-  /// when I tapped the button"). Call [stop] when the user finishes taking
-  /// a reading.
-  Future<void> start(
-    void Function(double meanDecibel) onReading, {
-    required void Function(Object error) onError,
-  }) async {
-    await ensurePermission();
-    _subscription = _noiseMeter.noise.listen(
-      (NoiseReading reading) {
-        // meanDecibel is 20*log10(amplitude) under the hood, so true
-        // silence (zero amplitude — confirmed to happen on the Android
-        // emulator, whose virtual mic can fail to deliver real frames) is
-        // mathematically -Infinity, not a small number. That crashed the
-        // UI's rounding unguarded. A silent room is exactly what this app
-        // is meant to detect, so clamp instead of dropping the sample.
-        final value = reading.meanDecibel;
-        onReading(value.isFinite ? value : 0);
-      },
-      onError: onError,
-      cancelOnError: true,
-    );
-  }
-
-  Future<void> stop() async {
-    await _subscription?.cancel();
-    _subscription = null;
-  }
-}
+// Platform-conditional export — mic capture needs genuinely different
+// implementations, not just a runtime kIsWeb branch inside one file:
+// audio_streamer (mic_service_io.dart's noise_meter wraps it) declares no
+// web platform at all, and the web implementation (mic_service_web.dart)
+// uses dart:js_interop/package:web, which isn't available when compiling
+// for a native target. dart.library.html is Flutter's standard "am I
+// compiling for web" conditional-import flag — still valid despite
+// dart:html itself being deprecated elsewhere. Both files expose the same
+// MicService/MicPermissionDenied API, so every caller (take_reading_screen.dart)
+// needs no platform-specific code of its own.
+export 'mic_service_io.dart' if (dart.library.html) 'mic_service_web.dart';

@@ -6,6 +6,8 @@ import {
   popularSubscore,
   dbaToSubscore,
   micSubscore,
+  voteSubscore,
+  filterVotesSupersededByMic,
   combineScores,
   MIN_REVIEW_MENTIONS,
 } from '../src/scoring.js';
@@ -78,6 +80,61 @@ test('micSubscore weights android readings at half of ios', () => {
   assert.equal(score, dbaToSubscore(expectedDba));
 });
 
+test('micSubscore weights web readings lower than android', () => {
+  // iOS avg 60 dBA (weight 1.0), web avg 80 dBA (weight 0.35).
+  const score = micSubscore([
+    { decibel: 60, platform: 'ios' },
+    { decibel: 80, platform: 'web' },
+  ]);
+  const expectedDba = (60 * 1.0 + 80 * 0.35) / 1.35;
+  assert.equal(score, dbaToSubscore(expectedDba));
+});
+
+test('voteSubscore returns null with no votes', () => {
+  assert.equal(voteSubscore([]), null);
+  assert.equal(voteSubscore(undefined), null);
+});
+
+test('voteSubscore averages quiet/normal/loud onto 0-100', () => {
+  assert.equal(voteSubscore([{ vote: 'quiet' }]), 100);
+  assert.equal(voteSubscore([{ vote: 'normal' }]), 50);
+  assert.equal(voteSubscore([{ vote: 'loud' }]), 0);
+  assert.equal(voteSubscore([{ vote: 'quiet' }, { vote: 'loud' }]), 50);
+});
+
+test('filterVotesSupersededByMic drops a vote with a same-user mic reading within 5 minutes', () => {
+  const voteTime = new Date('2026-08-18T12:00:00Z');
+  const votes = [{ userId: 'u1', vote: 'loud', submittedAt: voteTime }];
+  const micReadings = [{ userId: 'u1', submittedAt: new Date('2026-08-18T12:03:00Z') }];
+  assert.deepEqual(filterVotesSupersededByMic(votes, micReadings), []);
+});
+
+test('filterVotesSupersededByMic keeps a vote when the mic reading is a different user', () => {
+  const voteTime = new Date('2026-08-18T12:00:00Z');
+  const votes = [{ userId: 'u1', vote: 'loud', submittedAt: voteTime }];
+  const micReadings = [{ userId: 'u2', submittedAt: new Date('2026-08-18T12:01:00Z') }];
+  assert.deepEqual(filterVotesSupersededByMic(votes, micReadings), votes);
+});
+
+test('filterVotesSupersededByMic keeps a vote when the same-user mic reading is more than 5 minutes away', () => {
+  const voteTime = new Date('2026-08-18T12:00:00Z');
+  const votes = [{ userId: 'u1', vote: 'loud', submittedAt: voteTime }];
+  const micReadings = [{ userId: 'u1', submittedAt: new Date('2026-08-18T12:06:00Z') }];
+  assert.deepEqual(filterVotesSupersededByMic(votes, micReadings), votes);
+});
+
+test('combineScores includes the vote signal in both score and confidence', () => {
+  const result = combineScores({
+    review: {},
+    popular: {},
+    mic: {},
+    vote: { subscore: 100, count: 3 },
+  });
+  assert.equal(result.score, 100);
+  assert.equal(result.confidence, 'Low'); // vote tier: count 3 -> 2 points
+  assert.equal(result.signalCount, 1);
+});
+
 test('combineScores returns null when no signals are present', () => {
   const result = combineScores({ review: { subscore: null }, popular: {}, mic: { subscore: null } });
   assert.equal(result.score, null);
@@ -118,14 +175,14 @@ test('combineScores reaches "Certain" when both review and mic are at their stro
 });
 
 test('combineScores renormalizes weights over present signals only', () => {
-  // Only review (weight 0.3) and popular (weight 0.2) present.
-  // Renormalized: review gets 0.3/0.5 = 0.6, popular gets 0.2/0.5 = 0.4.
+  // Only review (weight 0.25) and popular (weight 0.15) present.
+  // Renormalized: review gets 0.25/0.4 = 0.625, popular gets 0.15/0.4 = 0.375.
   const result = combineScores({
     review: { subscore: 100, count: 4 },
     popular: { subscore: 0 },
     mic: { subscore: null },
   });
-  assert.equal(result.score, 60); // 100*0.6 + 0*0.4
+  assert.equal(result.score, 62.5); // 100*0.625 + 0*0.375
   // review tier (count 4 -> 2pts) + popular present (3pts, dormant weight but still counted) = 5.
   assert.equal(result.confidence, 'Very High');
 });

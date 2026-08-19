@@ -218,28 +218,46 @@ class _HomeScreenState extends State<HomeScreen> {
         onClear: _clearFilters,
       ),
       appBar: AppBar(
-        title: const Text('Quietest in Sydney'),
+        title: const Text('List View'),
         actions: [
-          IconButton(
-            tooltip: 'Filters',
-            icon: Badge(
-              isLabelVisible: hasActiveFilters,
-              smallSize: 8,
-              child: const Icon(Icons.filter_list),
-            ),
-            onPressed: () => _scaffoldKey.currentState?.openEndDrawer(),
-          ),
           if (SupabaseService.isConfigured)
-            IconButton(
-              tooltip: _signedInEmail != null ? 'Signed in as $_signedInEmail' : 'Sign in',
-              icon: Icon(_signedInEmail != null ? Icons.account_circle : Icons.account_circle_outlined),
-              onPressed: _handleAccountTap,
-            ),
+            _signedInEmail != null
+                ? IconButton(
+                    tooltip: 'Signed in as $_signedInEmail',
+                    icon: const Icon(Icons.account_circle),
+                    onPressed: _handleAccountTap,
+                  )
+                : Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: TextButton.icon(
+                      onPressed: _handleAccountTap,
+                      icon: const Icon(Icons.login),
+                      label: const Text('Sign In'),
+                    ),
+                  ),
         ],
       ),
       body: Column(
         children: [
-          VoiceSearchBar(onQueryChanged: (q) => setState(() => _searchQuery = q)),
+          Row(
+            children: [
+              Expanded(
+                child: VoiceSearchBar(onQueryChanged: (q) => setState(() => _searchQuery = q)),
+              ),
+              Padding(
+                padding: const EdgeInsets.only(right: 12),
+                child: IconButton(
+                  tooltip: 'Filters',
+                  icon: Badge(
+                    isLabelVisible: hasActiveFilters,
+                    smallSize: 8,
+                    child: const Icon(Icons.filter_list),
+                  ),
+                  onPressed: () => _scaffoldKey.currentState?.openEndDrawer(),
+                ),
+              ),
+            ],
+          ),
           Expanded(
             child: _all.isEmpty
                 ? const _EmptyState()

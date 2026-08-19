@@ -6,11 +6,13 @@ import { optionalEnv } from './env.js'; // loads data-pipeline/.env as a side ef
 import { searchRestaurants, createRequestBudget } from './places.js';
 import { SEARCH_AREAS } from './searchAreas.js';
 import { mineNoiseMentions } from './reviewMining.js';
-import { getDbPool, fetchMicReadingsByPlace, upsertScoredRestaurants } from './supabase.js';
+import { getDbPool, fetchMicReadingsByPlace, fetchVotesByPlace, upsertScoredRestaurants } from './supabase.js';
 import {
   reviewSubscore,
   popularSubscore,
   micSubscore,
+  voteSubscore,
+  filterVotesSupersededByMic,
   combineScores,
 } from './scoring.js';
 
@@ -29,10 +31,17 @@ export function computeScoredRestaurants(restaurants) {
     const popular = popularSubscore(r.busynessPercent ?? null);
     const mic = micSubscore(r.micReadings);
 
+    // A mic reading from the same user within 5 minutes of a vote wins —
+    // the vote itself isn't dropped from loudness_votes, just excluded
+    // from scoring here. See filterVotesSupersededByMic in scoring.js.
+    const countedVotes = filterVotesSupersededByMic(r.votes || [], r.micReadings || []);
+    const vote = voteSubscore(countedVotes);
+
     const { score, confidence, signalCount } = combineScores({
       review: { subscore: review, count: positiveCount + negativeCount },
       popular: { subscore: popular },
       mic: { subscore: mic, count: (r.micReadings || []).length },
+      vote: { subscore: vote, count: countedVotes.length },
     });
 
     return {
@@ -55,6 +64,7 @@ export function computeScoredRestaurants(restaurants) {
           readingCountAndroid: (r.micReadings || []).filter((x) => x.platform === 'android').length,
           subscore: mic,
         },
+        vote: { count: countedVotes.length, subscore: vote },
       },
       quietnessScore: score,
       confidence,
@@ -131,17 +141,23 @@ async function main() {
     // in case this gets revisited.
 
     if (hasSupabase) {
-      console.log('SUPABASE_DB_URL found — fetching crowdsourced mic readings as pipeline_service.');
+      console.log('SUPABASE_DB_URL found — fetching crowdsourced mic readings and votes as pipeline_service.');
       const pool = getDbPool();
       try {
-        const readingsByPlace = await fetchMicReadingsByPlace(pool, restaurants.map((r) => r.placeId));
-        restaurants = restaurants.map((r) => ({ ...r, micReadings: readingsByPlace.get(r.placeId) ?? [] }));
+        const placeIds = restaurants.map((r) => r.placeId);
+        const readingsByPlace = await fetchMicReadingsByPlace(pool, placeIds);
+        const votesByPlace = await fetchVotesByPlace(pool, placeIds);
+        restaurants = restaurants.map((r) => ({
+          ...r,
+          micReadings: readingsByPlace.get(r.placeId) ?? [],
+          votes: votesByPlace.get(r.placeId) ?? [],
+        }));
       } finally {
         await pool.end();
       }
     } else {
-      console.log('No SUPABASE_DB_URL set — mic signal will be empty for all venues.');
-      restaurants = restaurants.map((r) => ({ ...r, micReadings: [] }));
+      console.log('No SUPABASE_DB_URL set — mic and vote signals will be empty for all venues.');
+      restaurants = restaurants.map((r) => ({ ...r, micReadings: [], votes: [] }));
     }
   } else {
     console.log('No places-search config set (SUPABASE_URL/SUPABASE_ANON_KEY/PIPELINE_SHARED_SECRET) — using bundled sample data instead (includes synthetic mic readings).');

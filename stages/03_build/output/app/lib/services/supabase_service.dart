@@ -193,6 +193,16 @@ class SupabaseService {
     });
   }
 
+  /// A lightweight "Quiet / Normal / Loud" alternative to a mic reading —
+  /// same account gate (see 0008_loudness_votes.sql), user_id filled
+  /// server-side same as favorites. [vote] must be 'quiet', 'normal', or
+  /// 'loud' — the table's own CHECK constraint is the real enforcement,
+  /// this is just what the UI is expected to send.
+  Future<void> submitLoudnessVote(String placeId, String vote) async {
+    if (!isConfigured) throw SupabaseNotConfigured();
+    await _client.from('loudness_votes').insert({'place_id': placeId, 'vote': vote});
+  }
+
   /// Maps a `restaurants` table row (see 0001_init.sql) onto the same
   /// [Restaurant] model the bundled-JSON path uses, so screens don't need
   /// to know which data source they're reading from.
