@@ -201,9 +201,25 @@ class OAuthService {
   static Future<void> signInWithGoogleOAuth() async {
     await _client.auth.signInWithOAuth(
       OAuthProvider.google,
+      redirectTo: _webRedirectTo,
       authScreenLaunchMode: LaunchMode.platformDefault,
     );
   }
+
+  /// Web only — where Supabase should send the browser back to once
+  /// signInWithOAuth completes. Found live 2026-08-19 (Caelan): leaving
+  /// redirectTo unset makes Supabase fall back to its configured Site URL
+  /// (`https://cafequiet.com`, the bare apex) — which has no hosting
+  /// behind it (DNS cleared after the parking-page incident) and isn't
+  /// even where the app runs from. The app is served from two different
+  /// origins (`quiet-restaurant-finder.pages.dev` and `app.cafequiet.com`),
+  /// so a single fixed Site URL can never cover both — this has to be
+  /// read from wherever the user actually is, at call time, not hardcoded.
+  /// Each origin this can resolve to must also be registered in Supabase's
+  /// Authentication → URL Configuration → Redirect URLs, or Supabase
+  /// silently falls back to Site URL again regardless of what's passed
+  /// here — see PLATFORM_SETUP.md.
+  static String get _webRedirectTo => Uri.base.origin;
 
   static Future<void> signInWithApple() async {
     final rawNonce = _client.auth.generateRawNonce();
@@ -239,7 +255,11 @@ class OAuthService {
   static Future<void> signInWithFacebook() async {
     await _client.auth.signInWithOAuth(
       OAuthProvider.facebook,
-      redirectTo: kIsWeb ? null : oauthRedirectUrl,
+      // Found alongside the identical Google bug, 2026-08-19: this was
+      // `null` on web, which has the exact same failure mode
+      // signInWithGoogleOAuth() just hit live — see _webRedirectTo above.
+      // Facebook hadn't been click-tested yet, so this was still latent.
+      redirectTo: kIsWeb ? _webRedirectTo : oauthRedirectUrl,
       authScreenLaunchMode: kIsWeb ? LaunchMode.platformDefault : LaunchMode.externalApplication,
     );
   }

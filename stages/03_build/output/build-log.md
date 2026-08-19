@@ -2481,8 +2481,47 @@ Dashboard-only, no code change, same category as several other
 Google/Supabase setup steps throughout this project. Not yet re-tested
 after adding it.
 
+## Session — 2026-08-19 (yet another continuation): Site URL fallback to a dead apex domain
+
+Caelan added the redirect URI in Google Cloud Console, then hit a new
+symptom testing on `quiet-restaurant-finder.pages.dev` specifically in
+an Incognito window (isolating a real cache-suspicion first — the
+`.pages.dev` sign-in screen rendered the new custom pill button
+correctly, confirming the earlier nonce error really had been a stale
+service-worker cache, not a code regression): the browser ended up at
+`cafequiet.com/?code=...` with `DNS_PROBE_FINISHED_NXDOMAIN`.
+
+**Real finding, distinct from the redirect URI fix**: the Google
+exchange itself succeeded (that `?code=` is Supabase's own auth code)
+— only the *final* redirect back into the app broke. Root cause:
+`signInWithGoogleOAuth()` passed no explicit `redirectTo`, so Supabase
+fell back to its configured **Site URL** —
+`https://cafequiet.com`, the bare apex, which has had no DNS records
+at all since the parking-page incident (`_config/decisions.md`
+"Domain"). The app is served from two different origins
+(`quiet-restaurant-finder.pages.dev` and `app.cafequiet.com`), so a
+single fixed Site URL can never be correct for both regardless of
+which one it points at — the redirect has to be computed from
+wherever the user actually is.
+
+**Fixed**: `oauth_service.dart` now has a `_webRedirectTo` getter
+(`Uri.base.origin`, read at call time) passed as `redirectTo` to
+`signInWithGoogleOAuth()`. Also fixed the identical latent bug in
+`signInWithFacebook()` (`redirectTo: kIsWeb ? null : oauthRedirectUrl`
+— same `null`-on-web problem, just never click-tested yet, so it was
+still latent). Documented in `PLATFORM_SETUP.md` step 6: both origins
+now need registering in Supabase's Redirect URLs allow-list, not just
+`app.cafequiet.com` as previously written — an unregistered
+`redirectTo` also silently falls back to the same broken Site URL, so
+the code fix alone isn't sufficient without this.
+
+**Verification**: `flutter analyze` — 0 issues. `flutter test` — 4/4
+passed. `flutter build web --release` — succeeds. Not yet re-tested
+live — needs Caelan to add both Redirect URLs in Supabase first.
+
 ## Open items carried into further build work
-- **Google sign-in on web: redirect_uri_mismatch, one more dashboard step needed** — added 2026-08-19 (this session). Needs Caelan to add the Supabase callback URL to the Google Web client's Authorized redirect URIs (step 4b, `PLATFORM_SETUP.md`), then retest. If this clears it, that's the flow complete end to end for the first time.
+- **Google sign-in/Facebook sign-in on web: Supabase Redirect URLs need both origins registered** — added 2026-08-19 (this session). Needs Caelan to add both `https://app.cafequiet.com` and `https://quiet-restaurant-finder.pages.dev` to Supabase's Authentication → URL Configuration → Redirect URLs (step 6, `PLATFORM_SETUP.md`), then retest. Without this, `redirectTo` gets ignored and Supabase falls back to Site URL (the dead apex) regardless of the code fix.
+- ~~Google sign-in on web: redirect_uri_mismatch, one more dashboard step needed~~ — resolved 2026-08-19: Caelan added the redirect URI; retesting surfaced a different, further-along issue (Site URL fallback, see session above), not a repeat of this one.
 - **Claude-in-Chrome browser connector won't connect in this environment** — added 2026-08-19. Reports "turned off" regardless of the extension's own Enabled state in Chrome; tabs it creates resolve to `edge://newtab/`, suggesting it's attached to Edge rather than Chrome on this machine. Setting Chrome as the Windows default browser didn't fix it. Not investigated further this session since it wasn't blocking the actual app work — spawned as a separate background task. Would be genuinely useful once working: this agent could click-test Flutter web itself instead of every fix needing a round trip through Caelan's screenshots.
 - ~~Google sign-in on web not click-tested end to end with the new signInWithOAuth flow~~ — superseded 2026-08-19: it was click-tested (see "redirect_uri_mismatch" session above), which is how that finding turned up.
 - ~~Google OAuth client missing the production origin~~ — resolved 2026-08-19: Caelan added both origins in Google Cloud Console; confirmed working past that step since the failure moved to the nonce handshake instead.
