@@ -458,8 +458,25 @@ Caelan's:
    gets created automatically on the first run; that step is a
    `continue-on-error` no-op on every run after that.
 5. Cloudflare → that Pages project → Custom domains → add `app.cafequiet.com`.
-6. Supabase → Authentication → URL Configuration → add
-   `https://app.cafequiet.com` to Redirect URLs.
+6. Supabase → Authentication → URL Configuration → **Redirect URLs** → add
+   **both**:
+   ```
+   https://app.cafequiet.com
+   https://quiet-restaurant-finder.pages.dev
+   ```
+   Both, not just the custom domain — found live 2026-08-19 (Caelan)
+   testing Google sign-in: `signInWithOAuth` (Google and Facebook both)
+   now passes `redirectTo` as whatever origin the browser is actually on
+   (`oauth_service.dart`'s `_webRedirectTo`, since the app is served from
+   two different origins and a single fixed value can't cover both). If
+   the origin isn't in this allow-list, Supabase silently falls back to
+   **Site URL** instead — currently `https://cafequiet.com`, the bare
+   apex, which has no hosting behind it at all (DNS cleared after the
+   parking-page incident) and produces a hard `DNS_PROBE_FINISHED_NXDOMAIN`
+   once the browser tries to land there. This is exactly what happened
+   testing on `quiet-restaurant-finder.pages.dev` before this domain was
+   registered here — the Google exchange itself succeeded, only the final
+   redirect back into the app broke.
 
 **Open conflict, not resolved here**: the "Universal Links / App Links"
 section above says Supabase's Auth **Site URL** should become
