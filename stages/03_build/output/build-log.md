@@ -2449,8 +2449,42 @@ needs one more thing from Caelan first: the OAuth redirect flow requires
 a Client Secret in Supabase's Google provider config, which the ID-token
 flow never needed (see `PLATFORM_SETUP.md` step 4a, new).
 
+## Session — 2026-08-19 (yet another continuation): redirect_uri_mismatch — the actual click-test, finally
+
+Caelan merged the `signInWithOAuth` fix and added the Client Secret,
+then tried a real click-test. First attempted to have this agent drive
+it directly via the Claude-in-Chrome browser connector instead of
+relying on another round of screenshots — genuinely tried, not just
+offered: repeated `tabs_context_mcp`/`tabs_create_mcp`/`navigate` calls
+all failed with "Claude in Chrome is turned off in your settings," even
+after Caelan confirmed the extension Enabled on `chrome://extensions`
+and set Chrome as the Windows default browser. One real clue surfaced
+along the way — tabs the connector created resolved to `edge://newtab/`
+URLs, meaning it was attached to Microsoft Edge, not Chrome, on this
+machine, and switching Chrome to default didn't reconnect it either.
+Root cause not resolved (unsurprising — Edge and Chrome are separate
+browser processes with separate extension stores, and this connector is
+Chrome-specific); flagged as a separate follow-up task rather than
+chased further, since the actual app bug still needed testing. Caelan
+did the click-test manually instead — no time lost hunting a tooling
+problem that wasn't blocking the real task.
+
+**Real finding**: `Error 400: redirect_uri_mismatch` from Google.
+Root cause: `signInWithOAuth`'s server-side authorization-code redirect
+needs the callback URL registered in the OAuth client's **Authorized
+redirect URIs** — a field the old ID-token flow never touched (it only
+ever needed Authorized *JavaScript origins*, a different field, already
+fixed earlier this saga). Documented as step 4b in `PLATFORM_SETUP.md`:
+add `https://aesorixtfasfuvcqrvem.supabase.co/auth/v1/callback` (the
+same Supabase callback URL already used for Facebook) to that field.
+Dashboard-only, no code change, same category as several other
+Google/Supabase setup steps throughout this project. Not yet re-tested
+after adding it.
+
 ## Open items carried into further build work
-- **Google sign-in on web not click-tested end to end with the new signInWithOAuth flow** — added 2026-08-19 (this session). Needs Caelan to add a Google Client Secret to Supabase's provider config (step 4a, `PLATFORM_SETUP.md`), then `fix/google-signin-nonce-mismatch` merged and deployed, then a real pass: does tapping through now actually complete (redirect to Google → back to Supabase's origin → session established), matching how Facebook's redirect flow is expected to behave once that provider is configured.
+- **Google sign-in on web: redirect_uri_mismatch, one more dashboard step needed** — added 2026-08-19 (this session). Needs Caelan to add the Supabase callback URL to the Google Web client's Authorized redirect URIs (step 4b, `PLATFORM_SETUP.md`), then retest. If this clears it, that's the flow complete end to end for the first time.
+- **Claude-in-Chrome browser connector won't connect in this environment** — added 2026-08-19. Reports "turned off" regardless of the extension's own Enabled state in Chrome; tabs it creates resolve to `edge://newtab/`, suggesting it's attached to Edge rather than Chrome on this machine. Setting Chrome as the Windows default browser didn't fix it. Not investigated further this session since it wasn't blocking the actual app work — spawned as a separate background task. Would be genuinely useful once working: this agent could click-test Flutter web itself instead of every fix needing a round trip through Caelan's screenshots.
+- ~~Google sign-in on web not click-tested end to end with the new signInWithOAuth flow~~ — superseded 2026-08-19: it was click-tested (see "redirect_uri_mismatch" session above), which is how that finding turned up.
 - ~~Google OAuth client missing the production origin~~ — resolved 2026-08-19: Caelan added both origins in Google Cloud Console; confirmed working past that step since the failure moved to the nonce handshake instead.
 - ~~Google sign-in nonce mismatch~~ — superseded 2026-08-19 by the architectural fix above: web no longer uses the ID-token flow the nonce fix was patching, so the mismatch can't occur there anymore. The nonce fix itself stays in place and correct for the untouched Android/iOS ID-token path.
 - **Mic calibration not click-tested live** — added 2026-08-19. Same root cause as the item below. Specifically worth checking once deployed: does the screen actually trigger on a fresh sign-in and on an already-signed-in cold launch, does skipping correctly leave it due next time, and does a submitted calibration actually shift a subsequent reading's effective score.
