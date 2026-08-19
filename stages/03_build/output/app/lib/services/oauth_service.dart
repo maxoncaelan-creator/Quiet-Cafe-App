@@ -47,20 +47,66 @@ class OAuthService {
 
   static SupabaseClient get _client => Supabase.instance.client;
 
+  // GoogleSignIn.instance.initialize() carries an explicit contract in its
+  // own doc comment: "Clients must call this method exactly once, and wait
+  // for its future to complete... Calling this method more than once will
+  // result in undefined behavior." Found live 2026-08-19 (Caelan) — calling
+  // it fresh inside signInWithGoogle() on every tap works the first time
+  // and throws "Bad state: init() has already been called" on any retry
+  // (a cancelled attempt, backing out and trying again, a second visit to
+  // the sign-in screen). Memoizing the Future — not just guarding with a
+  // bool — also covers two taps landing close enough together that the
+  // first initialize() hasn't resolved yet, which the docs call out as
+  // its own undefined-behavior case.
+  static Future<void>? _googleInitialization;
+
+  static Future<void> _ensureGoogleInitialized() {
+    _googleInitialization ??= GoogleSignIn.instance
+        .initialize(
+          serverClientId: _googleWebClientId,
+          clientId: _googleIosClientId.isNotEmpty ? _googleIosClientId : null,
+        )
+        // If initialize() itself throws (e.g. a transient network error),
+        // don't leave the failure memoized forever — that would brick
+        // Google sign-in for the rest of the session after one hiccup.
+        // Only a genuinely *successful* call counts as "the one" the docs
+        // require; clearing on failure lets the next attempt retry cleanly.
+        .catchError((Object error, StackTrace stackTrace) {
+          _googleInitialization = null;
+          Error.throwWithStackTrace(error, stackTrace);
+        });
+    return _googleInitialization!;
+  }
+
   static Future<void> signInWithGoogle() async {
+    await _ensureGoogleInitialized();
     final googleSignIn = GoogleSignIn.instance;
-    await googleSignIn.initialize(
-      serverClientId: _googleWebClientId,
-      clientId: _googleIosClientId.isNotEmpty ? _googleIosClientId : null,
-    );
 
     final googleUser = await googleSignIn.authenticate();
     const scopes = ['email', 'profile'];
-    // authorizationForScopes returns null if the user hasn't already
-    // granted these scopes (e.g. first sign-in) — falls back to
-    // authorizeScopes, which prompts for consent.
-    final authorization = await googleUser.authorizationClient.authorizationForScopes(scopes) ??
-        await googleUser.authorizationClient.authorizeScopes(scopes);
+    // Best-effort only — Supabase's signInWithIdToken doesn't require an
+    // access token (accessToken is nullable there), and nothing else in
+    // this app uses the Google access token, so a failure requesting it
+    // shouldn't fail the sign-in itself. Found live 2026-08-19 (Caelan):
+    // google_sign_in_web 1.1.3 has a real bug here — its token-client
+    // response handler does `response.expires_in!` with no null check
+    // (gis_client.dart), which throws "Null check operator used on a null
+    // value" whenever Google's token response omits expires_in. Can't fix
+    // the package itself, so this catches it (and anything else that can
+    // go wrong in this step) and falls back to accessToken: null rather
+    // than blocking sign-in on a token this app doesn't actually use.
+    String? accessToken;
+    try {
+      // authorizationForScopes returns null if the user hasn't already
+      // granted these scopes (e.g. first sign-in) — falls back to
+      // authorizeScopes, which prompts for consent.
+      final authorization = await googleUser.authorizationClient.authorizationForScopes(scopes) ??
+          await googleUser.authorizationClient.authorizeScopes(scopes);
+      accessToken = authorization.accessToken;
+    } catch (_) {
+      // Swallowed deliberately — see comment above. The ID token alone is
+      // enough for signInWithIdToken to establish a real session.
+    }
     final idToken = googleUser.authentication.idToken;
 
     if (idToken == null) {
@@ -70,7 +116,7 @@ class OAuthService {
     await _client.auth.signInWithIdToken(
       provider: OAuthProvider.google,
       idToken: idToken,
-      accessToken: authorization.accessToken,
+      accessToken: accessToken,
     );
   }
 
