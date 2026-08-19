@@ -94,11 +94,29 @@ class OAuthService {
     return _googleInitialization!;
   }
 
+  /// Mobile only — see GoogleAuthButton (widgets/google_auth_button.dart)
+  /// for why this can't be shared with web: google_sign_in_web explicitly
+  /// throws `UnimplementedError` from `authenticate()` (confirmed live
+  /// 2026-08-19, Caelan: "authenticate is not supported on the web.
+  /// Instead, use renderButton to create a sign-in widget.") — this isn't a
+  /// bug like the previous two Google issues this session, it's the
+  /// documented, intentional design of Google's own web SDK: only Google's
+  /// own rendered button can start the flow on web, not an imperative call
+  /// from a custom one. `google_auth_button_web.dart` covers web via
+  /// `renderButton()` + `googleAuthenticationEvents`/
+  /// `completeGoogleSignIn()` below instead of calling this at all.
   static Future<void> signInWithGoogle() async {
     await _ensureGoogleInitialized();
-    final googleSignIn = GoogleSignIn.instance;
+    final googleUser = await GoogleSignIn.instance.authenticate();
+    await completeGoogleSignIn(googleUser);
+  }
 
-    final googleUser = await googleSignIn.authenticate();
+  /// Shared tail for both sign-in paths: mobile's `signInWithGoogle()`
+  /// (from `authenticate()`'s return value) and web's
+  /// `GoogleAuthButton`/`google_auth_button_web.dart` (from a
+  /// `GoogleSignInAuthenticationEventSignIn` on `googleAuthenticationEvents`
+  /// — Google's own rendered button drives this, not app code).
+  static Future<void> completeGoogleSignIn(GoogleSignInAccount googleUser) async {
     const scopes = ['email', 'profile'];
     // Best-effort only — Supabase's signInWithIdToken doesn't require an
     // access token (accessToken is nullable there), and nothing else in
@@ -135,6 +153,18 @@ class OAuthService {
       accessToken: accessToken,
     );
   }
+
+  /// Web-only signal for when Google's own rendered button
+  /// (`google_auth_button_web.dart`) completes a sign-in — there's no
+  /// tap-and-await path on web the way `signInWithGoogle()` has on mobile,
+  /// since the button itself is entirely Google's UI, outside this app's
+  /// control. Initialization is required first, same as `signInWithGoogle()`
+  /// — `google_auth_button_web.dart` awaits `ensureGoogleInitializedForWeb()`
+  /// before subscribing.
+  static Stream<GoogleSignInAuthenticationEvent> get googleAuthenticationEvents =>
+      GoogleSignIn.instance.authenticationEvents;
+
+  static Future<void> ensureGoogleInitializedForWeb() => _ensureGoogleInitialized();
 
   static Future<void> signInWithApple() async {
     final rawNonce = _client.auth.generateRawNonce();

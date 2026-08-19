@@ -17,7 +17,7 @@ import 'package:go_router/go_router.dart';
 import '../services/oauth_service.dart';
 import '../widgets/centered_scroll_form.dart';
 import '../widgets/email_option_button.dart';
-import '../widgets/google_sign_in_button.dart';
+import '../widgets/google_auth_button.dart';
 
 class CreateAccountScreen extends StatefulWidget {
   /// Fired if the account is created but needs email confirmation before a
@@ -64,10 +64,13 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
         child: CenteredScrollForm(
           children: [
               if (OAuthService.googleConfigured) ...[
-                GoogleSignInButton(
+                GoogleAuthButton(
                   label: 'Sign up with Google',
-                  onPressed:
-                      _submitting ? null : () => _runOAuth(OAuthService.signInWithGoogle, popOnSuccess: true),
+                  submitting: _submitting,
+                  onSignedIn: () {
+                    if (mounted) context.pop(true);
+                  },
+                  onError: (e) => setState(() => _error = 'Sign-in failed: $e'),
                 ),
                 const SizedBox(height: 12),
               ],
