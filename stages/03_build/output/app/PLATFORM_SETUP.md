@@ -150,14 +150,28 @@ Android/Web-only until that's done (see step 3).
      - SHA-1 (debug keystore): `E3:68:E9:E5:08:76:1D:D6:E7:30:30:4F:68:05:75:05:7E:BA:79:8B`
      - This is the **debug** keystore's fingerprint — fine for testing on the emulator/a device via `flutter run`, but a real release build (Play Store) signs with a different key and will need its own Android client ID with that release fingerprint, later.
 4. In your [Supabase dashboard](https://supabase.com/dashboard/project/aesorixtfasfuvcqrvem/auth/providers) → **Authentication → Providers → Google**, enable it and paste in the **Web** client ID. **Done 2026-08-18** — Google shows Enabled in the dashboard.
-4a. **New, 2026-08-19, still open — needed for web specifically.** On the
-    same Web application client's edit page (Google Cloud Console), generate
-    a **Client Secret** if one doesn't already exist, and paste it into the
+4a. **New, 2026-08-19 — needed for web specifically.** On the same Web
+    application client's edit page (Google Cloud Console), generate a
+    **Client Secret** if one doesn't already exist, and paste it into the
     same Supabase Google provider screen as step 4, in the **Client Secret**
     field (currently blank — the ID-token flow this replaced for web never
     needed one). Without this, `signInWithOAuth`'s redirect flow will fail
     once you get to actually testing it. Android/iOS are unaffected — they
     still use the ID-token flow, which only ever needed the Client ID.
+4b. **New, found live 2026-08-19 testing the Client Secret fix.** Google's
+    server-side redirect flow (`signInWithOAuth`) also needs the callback
+    URL whitelisted in **Authorized redirect URIs** — a different field
+    from "Authorized JavaScript origins" (step 7 below), which the old
+    ID-token flow used instead and which is *not* enough on its own for
+    this flow. Missing this produces `Error 400: redirect_uri_mismatch`.
+    Same client's edit page → **Authorized redirect URIs** → add:
+    ```
+    https://aesorixtfasfuvcqrvem.supabase.co/auth/v1/callback
+    ```
+    This is Supabase's own callback endpoint — identical to the one
+    already used for Facebook sign-in (see the Facebook section below), so
+    if that was set up already, it's the same URL, just added to a
+    different provider's client here.
 5. In `ios/Runner/Info.plist`, add a `CFBundleURLTypes` entry containing your iOS client ID *reversed* (Google's console shows you the exact reversed string to copy). Not yet done — iOS client ID not created yet.
 6. Run with both IDs:
    ```
