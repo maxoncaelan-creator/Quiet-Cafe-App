@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import '../models/restaurant.dart';
 import '../services/restaurant_repository.dart';
 import '../services/supabase_service.dart';
+import '../utils/text_format.dart';
 import '../widgets/app_drawer.dart';
 import '../widgets/restaurant_tile.dart';
 import '../widgets/voice_search_bar.dart';
@@ -280,7 +281,7 @@ class _FilterBar extends StatelessWidget {
               items: [
                 const DropdownMenuItem(value: null, child: Text('All cuisines')),
                 for (final c in cuisines)
-                  DropdownMenuItem(value: c, child: Text(c, overflow: TextOverflow.ellipsis)),
+                  DropdownMenuItem(value: c, child: Text(humanizeSnakeCase(c), overflow: TextOverflow.ellipsis)),
               ],
               onChanged: onCuisineChanged,
             ),

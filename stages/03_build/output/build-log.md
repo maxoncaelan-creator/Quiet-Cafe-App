@@ -1698,7 +1698,102 @@ domain in the Cloudflare Pages project (Custom domains tab), and add
 URL conflict item below, unresolved until the marketing site's hosting
 is also real.
 
+## Session — 2026-08-19 (continued): cafequiet.com parking-page incident, Supabase Site URL set, Greater NSW scope expansion + cuisine display formatting
+
+**cafequiet.com briefly served an unrelated ad-tech/parking page.**
+Investigated live: DNS had fully delegated to Cloudflare as intended, but
+the zone's `A` records for `cafequiet.com`/`www.cafequiet.com` pointed at
+`27.124.125.171` — a leftover Crazy Domains default-parking record that got
+auto-imported during the 2026-08-17 "Scan DNS Records" nameserver
+migration and was never replaced once real hosting was planned. Cloudflare
+audit log checked directly, not assumed: every action traced to
+`maxon.caelan@gmail.com` or `system`, ruling out account compromise. Caelan
+deleted the stale proxied `A` records and separately turned on Domain Lock
+at the registrar (found off, an unrelated but real transfer-risk exposure).
+DNS resolution confirmed clean afterward (`nslookup` returns no addresses,
+correct until real hosting is pointed at the apex).
+
+**Supabase Auth's Site URL set to `https://cafequiet.com`**, closing the
+open item from two sessions ago. Resolved as "no real conflict" rather than
+picking a winner under duress: Site URL is the fallback/email-template
+variable, Redirect URLs is the separate explicit allow-list —
+`https://app.cafequiet.com` and `quietrestaurantfinder://login-callback`
+both stay in Redirect URLs untouched. Confirmed saved live (value survived
+a page reload).
+
+**Two real product issues found by Caelan using the live web build,
+became this session's main focus:**
+
+1. **Suburb filter always showed only "All suburbs."** Root cause: Google
+   Places' `normalizePlace()` in `data-pipeline/src/places.js` never set
+   `suburb` at all for live-fetched data — the field existed in the schema
+   and the Flutter model, but nothing ever populated it outside the sample
+   dataset. `whereType<String>()` in `home_screen.dart`'s suburb-options
+   derivation silently dropped every null, leaving only the built-in "All
+   suburbs" option. Fixed by adding `places.addressComponents` to the
+   `places-search` Edge Function's field mask (no SKU-tier cost increase —
+   already at Enterprise+Atmosphere for reviews) and extracting the
+   `locality`/`sublocality` component as `suburb` in `places.js`
+   (`extractSuburb()`, tested).
+
+2. **Cuisine values rendered raw** (`french_restaurant`, not "French
+   Restaurant") in the list tile and the cuisine filter dropdown. Per
+   Caelan, explicitly **not** a backend/Supabase data change — added
+   `humanizeSnakeCase()` (`app/lib/utils/text_format.dart`, tested) and
+   applied it only at render time in `restaurant_tile.dart` and
+   `home_screen.dart`'s `_FilterBar`; the underlying `cuisine` value used
+   for filtering/comparison is untouched.
+
+**Scope expanded from "Sydney only" to Greater Sydney + Dubbo + Newcastle +
+Moss Vale + Kiama/Illawarra**, confirmed with Caelan this session — see
+`_config/decisions.md` "Scope." The pipeline previously ran a single Text
+Search query (`"restaurants in Sydney NSW"`, one page, ~20 results max) —
+nowhere near this footprint even before the expansion was requested.
+Replaced with `data-pipeline/src/searchAreas.js`, a curated list of 63
+area queries spanning inner Sydney, the eastern suburbs, inner west, north
+shore/northern beaches, the Hills District, western and south-western
+Sydney, Sutherland Shire, the Blue Mountains, Central Coast/Newcastle,
+west to Dubbo (via Lithgow/Bathurst/Orange), and south to the Southern
+Highlands/Illawarra. `searchRestaurants()` in `places.js` now paginates up
+to 3 pages per area (Google's `nextPageToken`, with the same short delay
+the legacy Places API needed before a fresh token is valid) and
+`pipeline.js`'s new `searchAllAreas()` runs the full list, deduping by
+`placeId` across areas (a venue near a suburb boundary can legitimately
+turn up under more than one query).
+
+**Not run live this session.** 63 areas × up to 3 pages each is a real
+range of billed Google Places requests (worst case ~1,900, realistically
+far fewer since most areas won't fill 3 pages) — this hits Caelan's Google
+Cloud billing directly, so the actual pipeline run against production is
+being left for Caelan to kick off (or explicitly greenlight) rather than
+run unattended. Once run, expect the `restaurants` table to grow
+substantially past the current handful of Sydney-CBD rows, and expect the
+suburb filter to populate for real for the first time.
+
+**Verification**: `flutter analyze` — 0 issues. `flutter test` — all pass,
+including two new suites (`text_format_test.dart`,
+`places.test.js` suburb-extraction cases). `npm test` in `data-pipeline` —
+29/29 pass. `node --check` on the three touched pipeline files. Nothing
+requiring the live Places API or a real device was exercised — the
+addressComponents field-mask change and the pagination loop are unverified
+against the real API until the first live run.
+
+**Explicitly not done, both flagged for Caelan rather than decided
+silently**: the app's AppBar title ("Quietest in Sydney") and README/store
+copy still say "Sydney" only, now inconsistent with the wider data
+footprint — a branding call, not folded into this data-scope change. The
+curated area list is a representative regional spread, not exhaustive
+suburb-level coverage; treat gaps found in testing as expected, not bugs.
+
+Work is on `feature/greater-nsw-scope-and-cuisine-display`, branched from
+`docs/web-deploy-live` (which itself picked up one more commit this session
+closing out the Site URL item, and is still not yet PR'd/merged — see its
+open item above). Not yet pushed or PR'd.
+
 ## Open items carried into further build work
+- **Live pipeline run against the expanded area list, not done** — added 2026-08-19. `data-pipeline/src/searchAreas.js` and the pagination/dedupe wiring are code-complete and unit-tested, but never run against the real Google Places API — that's a real-money action against Caelan's billing, left for Caelan to run or explicitly greenlight. Once run, re-check the suburb filter and cuisine dropdown live with real data (this session's fixes are code-correct but visually unverified for the same reason the web UI pass below is).
+- **App branding still says "Sydney" only** — added 2026-08-19. AppBar title (`home_screen.dart`) and README/store copy weren't touched when scope expanded to Greater NSW; Caelan's call on whether/how to rename.
+- **Search area list is a curated regional spread, not exhaustive** — added 2026-08-19. 63 queries across Greater Sydney/Newcastle/Dubbo/Moss Vale/Kiama; extend `searchAreas.js` (or swap in a real suburb dataset) if live testing finds a gap.
 - **Web UI's actual rendered layout still not visually confirmed** — the live `.pages.dev` boot/routing check above confirms the app *works*, but didn't specifically re-check the rail/drawer swap at different widths, the download banner, or the max-width constraints now that a real browser is available. Worth a specific pass, not just "does it load."
 - ~~Cloudflare Pages deployment not set up~~ — resolved 2026-08-19: live at `https://quiet-restaurant-finder.pages.dev`, see session above. Still open: attach `app.cafequiet.com` as a custom domain (Cloudflare dashboard, Caelan's).
 - ~~Supabase Site URL conflict~~ — resolved 2026-08-19: Caelan set Site URL to `https://cafequiet.com` (confirmed saved after a page reload); `https://app.cafequiet.com` stays as an explicit Redirect URL alongside the `quietrestaurantfinder://login-callback` scheme. No real conflict — Site URL is the fallback/email-template variable, Redirect URLs is the separate explicit allow-list, so both domains do their own job.

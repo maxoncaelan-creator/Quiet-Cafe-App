@@ -15,7 +15,9 @@ research/design decisions and the build log — see
 
 ## Scope
 
-One city: Sydney, NSW. Confirmed with Caelan.
+Greater Sydney, plus out to Dubbo, north to Newcastle, south to Moss Vale,
+and into the Illawarra as far as Kiama. Expanded from "Sydney only"
+2026-08-19 — confirmed with Caelan.
 Platform: iOS, Android, and Web (added 2026-08-18, live 2026-08-19 at
 `quiet-restaurant-finder.pages.dev`).
 

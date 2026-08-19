@@ -5,7 +5,18 @@ they change. Stage contracts read this rather than restating it.
 
 ## Scope
 
-One city: Sydney, NSW. Confirmed with Caelan.
+**Greater Sydney, plus out to Dubbo, north to Newcastle, south to Moss Vale,
+and into the Illawarra as far as Kiama.** Expanded from the original
+"Sydney, NSW only" scope, confirmed with Caelan 2026-08-19, after the
+suburb filter turned out to only ever show "All suburbs" — see build log
+"Greater NSW scope expansion + cuisine display formatting." The pipeline's
+`data-pipeline/src/searchAreas.js` holds the 60+ area queries used to cover
+this footprint; it's a curated regional spread, not an exhaustive suburb
+list (Greater Sydney alone has 600+ gazetted suburbs) — extend it if
+real-world testing turns up a gap. The app's AppBar title ("Quietest in
+Sydney") and README/marketing copy still say "Sydney" only — **not changed
+yet, flagged for Caelan** since renaming the app's branding is a separate
+call from expanding the data footprint.
 Platform: iOS, Android, and Web. Web added 2026-08-18, deployed and
 confirmed live 2026-08-19 at `https://quiet-restaurant-finder.pages.dev`
 (Cloudflare Pages) — `app.cafequiet.com` as the custom domain is still
@@ -16,6 +27,16 @@ equivalent exists); everything else works across all three. See
 deploy" and "Cloudflare Pages deploy — live, after three real fixes" for
 the implementation and the deploy debugging, and `app/PLATFORM_SETUP.md`'s
 "Web" section for what's still needed from Caelan.
+
+## Display formatting
+
+**Cuisine values stay raw (lower_snake_case, e.g. `french_restaurant`) in
+Supabase and in `restaurants.json`** — only how they're rendered in the app
+changed, 2026-08-19, per Caelan: "I don't think we should change that
+element in the backend." A `humanizeSnakeCase()` helper
+(`app/lib/utils/text_format.dart`) title-cases and space-joins the value at
+render time in the restaurant list tile and the cuisine filter dropdown;
+filtering/comparison still uses the raw value untouched.
 
 ## Noise signals
 
