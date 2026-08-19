@@ -125,3 +125,12 @@ Edited supabase/functions/places-search/index.ts locally (addressComponents fiel
 **Standard:** A code change to a Supabase Edge Function isn't live until it's actually deployed — editing the local file is not enough, and this should be verified (redeploy, or check the deployed version) before running the live/paid job that depends on it.
 **Fix:** Deployed the corrected function via the Supabase MCP deploy_edge_function tool (now version 5), confirmed the field mask includes addressComponents and nextPageToken. Flagged the wasted ~63 Places API requests to Caelan and held off re-running the pipeline until he confirms.
 
+## deploy-workflow-missing-dart-define
+
+deploy-web.yml's flutter build web step only ever passed SUPABASE_URL/SUPABASE_ANON_KEY as dart-defines, never GOOGLE_WEB_CLIENT_ID. The app is designed to hide (not error on) an unconfigured sign-in option, so this produced a silently missing Google sign-in button on the live deployed site rather than a build failure — Caelan caught it from a live screenshot of the Sign In screen.
+
+### 2026-08-19 | 03_build | caught: user
+deploy-web.yml's flutter build web step only ever passed SUPABASE_URL/SUPABASE_ANON_KEY as dart-defines, never GOOGLE_WEB_CLIENT_ID. The app is designed to hide (not error on) an unconfigured sign-in option, so this produced a silently missing Google sign-in button on the live deployed site rather than a build failure — Caelan caught it from a live screenshot of the Sign In screen.
+**Standard:** A deploy workflow's build-time flags need to include every dart-define a feature's own config-check depends on, not just the ones needed for the build to succeed at all — 'builds successfully' and 'ships a working feature' aren't the same check when a feature is designed to fail silent.
+**Fix:** Added --dart-define=GOOGLE_WEB_CLIENT_ID=... to deploy-web.yml (the value is a public OAuth client ID, not a secret, so hardcoded directly rather than added as a GitHub secret). Verified locally: rebuilding with the same flag makes 'Sign in with Google'/'Sign up with Google' appear in the compiled bundle where they were absent before.
+

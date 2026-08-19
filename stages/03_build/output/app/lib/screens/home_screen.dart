@@ -229,10 +229,10 @@ class _HomeScreenState extends State<HomeScreen> {
                   )
                 : Padding(
                     padding: const EdgeInsets.only(right: 8),
-                    child: TextButton.icon(
-                      onPressed: _handleAccountTap,
-                      icon: const Icon(Icons.login),
+                    child: ActionChip(
+                      avatar: const Icon(Icons.login, size: 18),
                       label: const Text('Sign In'),
+                      onPressed: _handleAccountTap,
                     ),
                   ),
         ],

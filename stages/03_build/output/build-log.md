@@ -2039,6 +2039,44 @@ real browser permission prompt/decibel numbers — both need a real browser
 (this sandbox's known canvas-compositing gap, same as every other UI
 verification this session) or a deployed check.
 
+## Session — 2026-08-19 (continued again): Google sign-in button missing on the live site — deploy workflow, not app code
+
+Caelan caught this from a live screenshot of the web Sign In screen: no
+Google button, just email + "Create one". Checked the actual gating logic
+before touching anything — `OAuthService.googleConfigured` is purely
+`GOOGLE_WEB_CLIENT_ID.isNotEmpty` (a `String.fromEnvironment` const), and
+both `auth_screen.dart` and `create_account_screen.dart` wrap their
+`GoogleSignInButton` in `if (OAuthService.googleConfigured)`. Apple's
+absence on web is separately correct by design
+(`showAppleButton = ... && !kIsWeb && Platform.isIOS` — iOS-only,
+unrelated to this). Facebook's absence is also correct — still gated
+behind `FACEBOOK_SIGN_IN_ENABLED`, not configured yet.
+
+Root cause: `deploy-web.yml`'s `flutter build web --release` step only
+ever passed `--dart-define=SUPABASE_URL`/`SUPABASE_ANON_KEY` — never
+`GOOGLE_WEB_CLIENT_ID`. The app did exactly what it was built to do (hide
+an unconfigured sign-in option rather than show one that would just
+error) — the actual bug was the deploy workflow never supplying the flag
+its own feature depends on, so "the build succeeds" and "the feature
+works" silently diverged. Same failure shape as the
+`incomplete-verification-build-flags` mistake from 2026-08-18, but that
+one was a local verification gap; this one shipped to production. Logged
+as its own class, `deploy-workflow-missing-dart-define`.
+
+Fixed: added the flag to `deploy-web.yml`, using the exact client ID
+already sitting in plain text in `PLATFORM_SETUP.md`
+(`335462034836-...apps.googleusercontent.com`) — hardcoded directly
+rather than routed through a new GitHub secret, since an OAuth client ID
+is public-by-design (oauth_service.dart's own comment already says so),
+not confidential like the Supabase/Cloudflare values above it. **Verified,
+not just reasoned through**: rebuilt locally with the same flag the
+workflow now uses, and `grep`'d the compiled bundle — "Sign in with
+Google"/"Sign up with Google" went from absent to present.
+
+**Also this session**: the List screen's "Sign In" affordance (added
+earlier today) restyled as an `ActionChip` per Caelan, replacing the
+plain `TextButton.icon`.
+
 ## Open items carried into further build work
 - **This session's UI/backend changes not click-tested live** — added 2026-08-19. Loudness vote buttons (does a real submission actually land in `loudness_votes`?), web mic capture (does a real browser's permission prompt and decibel numbers look sane?), and the filter drawer redesign all need a pass in a real browser once deployed — same root cause as every "not visually confirmed" item this session (sandboxed browser can't composite Flutter web's canvas).
 - **"Get the app" banner's copy is now partly stale** — added 2026-08-19. `download_app_banner.dart`/`get_app_prompt.dart` exist partly because mic reading was native-only; that's no longer true. Not changed — the banner may still earn its place for other reasons (notifications, general engagement), so this is Caelan's call, not assumed.
