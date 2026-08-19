@@ -22,6 +22,10 @@ it. If you're picking this project back up, start with the workspace's
   (Anthropic API key, service-role writes)
 - **Node.js data pipeline** (`data-pipeline/`) — pulls restaurant and review
   data from Google Places, scores it, writes it into Supabase
+- **go_router** — client-side routing for the web build (every screen has
+  a real URL); native navigation behavior is unchanged
+- **Cloudflare Pages** — hosts the web build, deployed via
+  `.github/workflows/deploy-web.yml` on every push to `main`
 
 ## Features
 
@@ -60,8 +64,10 @@ Apple/Facebook sign-in setup, and everything else platform-specific, see
 
 For web: `flutter run -d chrome --dart-define=...` (same dart-defines) for
 local dev, `flutter build web --release --dart-define=...` for a production
-build. Deployment (Cloudflare Pages, `app.cafequiet.com`) is documented in
-`PLATFORM_SETUP.md`'s "Web" section.
+build. **Live at [quiet-restaurant-finder.pages.dev](https://quiet-restaurant-finder.pages.dev)**
+(Cloudflare Pages) as of 2026-08-19 — `app.cafequiet.com` as a custom
+domain is still pending. Deployment details are in `PLATFORM_SETUP.md`'s
+"Web" section.
 
 ## Contributing changes
 

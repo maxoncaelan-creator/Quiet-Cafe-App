@@ -84,7 +84,7 @@ Called Geolocator.getCurrentPosition() for the venue-guess feature with only a D
 
 Placed .github/workflows/deploy-web.yml inside app/.github/workflows/ instead of the true git repo root's .github/workflows/. This workspace and the app share one git repository (the outer ICM workspace is the actual repo root, app/ is a subdirectory several levels down), so GitHub Actions never saw the workflow file at all -- the Actions tab showed the 'Get started' onboarding page instead of the workflow, which is how Caelan caught it.
 
-### 2026-08-18 | 03_build | caught: user
+### 2026-08-19 | 03_build | caught: user
 Placed .github/workflows/deploy-web.yml inside app/.github/workflows/ instead of the true git repo root's .github/workflows/. This workspace and the app share one git repository (the outer ICM workspace is the actual repo root, app/ is a subdirectory several levels down), so GitHub Actions never saw the workflow file at all -- the Actions tab showed the 'Get started' onboarding page instead of the workflow, which is how Caelan caught it.
 **Standard:** Before adding any repo-root-relative config file (.github/workflows, .gitignore-adjacent tooling, etc.) to a nested project directory, verify where the actual git repository root is (git rev-parse --show-toplevel) rather than assuming the project directory (app/) is the repo root.
 **Fix:** Moved deploy-web.yml to the true root .github/workflows/, added a job-level working-directory default (stages/03_build/output/app) for the run: steps, and kept the wrangler-action's build/web path as a full path from repo root since 'uses:' steps don't inherit the working-directory default. Documented the correct location explicitly in PLATFORM_SETUP.md.
@@ -93,7 +93,7 @@ Placed .github/workflows/deploy-web.yml inside app/.github/workflows/ instead of
 
 PLATFORM_SETUP.md and deploy-web.yml assumed 'wrangler pages deploy' auto-creates the Cloudflare Pages project on first run. It does not -- Caelan's live deploy failed with 'Project not found ... [code: 8000007]' since the project genuinely did not exist yet. Caught by Caelan running the actual deploy and pasting the GitHub Actions error log.
 
-### 2026-08-18 | 03_build | caught: user
+### 2026-08-19 | 03_build | caught: user
 PLATFORM_SETUP.md and deploy-web.yml assumed 'wrangler pages deploy' auto-creates the Cloudflare Pages project on first run. It does not -- Caelan's live deploy failed with 'Project not found ... [code: 8000007]' since the project genuinely did not exist yet. Caught by Caelan running the actual deploy and pasting the GitHub Actions error log.
 **Standard:** Don't document or build around an assumed CLI/API behavior (auto-creation, idempotency, defaults) without verifying it against the tool's actual docs or a real run -- especially for a step that's expensive to get wrong (a failed production deploy).
 **Fix:** Added a continue-on-error 'wrangler pages project create' step before the deploy step in deploy-web.yml, so the project is created explicitly on first run and the create step becomes a harmless no-op on every run after. Corrected PLATFORM_SETUP.md's claim.
@@ -102,8 +102,17 @@ PLATFORM_SETUP.md and deploy-web.yml assumed 'wrangler pages deploy' auto-create
 
 PLATFORM_SETUP.md told Caelan to scope the Cloudflare API token to only 'Pages: Edit'. Wrangler's own auth check also needs 'User -> User Details -> Read' -- without it, every wrangler command fails with Authentication error [code: 10000] before even reaching the Pages API. Caught by Caelan running the actual deploy and pasting the GitHub Actions error log; he had already created the token with only the originally-documented permission.
 
-### 2026-08-18 | 03_build | caught: user
+### 2026-08-19 | 03_build | caught: user
 PLATFORM_SETUP.md told Caelan to scope the Cloudflare API token to only 'Pages: Edit'. Wrangler's own auth check also needs 'User -> User Details -> Read' -- without it, every wrangler command fails with Authentication error [code: 10000] before even reaching the Pages API. Caught by Caelan running the actual deploy and pasting the GitHub Actions error log; he had already created the token with only the originally-documented permission.
 **Standard:** When documenting a third-party token's required scopes from general knowledge/docs rather than a verified working example, flag it as unverified, or better, verify by actually exercising the token before handing off setup instructions.
 **Fix:** Corrected PLATFORM_SETUP.md to list both required permissions and to note Cloudflare's token template gallery has no dedicated Pages template (use Create Custom Token).
+
+## shell-special-chars-unquoted-for-remote-shell
+
+Opened the first Supabase confirmation-link URL on the Android emulator via 'adb shell am start ... -d "<url>"' with the URL only protected by local bash double-quotes. adb shell re-parses the assembled command line through the DEVICE's own remote shell, which treated the URL's unescaped '&' characters as its own job-control operator, silently truncating the command before 'type=signup' -- Supabase responded 'Verify requires a verification type' instead of confirming the account. Self-caught immediately by reading the response, fixed within the same tool-call sequence by re-wrapping the URL in single quotes for the remote shell.
+
+### 2026-08-19 | 03_build | caught: self
+Opened the first Supabase confirmation-link URL on the Android emulator via 'adb shell am start ... -d "<url>"' with the URL only protected by local bash double-quotes. adb shell re-parses the assembled command line through the DEVICE's own remote shell, which treated the URL's unescaped '&' characters as its own job-control operator, silently truncating the command before 'type=signup' -- Supabase responded 'Verify requires a verification type' instead of confirming the account. Self-caught immediately by reading the response, fixed within the same tool-call sequence by re-wrapping the URL in single quotes for the remote shell.
+**Standard:** When constructing a command that's passed through two shells (local, then a remote one via adb/ssh/etc.), quote for the shell that will actually parse special characters (&, |, ;, etc.) in the final string, not just the local one.
+**Fix:** Rebuilt the command as adb shell "am start ... -d '$URL'" (single-quoted for the device's remote shell), retried, and got the correct deep-link handoff. No lasting effect -- the first attempt didn't corrupt any state, just returned an error.
 
