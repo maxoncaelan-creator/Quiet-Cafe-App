@@ -92,7 +92,11 @@ export const SEARCH_AREAS = [
 
   // South — Southern Highlands to Moss Vale
   'restaurants in Campbelltown NSW',
-  'restaurants in Picton NSW',
+  // Not just "Picton NSW" — that also matched Picton, New Zealand and
+  // Picton, Ontario in the 2026-08-19 live run (real namesake towns, not a
+  // parsing bug). extractSuburbFromAddress correctly excluded them, but a
+  // more specific query avoids paying for the wrong-country results at all.
+  'restaurants in Picton, New South Wales, Australia',
   'restaurants in Mittagong NSW',
   'restaurants in Bowral NSW',
   'restaurants in Moss Vale NSW',

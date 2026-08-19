@@ -1825,10 +1825,55 @@ Not yet re-run against the live API — holding for Caelan given this is a
 second real-money request against his billing, caused by this session's
 own deployment miss rather than something new he asked for.
 
+## Session — 2026-08-19 (continued again): suburb backfilled for free from the existing address text, no re-run needed
+
+Caelan pointed out (from a live screenshot of "The Botanist", 17 Willoughby
+St, **Kirribilli** NSW) that the suburb is already sitting in plain text
+inside `address` on every one of the 1,221 rows from the flawed run — no
+need to spend more Places API money re-fetching data already on file just
+to get `addressComponents`. Right call, acted on it instead of the planned
+paid re-run.
+
+Added `extractSuburbFromAddress()` in `places.js` (tested against the real
+shapes found in the dataset, not guessed): the normal
+`"<street>, <suburb> <STATE> <postcode>, Australia"` form (1,214 rows) and
+a reversed form a handful of Google listings return,
+`"Australia, New South Wales, <suburb>, <street>, ..."` (3 rows —
+Hornsby, Castle Hill, Narellan). Deliberately returns `null` for anything
+that isn't a recognisable Australian address rather than guessing, which is
+what caught the next finding.
+
+**4 rows turned out not to be in Australia at all**: the "Picton NSW" area
+query also matched restaurants in Picton, New Zealand and Picton, Ontario,
+Canada — real namesake towns, not a parser bug (`extractSuburbFromAddress`
+correctly returned `null` for all four rather than mis-suburbing them).
+Tightened that one query to `"restaurants in Picton, New South Wales,
+Australia"` in `searchAreas.js` for future runs. The 4 existing bad rows
+are flagged (by `scripts/backfill-suburbs.mjs`'s output) but **not
+deleted** — `pipeline_service` has no delete grant by design (see
+`supabase.js`), so removing them needs an explicit higher-privilege step;
+left for Caelan to confirm before doing that.
+
+New `scripts/backfill-suburbs.mjs`: loads `data/restaurants.json`, fills
+`suburb` via `extractSuburbFromAddress()` for every row missing one, writes
+the file back, then re-upserts through the existing
+`upsertScoredRestaurants()` path (same UPSERT the pipeline always uses —
+no schema or query changes needed, no Places API calls made). Run live:
+**1,217 of 1,221 rows filled, 119 distinct suburbs**, confirmed directly
+against Supabase afterward (`select count(*), count(suburb), count(distinct
+suburb) from restaurants` → 1229 total / 1217 with suburb / 119 distinct —
+the 1,229 vs. 1,221 gap is pre-existing leftover rows from an earlier,
+much smaller demo dataset that this run's area list never touched, harmless
+given no-delete).
+
+**Cost of this fix: $0** — zero Places API requests, just local string
+parsing and a normal DB write.
+
 ## Open items carried into further build work
-- **Pipeline needs a clean re-run now that the Edge Function fix is actually deployed** — added 2026-08-19. `data/restaurants.json` and the live `restaurants` table currently hold 1,221 real rows from the flawed run (no suburb data, single page per area only) — stale/incomplete, not wrong in a way that breaks the app, but the suburb filter and true area coverage won't be right until this re-runs. Caelan's call on when/whether to spend the next ~$2-8 to redo it.
+- **4 non-Australian rows still live in the `restaurants` table** — added 2026-08-19 (New Zealand/Canada Picton namesakes, place IDs logged in the backfill script's output above). Not deleted — `pipeline_service` has no delete grant by design; needs an explicit service-role/dashboard step. Caelan's call on whether/when to remove them.
+- **~8 old leftover demo rows with no suburb** — added 2026-08-19, low priority. Pre-date this session's area-list run entirely; harmless, just slightly stale given the no-delete design. Worth a one-time cleanup pass if it's ever worth Caelan's time, not urgent.
 - **App branding still says "Sydney" only** — added 2026-08-19. AppBar title (`home_screen.dart`) and README/store copy weren't touched when scope expanded to Greater NSW; Caelan's call on whether/how to rename.
-- **Search area list is a curated regional spread, not exhaustive** — added 2026-08-19. 63 queries across Greater Sydney/Newcastle/Dubbo/Moss Vale/Kiama; extend `searchAreas.js` (or swap in a real suburb dataset) if live testing finds a gap.
+- **Search area list is a curated regional spread, not exhaustive** — added 2026-08-19. 63 queries across Greater Sydney/Newcastle/Dubbo/Moss Vale/Kiama, each only pulled page 1 (~20 results) since no area actually needed pagination yet; extend `searchAreas.js` (or swap in a real suburb dataset) if live testing finds a gap.
 - **Web UI's actual rendered layout still not visually confirmed** — the live `.pages.dev` boot/routing check above confirms the app *works*, but didn't specifically re-check the rail/drawer swap at different widths, the download banner, or the max-width constraints now that a real browser is available. Worth a specific pass, not just "does it load."
 - ~~Cloudflare Pages deployment not set up~~ — resolved 2026-08-19: live at `https://quiet-restaurant-finder.pages.dev`, see session above. Still open: attach `app.cafequiet.com` as a custom domain (Cloudflare dashboard, Caelan's).
 - ~~Supabase Site URL conflict~~ — resolved 2026-08-19: Caelan set Site URL to `https://cafequiet.com` (confirmed saved after a page reload); `https://app.cafequiet.com` stays as an explicit Redirect URL alongside the `quietrestaurantfinder://login-callback` scheme. No real conflict — Site URL is the fallback/email-template variable, Redirect URLs is the separate explicit allow-list, so both domains do their own job.

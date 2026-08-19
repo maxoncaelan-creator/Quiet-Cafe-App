@@ -94,6 +94,55 @@ export function extractSuburb(addressComponents) {
   return null;
 }
 
+const AU_STATES = ['NSW', 'ACT', 'VIC', 'QLD', 'SA', 'WA', 'TAS', 'NT'];
+const AU_STATE_NAMES = [
+  'New South Wales',
+  'Australian Capital Territory',
+  'Victoria',
+  'Queensland',
+  'South Australia',
+  'Western Australia',
+  'Tasmania',
+  'Northern Territory',
+];
+const TRAILING_STATE_POSTCODE = new RegExp(`\\s+(${AU_STATES.join('|')})\\s+\\d{4}$`, 'i');
+
+/**
+ * Backfill path for rows that already have `formattedAddress` but no
+ * addressComponents on file (e.g. fetched before that field mask change) —
+ * parses the suburb straight out of the address string instead of spending
+ * another Places API request. Handles the two shapes actually seen in this
+ * dataset:
+ *  - Normal: "17 Willoughby St, Kirribilli NSW 2061, Australia"
+ *  - Reversed (a handful of Google listings return it this way):
+ *    "Australia, New South Wales, Hornsby, Pacific Hwy, FC8"
+ * Returns null for anything that isn't a recognisable Australian address at
+ * all (a few interstate-namesake false positives — e.g. Picton, NZ/Canada —
+ * turned up in the area-query results and shouldn't get a suburb guessed
+ * for them).
+ */
+export function extractSuburbFromAddress(address) {
+  if (!address) return null;
+  if (!address.includes('Australia')) return null;
+
+  const parts = address.split(',').map((p) => p.trim()).filter(Boolean);
+  if (parts.length === 0) return null;
+
+  if (parts[0] === 'Australia') {
+    // Reversed shape: Australia, <state name>, <suburb>, <street>, ...
+    const stateIndex = parts.findIndex((p) => AU_STATE_NAMES.includes(p));
+    const suburb = stateIndex >= 0 ? parts[stateIndex + 1] : parts[2];
+    return suburb || null;
+  }
+
+  // Normal shape: the segment right before ", Australia" is "<suburb> <STATE> <postcode>".
+  const withoutCountry = parts[parts.length - 1] === 'Australia' ? parts.slice(0, -1) : parts;
+  const last = withoutCountry[withoutCountry.length - 1];
+  if (!last) return null;
+  const suburb = last.replace(TRAILING_STATE_POSTCODE, '').trim();
+  return suburb || null;
+}
+
 // Places API (New) returns priceLevel as an enum string (e.g.
 // "PRICE_LEVEL_EXPENSIVE"), but data-schema.md/0001_init.sql define
 // price_level as `smallint` (integer 1-4, matching Yelp's $ / $$ / $$$
