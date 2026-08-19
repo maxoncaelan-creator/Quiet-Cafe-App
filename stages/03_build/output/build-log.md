@@ -2140,6 +2140,31 @@ limitation as every other UI check this session; the actual calibration
 flow (mic permission prompt, a real recording, the resulting offset
 landing correctly on a subsequent reading) needs a real browser or device.
 
+## Session — 2026-08-19 (continued again): hamburger menu — Donate hidden, Login/Account moved to a bottom chip
+
+Small, focused ask: hide Donate from the drawer, move Login/Signup
+("Account" once signed in) to the bottom of the menu, and style it as a
+chip.
+
+Donate is filtered out of the render loop
+(`appNavDestinations.where((d) => d.route != AppRoute.donate)`) rather
+than removed from the shared `appNavDestinations` list itself — that list
+also drives `AppNavRail` (the wide-layout nav), and the ask was
+specifically about the hamburger menu, so Donate still shows there.
+Flagged in case that reads as inconsistent rather than intentional.
+
+Login/Account moved from between Favourites and Settings to the last item
+before the `Spacer`/"Report a problem"/version footer, and restyled from a
+full-width `_DrawerItem` row to an `ActionChip` — same chip pattern as the
+List screen's "Sign In" affordance from earlier today, for visual
+consistency across the two. Kept the existing signed-in/signed-out
+label and destination logic (Account vs. Login/Signup) unchanged, just the
+container and position.
+
+**Verification**: `flutter analyze` — 0 issues. `flutter test` — passing.
+Not click-tested live — same sandbox limitation as everything else this
+session.
+
 ## Open items carried into further build work
 - **Mic calibration not click-tested live** — added 2026-08-19. Same root cause as the item below. Specifically worth checking once deployed: does the screen actually trigger on a fresh sign-in and on an already-signed-in cold launch, does skipping correctly leave it due next time, and does a submitted calibration actually shift a subsequent reading's effective score.
 - **This session's UI/backend changes not click-tested live** — added 2026-08-19. Loudness vote buttons (does a real submission actually land in `loudness_votes`?), web mic capture (does a real browser's permission prompt and decibel numbers look sane?), and the filter drawer redesign all need a pass in a real browser once deployed — same root cause as every "not visually confirmed" item this session (sandboxed browser can't composite Flutter web's canvas).

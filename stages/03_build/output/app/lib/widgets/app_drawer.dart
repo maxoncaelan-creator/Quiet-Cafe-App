@@ -50,10 +50,12 @@ class AppDrawer extends StatelessWidget {
                 child: Text('Quiet Restaurant Finder', style: Theme.of(context).textTheme.titleMedium),
               ),
             ),
-            // Original visual order (searchAssistant, list, favourites,
-            // login, settings, donate) preserved by splitting the shared
-            // destinations list around the special-cased login item.
-            for (final d in appNavDestinations.take(3))
+            // Donate hidden here per Caelan (2026-08-19) — still shown on
+            // the wide-layout nav rail, since only the drawer was asked
+            // about; filtered out of the shared list rather than removed
+            // from it so the two surfaces can differ without duplicating
+            // the destinations list.
+            for (final d in appNavDestinations.where((d) => d.route != AppRoute.donate))
               _DrawerItem(
                 icon: d.icon,
                 selectedIcon: d.selectedIcon,
@@ -61,24 +63,28 @@ class AppDrawer extends StatelessWidget {
                 selected: currentRoute == d.route,
                 onTap: () => _go(context, d.route, d.path),
               ),
-            _DrawerItem(
-              icon: Icons.login,
-              selectedIcon: Icons.login,
-              label: signedIn ? 'Account' : 'Login / Signup',
-              selected: currentRoute == AppRoute.login,
-              onTap: () {
-                Navigator.of(context).pop();
-                context.push(signedIn ? '/account' : '/sign-in');
-              },
+            // Login/Account moved to the bottom of the menu items and
+            // restyled as a chip, per Caelan (2026-08-19) — was a full-width
+            // row between Favourites and Settings before.
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: ActionChip(
+                  avatar: Icon(signedIn ? Icons.account_circle : Icons.login, size: 18),
+                  label: Text(
+                    signedIn ? 'Account' : 'Login / Signup',
+                    style: TextStyle(
+                      fontWeight: currentRoute == AppRoute.login ? FontWeight.w600 : FontWeight.normal,
+                    ),
+                  ),
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                    context.push(signedIn ? '/account' : '/sign-in');
+                  },
+                ),
+              ),
             ),
-            for (final d in appNavDestinations.skip(3))
-              _DrawerItem(
-                icon: d.icon,
-                selectedIcon: d.selectedIcon,
-                label: d.label,
-                selected: currentRoute == d.route,
-                onTap: () => _go(context, d.route, d.path),
-              ),
             const Spacer(),
             const Divider(height: 1),
             ListTile(
