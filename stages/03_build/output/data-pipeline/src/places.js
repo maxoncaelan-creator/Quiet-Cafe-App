@@ -6,18 +6,40 @@
 // SUPABASE_ANON_KEY, and PIPELINE_SHARED_SECRET.
 
 /**
+ * A shared, mutable cap on total billed places-search requests across an
+ * entire run (not per-area) — created once by the caller and passed into
+ * every searchRestaurants() call so areas late in the list stop cleanly
+ * once the total is spent, rather than each area getting its own budget.
+ * @param {number} limit
+ */
+export function createRequestBudget(limit) {
+  let remaining = limit;
+  return {
+    take() {
+      if (remaining <= 0) return false;
+      remaining--;
+      return true;
+    },
+    get remaining() {
+      return remaining;
+    },
+  };
+}
+
+/**
  * Searches for restaurants in a given area via the places-search Edge
  * Function, paginating up to `maxPages` pages (Google returns up to 20
  * results per page; a fresh nextPageToken needs a short delay before it's
  * valid, same as the legacy Places API). Bounded rather than exhaustive —
- * each extra page is a billed request, so this caps cost per area rather
- * than draining every result.
+ * each extra page is a billed request. Pass `budget` (see
+ * createRequestBudget) to cap total requests across an entire multi-area
+ * run rather than just per-area.
  * @param {string} query e.g. "restaurants in Newtown NSW"
- * @param {{ supabaseUrl: string, supabaseAnonKey: string, pipelineSharedSecret: string, maxPages?: number }} config
+ * @param {{ supabaseUrl: string, supabaseAnonKey: string, pipelineSharedSecret: string, maxPages?: number, budget?: ReturnType<typeof createRequestBudget> }} config
  */
 export async function searchRestaurants(
   query,
-  { supabaseUrl, supabaseAnonKey, pipelineSharedSecret, maxPages = 3 } = {}
+  { supabaseUrl, supabaseAnonKey, pipelineSharedSecret, maxPages = 3, budget } = {}
 ) {
   if (!supabaseUrl || !supabaseAnonKey || !pipelineSharedSecret) {
     throw new Error(
@@ -29,6 +51,8 @@ export async function searchRestaurants(
   let pageToken;
 
   for (let page = 0; page < maxPages; page++) {
+    if (budget && !budget.take()) break;
+
     const res = await fetch(`${supabaseUrl}/functions/v1/places-search`, {
       method: 'POST',
       headers: {

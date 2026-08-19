@@ -116,3 +116,12 @@ Opened the first Supabase confirmation-link URL on the Android emulator via 'adb
 **Standard:** When constructing a command that's passed through two shells (local, then a remote one via adb/ssh/etc.), quote for the shell that will actually parse special characters (&, |, ;, etc.) in the final string, not just the local one.
 **Fix:** Rebuilt the command as adb shell "am start ... -d '$URL'" (single-quoted for the device's remote shell), retried, and got the correct deep-link handoff. No lasting effect -- the first attempt didn't corrupt any state, just returned an error.
 
+## edge-function-not-deployed
+
+Edited supabase/functions/places-search/index.ts locally (addressComponents field mask + pagination) but never deployed it before running the live pipeline. The live Edge Function still ran the old code, so the suburb fix produced 0/1221 suburbs and pagination never engaged.
+
+### 2026-08-19 | 03_build | caught: self
+Edited supabase/functions/places-search/index.ts locally (addressComponents field mask + pagination) but never deployed it before running the live pipeline. The live Edge Function still ran the old code, so the suburb fix produced 0/1221 suburbs and pagination never engaged.
+**Standard:** A code change to a Supabase Edge Function isn't live until it's actually deployed — editing the local file is not enough, and this should be verified (redeploy, or check the deployed version) before running the live/paid job that depends on it.
+**Fix:** Deployed the corrected function via the Supabase MCP deploy_edge_function tool (now version 5), confirmed the field mask includes addressComponents and nextPageToken. Flagged the wasted ~63 Places API requests to Caelan and held off re-running the pipeline until he confirms.
+

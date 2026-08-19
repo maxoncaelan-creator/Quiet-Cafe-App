@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { normalizePriceLevel, extractSuburb } from '../src/places.js';
+import { normalizePriceLevel, extractSuburb, createRequestBudget } from '../src/places.js';
 
 test('normalizePriceLevel maps Places API (New) enums to 1-4', () => {
   assert.equal(normalizePriceLevel('PRICE_LEVEL_FREE'), 1);
@@ -39,4 +39,19 @@ test('extractSuburb falls back to sublocality when there is no locality', () => 
 test('extractSuburb returns null when address components are missing or empty', () => {
   assert.equal(extractSuburb(undefined), null);
   assert.equal(extractSuburb([]), null);
+});
+
+test('createRequestBudget allows exactly `limit` requests then refuses', () => {
+  const budget = createRequestBudget(2);
+  assert.equal(budget.take(), true);
+  assert.equal(budget.remaining, 1);
+  assert.equal(budget.take(), true);
+  assert.equal(budget.remaining, 0);
+  assert.equal(budget.take(), false);
+  assert.equal(budget.remaining, 0);
+});
+
+test('createRequestBudget of 0 refuses immediately', () => {
+  const budget = createRequestBudget(0);
+  assert.equal(budget.take(), false);
 });
