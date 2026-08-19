@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../models/restaurant.dart';
+import '../utils/text_format.dart';
 import 'confidence_indicator.dart';
 import 'noise_level_bar.dart';
 
@@ -54,7 +55,10 @@ class RestaurantTile extends StatelessWidget {
                           ),
                     ),
                   Text(
-                    [restaurant.cuisine, restaurant.suburb].whereType<String>().join(' · '),
+                    [
+                      restaurant.cuisine != null ? humanizeSnakeCase(restaurant.cuisine!) : null,
+                      restaurant.suburb,
+                    ].whereType<String>().join(' · '),
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                           color: Theme.of(context).colorScheme.onSurfaceVariant,
                         ),

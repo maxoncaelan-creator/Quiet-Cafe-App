@@ -23,6 +23,7 @@ const FIELD_MASK = [
   'places.id',
   'places.displayName',
   'places.formattedAddress',
+  'places.addressComponents',
   'places.location',
   'places.priceLevel',
   'places.primaryType',
@@ -61,15 +62,18 @@ Deno.serve(async (req) => {
     return jsonResponse({ error: 'Unauthorized' }, 401);
   }
 
-  let body: { query?: string };
+  let body: { query?: string; pageToken?: string };
   try {
     body = await req.json();
   } catch {
     return jsonResponse({ error: 'Invalid JSON body' }, 400);
   }
 
+  const pageToken = body.pageToken?.trim();
   const query = body.query?.trim();
-  if (!query) {
+  // A page token alone is a valid follow-up request — Google resolves it to
+  // a specific query+cursor server-side, so `query` isn't required then.
+  if (!query && !pageToken) {
     return jsonResponse({ error: '"query" is required' }, 400);
   }
 
@@ -78,9 +82,9 @@ Deno.serve(async (req) => {
     headers: {
       'Content-Type': 'application/json',
       'X-Goog-Api-Key': GOOGLE_PLACES_API_KEY,
-      'X-Goog-FieldMask': FIELD_MASK,
+      'X-Goog-FieldMask': `${FIELD_MASK},nextPageToken`,
     },
-    body: JSON.stringify({ textQuery: query }),
+    body: JSON.stringify(pageToken ? { pageToken } : { textQuery: query }),
   });
 
   if (!placesRes.ok) {
@@ -89,5 +93,5 @@ Deno.serve(async (req) => {
   }
 
   const data = await placesRes.json();
-  return jsonResponse({ places: data.places ?? [] });
+  return jsonResponse({ places: data.places ?? [], nextPageToken: data.nextPageToken ?? null });
 });

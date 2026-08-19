@@ -1698,10 +1698,247 @@ domain in the Cloudflare Pages project (Custom domains tab), and add
 URL conflict item below, unresolved until the marketing site's hosting
 is also real.
 
+## Session — 2026-08-19 (continued): cafequiet.com parking-page incident, Supabase Site URL set, Greater NSW scope expansion + cuisine display formatting
+
+**cafequiet.com briefly served an unrelated ad-tech/parking page.**
+Investigated live: DNS had fully delegated to Cloudflare as intended, but
+the zone's `A` records for `cafequiet.com`/`www.cafequiet.com` pointed at
+`27.124.125.171` — a leftover Crazy Domains default-parking record that got
+auto-imported during the 2026-08-17 "Scan DNS Records" nameserver
+migration and was never replaced once real hosting was planned. Cloudflare
+audit log checked directly, not assumed: every action traced to
+`maxon.caelan@gmail.com` or `system`, ruling out account compromise. Caelan
+deleted the stale proxied `A` records and separately turned on Domain Lock
+at the registrar (found off, an unrelated but real transfer-risk exposure).
+DNS resolution confirmed clean afterward (`nslookup` returns no addresses,
+correct until real hosting is pointed at the apex).
+
+**Supabase Auth's Site URL set to `https://cafequiet.com`**, closing the
+open item from two sessions ago. Resolved as "no real conflict" rather than
+picking a winner under duress: Site URL is the fallback/email-template
+variable, Redirect URLs is the separate explicit allow-list —
+`https://app.cafequiet.com` and `quietrestaurantfinder://login-callback`
+both stay in Redirect URLs untouched. Confirmed saved live (value survived
+a page reload).
+
+**Two real product issues found by Caelan using the live web build,
+became this session's main focus:**
+
+1. **Suburb filter always showed only "All suburbs."** Root cause: Google
+   Places' `normalizePlace()` in `data-pipeline/src/places.js` never set
+   `suburb` at all for live-fetched data — the field existed in the schema
+   and the Flutter model, but nothing ever populated it outside the sample
+   dataset. `whereType<String>()` in `home_screen.dart`'s suburb-options
+   derivation silently dropped every null, leaving only the built-in "All
+   suburbs" option. Fixed by adding `places.addressComponents` to the
+   `places-search` Edge Function's field mask (no SKU-tier cost increase —
+   already at Enterprise+Atmosphere for reviews) and extracting the
+   `locality`/`sublocality` component as `suburb` in `places.js`
+   (`extractSuburb()`, tested).
+
+2. **Cuisine values rendered raw** (`french_restaurant`, not "French
+   Restaurant") in the list tile and the cuisine filter dropdown. Per
+   Caelan, explicitly **not** a backend/Supabase data change — added
+   `humanizeSnakeCase()` (`app/lib/utils/text_format.dart`, tested) and
+   applied it only at render time in `restaurant_tile.dart` and
+   `home_screen.dart`'s `_FilterBar`; the underlying `cuisine` value used
+   for filtering/comparison is untouched.
+
+**Scope expanded from "Sydney only" to Greater Sydney + Dubbo + Newcastle +
+Moss Vale + Kiama/Illawarra**, confirmed with Caelan this session — see
+`_config/decisions.md` "Scope." The pipeline previously ran a single Text
+Search query (`"restaurants in Sydney NSW"`, one page, ~20 results max) —
+nowhere near this footprint even before the expansion was requested.
+Replaced with `data-pipeline/src/searchAreas.js`, a curated list of 63
+area queries spanning inner Sydney, the eastern suburbs, inner west, north
+shore/northern beaches, the Hills District, western and south-western
+Sydney, Sutherland Shire, the Blue Mountains, Central Coast/Newcastle,
+west to Dubbo (via Lithgow/Bathurst/Orange), and south to the Southern
+Highlands/Illawarra. `searchRestaurants()` in `places.js` now paginates up
+to 3 pages per area (Google's `nextPageToken`, with the same short delay
+the legacy Places API needed before a fresh token is valid) and
+`pipeline.js`'s new `searchAllAreas()` runs the full list, deduping by
+`placeId` across areas (a venue near a suburb boundary can legitimately
+turn up under more than one query).
+
+**Not run live this session.** 63 areas × up to 3 pages each is a real
+range of billed Google Places requests (worst case ~1,900, realistically
+far fewer since most areas won't fill 3 pages) — this hits Caelan's Google
+Cloud billing directly, so the actual pipeline run against production is
+being left for Caelan to kick off (or explicitly greenlight) rather than
+run unattended. Once run, expect the `restaurants` table to grow
+substantially past the current handful of Sydney-CBD rows, and expect the
+suburb filter to populate for real for the first time.
+
+**Verification**: `flutter analyze` — 0 issues. `flutter test` — all pass,
+including two new suites (`text_format_test.dart`,
+`places.test.js` suburb-extraction cases). `npm test` in `data-pipeline` —
+29/29 pass. `node --check` on the three touched pipeline files. Nothing
+requiring the live Places API or a real device was exercised — the
+addressComponents field-mask change and the pagination loop are unverified
+against the real API until the first live run.
+
+**Explicitly not done, both flagged for Caelan rather than decided
+silently**: the app's AppBar title ("Quietest in Sydney") and README/store
+copy still say "Sydney" only, now inconsistent with the wider data
+footprint — a branding call, not folded into this data-scope change. The
+curated area list is a representative regional spread, not exhaustive
+suburb-level coverage; treat gaps found in testing as expected, not bugs.
+
+Work is on `feature/greater-nsw-scope-and-cuisine-display`, branched from
+`docs/web-deploy-live` (which itself picked up one more commit this session
+closing out the Site URL item, and is still not yet PR'd/merged — see its
+open item above). Pushed; not yet PR'd/merged.
+
+## Session — 2026-08-19 (continued again): live pipeline run — real bug found (Edge Function never deployed), fixed, awaiting a clean re-run
+
+Caelan approved the live run, capped at 200 total Places requests (added
+`createRequestBudget()` in `places.js` — a shared counter across all areas,
+not per-area, so the cap is a real hard ceiling regardless of how many
+areas/pages that spans). Ran `npm start` in `data-pipeline/`.
+
+**It ran clean (exit 0) but produced the wrong result.** 1,221 restaurants
+were written and upserted to Supabase, but **0 of them had a `suburb`** —
+the exact bug this session was supposed to fix. Root cause, found by
+comparing the live Edge Function's deployed code
+(`get_edge_function` via the Supabase MCP tool) against the local source:
+**the `addressComponents`/pagination change to
+`supabase/functions/places-search/index.ts` was only ever edited locally,
+never actually deployed.** The live function Google was hit through was
+still the pre-session version — no `addressComponents` in the field mask
+(nothing to extract a suburb from) and no `nextPageToken` in its response
+(so `places.js`'s new pagination loop always saw `undefined` and stopped
+after page 1 every time, regardless of the `maxPages`/budget logic being
+correct). That's also why only 63 of the 200-request budget got used — one
+request per area, no pagination ever engaged. Logged as mistake
+`edge-function-not-deployed` in `MISTAKES.md`.
+
+The ~63 real Places API requests this run made were still billed for real
+— not recoverable, but small (well under the ~$7-8 worst-case estimate
+given to Caelan beforehand, likely closer to $2-3 for 63 single-page
+requests).
+
+**Fixed**: deployed the corrected function via the Supabase MCP
+`deploy_edge_function` tool (now version 5) — confirmed the field mask
+includes `addressComponents` and the response includes `nextPageToken`.
+Not yet re-run against the live API — holding for Caelan given this is a
+second real-money request against his billing, caused by this session's
+own deployment miss rather than something new he asked for.
+
+## Session — 2026-08-19 (continued again): suburb backfilled for free from the existing address text, no re-run needed
+
+Caelan pointed out (from a live screenshot of "The Botanist", 17 Willoughby
+St, **Kirribilli** NSW) that the suburb is already sitting in plain text
+inside `address` on every one of the 1,221 rows from the flawed run — no
+need to spend more Places API money re-fetching data already on file just
+to get `addressComponents`. Right call, acted on it instead of the planned
+paid re-run.
+
+Added `extractSuburbFromAddress()` in `places.js` (tested against the real
+shapes found in the dataset, not guessed): the normal
+`"<street>, <suburb> <STATE> <postcode>, Australia"` form (1,214 rows) and
+a reversed form a handful of Google listings return,
+`"Australia, New South Wales, <suburb>, <street>, ..."` (3 rows —
+Hornsby, Castle Hill, Narellan). Deliberately returns `null` for anything
+that isn't a recognisable Australian address rather than guessing, which is
+what caught the next finding.
+
+**4 rows turned out not to be in Australia at all**: the "Picton NSW" area
+query also matched restaurants in Picton, New Zealand and Picton, Ontario,
+Canada — real namesake towns, not a parser bug (`extractSuburbFromAddress`
+correctly returned `null` for all four rather than mis-suburbing them).
+Tightened that one query to `"restaurants in Picton, New South Wales,
+Australia"` in `searchAreas.js` for future runs. The 4 existing bad rows
+are flagged (by `scripts/backfill-suburbs.mjs`'s output) but **not
+deleted** — `pipeline_service` has no delete grant by design (see
+`supabase.js`), so removing them needs an explicit higher-privilege step;
+left for Caelan to confirm before doing that.
+
+New `scripts/backfill-suburbs.mjs`: loads `data/restaurants.json`, fills
+`suburb` via `extractSuburbFromAddress()` for every row missing one, writes
+the file back, then re-upserts through the existing
+`upsertScoredRestaurants()` path (same UPSERT the pipeline always uses —
+no schema or query changes needed, no Places API calls made). Run live:
+**1,217 of 1,221 rows filled, 119 distinct suburbs**, confirmed directly
+against Supabase afterward (`select count(*), count(suburb), count(distinct
+suburb) from restaurants` → 1229 total / 1217 with suburb / 119 distinct —
+the 1,229 vs. 1,221 gap is pre-existing leftover rows from an earlier,
+much smaller demo dataset that this run's area list never touched, harmless
+given no-delete).
+
+**Cost of this fix: $0** — zero Places API requests, just local string
+parsing and a normal DB write.
+
+**The 4 non-Australian rows were then confirmed and deleted.** Caelan
+double-checked the reasoning first (right call, given cascading deletes
+aren't reversible) — verified none of the four addresses contain the word
+"Australia" anywhere (`New Zealand` × 2, `Canada` × 2, and the postcodes
+themselves are non-Australian formats: NZ's `7220`, Canada's `K0K 2T0`, not
+a 4-digit AU postcode). Deleted via the Supabase MCP `execute_sql` tool
+(`pipeline_service` still has no delete grant — this went through a
+higher-privileged path deliberately, as a one-off, not by changing the
+pipeline's normal access). `mic_readings` and `favorites` both have
+`on delete cascade` on `place_id`, so no orphaned rows either. Confirmed by
+the delete's own `returning` clause: all 4 rows gone
+(`ChIJddN3Nlc5OW0RdTI0-TxF3G0`, `ChIJIxOnYWw5OW0RJDC2CTu3q_Q`,
+`ChIJhehZb03K14kRuAjwco4Vhd4`, `ChIJbWsJDlTK14kRQ5AMXem65-Y`). Local
+`data/restaurants.json` filtered to match (1,221 → 1,217 rows).
+
+## Session — 2026-08-19 (continued again): filters moved into a popout drawer, Loudness/Rating filters + Sort By added
+
+Caelan asked for the Suburb/Cuisine filters (previously two inline dropdowns
+under the search bar) to move into a popout panel like the existing
+hamburger menu, plus two new filter categories (Loudness, Rating) and a
+Sort By control with four options.
+
+New `widgets/filter_drawer.dart` — a `Scaffold.endDrawer`, the same `Drawer`
+widget `AppDrawer` already uses for the left-side hamburger menu, so the
+scrim/slide behavior is identical, just opening from the right via a new
+filter icon in the AppBar (badged when any filter is active). All four
+filter categories are labeled dropdowns inside it, plus a Sort By dropdown
+and a "Clear all filters" button (only shown when a filter is active;
+doesn't touch Sort By, which isn't treated as a filter).
+
+Two design calls made without a spec to point to, flagged here rather than
+silently decided:
+- **Loudness filter reuses `NoiseLevelBar.categories`** (Silent, Very
+  Quiet, Quiet, Moderate, Loud, Very Loud, Earsplitting) — the same 7-tier
+  taxonomy already shown on every tile and the detail screen, rather than
+  inventing separate filter vocabulary. A restaurant with no quietness
+  score yet won't match any specific tier (consistent with how "Not enough
+  data yet" already excludes it from the ranked list).
+- **Rating filter is a minimum-threshold dropdown** (Any, 3.0+, 3.5+,
+  4.0+, 4.5+) rather than exact-star buckets — ratings are Google's raw
+  0-5 values, and "4.0+" is the pattern most rating filters use elsewhere.
+
+Sort By: Quietest First (existing default, unchanged), Loudest First (the
+same ranked list reversed), Rating Highest/Lowest (re-sorts the same
+ranked list by `googleRating`, nulls pushed to the end regardless of
+direction). All four options only reorder the "enough data" section — the
+existing "Not enough data yet" split underneath is untouched, since that's
+specifically about quietness signal coverage and changing that split
+wasn't asked for.
+
+**Verification**: `flutter analyze` — 0 issues. `flutter test` — all
+passing (no new unit tests added for the screen-level filter/sort
+logic — this codebase has no prior widget-level tests for `HomeScreen`
+either, and the logic is straightforward enough that `analyze` + a real
+release build cover it). `flutter build web --release` — succeeded, same
+"strongest available signal" this environment has relied on before since
+the sandboxed browser tool still can't composite Flutter web's canvas
+(confirmed again this session: clean console, DDC loads all 967 modules,
+no errors — just can't get pixels). **Not visually confirmed** — same
+open item as the pre-existing "Web UI's actual rendered layout" one below;
+worth a real look once deployed or in a normal browser.
+
 ## Open items carried into further build work
+- **Filter drawer redesign not visually confirmed** — added 2026-08-19, same root cause as the item below (sandboxed browser can't composite Flutter web). Worth a specific pass on the new drawer once a real browser is available: does the badge show/hide correctly, do all four dropdowns and Sort By actually reorder/filter the list as expected live.
+- **~8 old leftover demo rows with no suburb** — added 2026-08-19, low priority. Pre-date this session's area-list run entirely; harmless, just slightly stale given the no-delete design. Worth a one-time cleanup pass if it's ever worth Caelan's time, not urgent.
+- **App branding still says "Sydney" only** — added 2026-08-19. AppBar title (`home_screen.dart`) and README/store copy weren't touched when scope expanded to Greater NSW; Caelan's call on whether/how to rename.
+- **Search area list is a curated regional spread, not exhaustive** — added 2026-08-19. 63 queries across Greater Sydney/Newcastle/Dubbo/Moss Vale/Kiama, each only pulled page 1 (~20 results) since no area actually needed pagination yet; extend `searchAreas.js` (or swap in a real suburb dataset) if live testing finds a gap.
 - **Web UI's actual rendered layout still not visually confirmed** — the live `.pages.dev` boot/routing check above confirms the app *works*, but didn't specifically re-check the rail/drawer swap at different widths, the download banner, or the max-width constraints now that a real browser is available. Worth a specific pass, not just "does it load."
 - ~~Cloudflare Pages deployment not set up~~ — resolved 2026-08-19: live at `https://quiet-restaurant-finder.pages.dev`, see session above. Still open: attach `app.cafequiet.com` as a custom domain (Cloudflare dashboard, Caelan's).
-- **Supabase Site URL conflict, not resolved** — added 2026-08-18. The pre-existing "Site URL → `https://cafequiet.com`" open item (for iOS/Android Universal/App Links) and this session's web app redirect need (`https://app.cafequiet.com`) both want the same single Supabase field. Needs Caelan's call once the marketing site's own hosting is real — see `_config/decisions.md` "Scope" and `PLATFORM_SETUP.md`'s "Web" section.
+- ~~Supabase Site URL conflict~~ — resolved 2026-08-19: Caelan set Site URL to `https://cafequiet.com` (confirmed saved after a page reload); `https://app.cafequiet.com` stays as an explicit Redirect URL alongside the `quietrestaurantfinder://login-callback` scheme. No real conflict — Site URL is the fallback/email-template variable, Redirect URLs is the separate explicit allow-list, so both domains do their own job.
 - **Store links are placeholders** — `lib/utils/store_links.dart` has `idTODO`/`id=TODO` App Store/Play Store URLs. Replace once the app is actually published; not something to chase speculatively.
 - **`feature/web-support` not yet pushed or PR'd** — same GitHub App repo-access issue as prior sessions (still 404 on this repo via the GitHub connector as of this session). Push happens this session regardless, per the established branch-first pattern; opening the PR is blocked the same way `docs/session-mistakes-and-updates` was.
 - ~~Decide what to do about Popular Times~~ — decided 2026-08-15: dropped for v1, code kept dormant.

@@ -3,7 +3,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
 
 import { optionalEnv } from './env.js'; // loads data-pipeline/.env as a side effect — see env.js
-import { searchRestaurants } from './places.js';
+import { searchRestaurants, createRequestBudget } from './places.js';
+import { SEARCH_AREAS } from './searchAreas.js';
 import { mineNoiseMentions } from './reviewMining.js';
 import { getDbPool, fetchMicReadingsByPlace, upsertScoredRestaurants } from './supabase.js';
 import {
@@ -62,6 +63,32 @@ export function computeScoredRestaurants(restaurants) {
   });
 }
 
+/**
+ * Runs searchRestaurants once per configured area and dedupes by placeId —
+ * the same restaurant can legitimately turn up under more than one area
+ * query (e.g. a venue near a suburb boundary), and Text Search itself can
+ * return overlapping results across nearby queries. `requestBudget` caps
+ * total billed requests across the *entire* run (all areas combined), not
+ * per area — once spent, remaining areas are skipped rather than each
+ * getting its own allowance.
+ */
+async function searchAllAreas({ requestBudget, ...config }) {
+  const byPlaceId = new Map();
+  const budget = createRequestBudget(requestBudget ?? Infinity);
+  for (const [i, query] of SEARCH_AREAS.entries()) {
+    if (budget.remaining <= 0) {
+      console.log(`Request budget spent — stopping after ${i}/${SEARCH_AREAS.length} areas.`);
+      break;
+    }
+    console.log(`[${i + 1}/${SEARCH_AREAS.length}] ${query} (${budget.remaining} requests left)`);
+    const results = await searchRestaurants(query, { ...config, budget });
+    for (const r of results) {
+      if (r.placeId) byPlaceId.set(r.placeId, r);
+    }
+  }
+  return [...byPlaceId.values()];
+}
+
 async function loadSampleInput() {
   const raw = await readFile(path.join(__dirname, '..', 'data', 'sample-input.json'), 'utf-8');
   return JSON.parse(raw);
@@ -82,8 +109,16 @@ async function main() {
   let restaurants;
 
   if (hasPlacesProxy) {
-    console.log('places-search config found — fetching live restaurant data for Sydney NSW.');
-    restaurants = await searchRestaurants('restaurants in Sydney NSW', { supabaseUrl, supabaseAnonKey, pipelineSharedSecret });
+    console.log(
+      `places-search config found — fetching live restaurant data across ${SEARCH_AREAS.length} areas ` +
+        '(Greater Sydney, Newcastle, Dubbo, Moss Vale, Kiama/Illawarra).'
+    );
+    restaurants = await searchAllAreas({
+      supabaseUrl,
+      supabaseAnonKey,
+      pipelineSharedSecret,
+      requestBudget: Number(optionalEnv('PIPELINE_REQUEST_BUDGET')) || 200,
+    });
 
     // Popular Times (via Outscraper) is not called here — dropped as a
     // signal on 2026-08-15 after confirming 0/100 Sydney restaurants had
