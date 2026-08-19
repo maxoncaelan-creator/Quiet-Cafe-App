@@ -2203,8 +2203,39 @@ everything else this session; specifically worth Caelan re-testing a
 sign-in *retry* (cancel once, try again) now that this is deployed, since
 that's the exact scenario that was broken.
 
+## Session — 2026-08-19 (continued again): Google sign-in — second real bug, "Null check operator used on a null value"
+
+Caelan retried Google sign-in after the previous fix — no more "already
+called," but a new failure: `Null check operator used on a null value`.
+
+Traced to the actual source rather than guessed: `google_sign_in_web`
+1.1.3's `gis_client.dart` has exactly one `!` in the whole file —
+`Duration(seconds: response.expires_in!)` inside the token-client
+response handler used by `authorizationForScopes`/`authorizeScopes`
+(requesting the Google *access* token, a separate step from `authenticate()`'s
+ID token). If Google's token response ever omits `expires_in`, that line
+throws this exact error — a real bug in the package itself, not something
+fixable in this codebase.
+
+**But this app doesn't need that access token at all.** Checked before
+changing anything: `GoTrueClient.signInWithIdToken` takes `accessToken` as
+an optional, nullable parameter — only `idToken` is required — and a grep
+across the whole app confirms nothing outside `oauth_service.dart` ever
+reads the Google access token. So rather than working around the upstream
+bug directly, made the access-token request non-fatal: wrapped in
+try/catch, falls back to `accessToken: null` on any failure (this bug or
+otherwise). Sign-in now only actually depends on the ID token, which is
+all Supabase ever needed from this flow.
+
+Logged as mistake `google-signin-blocked-on-optional-access-token`.
+
+**Verification**: `flutter analyze` — 0 issues. `flutter test` — passing.
+`flutter build web --release` with the real `GOOGLE_WEB_CLIENT_ID` —
+succeeded. **Not click-tested live** — same sandbox limitation as
+everything else this session.
+
 ## Open items carried into further build work
-- **Google sign-in retry not click-tested live** — added 2026-08-19. The fix is verified by reading the package's documented contract and a clean build, but the actual failure mode (tap, cancel or fail, tap again) hasn't been re-tried live yet.
+- **Google sign-in not click-tested live after either fix** — added 2026-08-19. Both the re-initialization fix and the access-token-made-optional fix are verified by reading source/docs and clean builds, but neither has been re-tried in an actual browser yet. Worth a full pass: fresh sign-in, a retry after cancelling, and confirming a session actually gets established even when the access-token step fails.
 - **Mic calibration not click-tested live** — added 2026-08-19. Same root cause as the item below. Specifically worth checking once deployed: does the screen actually trigger on a fresh sign-in and on an already-signed-in cold launch, does skipping correctly leave it due next time, and does a submitted calibration actually shift a subsequent reading's effective score.
 - **This session's UI/backend changes not click-tested live** — added 2026-08-19. Loudness vote buttons (does a real submission actually land in `loudness_votes`?), web mic capture (does a real browser's permission prompt and decibel numbers look sane?), and the filter drawer redesign all need a pass in a real browser once deployed — same root cause as every "not visually confirmed" item this session (sandboxed browser can't composite Flutter web's canvas).
 - **"Get the app" banner's copy is now partly stale** — added 2026-08-19. `download_app_banner.dart`/`get_app_prompt.dart` exist partly because mic reading was native-only; that's no longer true. Not changed — the banner may still earn its place for other reasons (notifications, general engagement), so this is Caelan's call, not assumed.

@@ -143,3 +143,12 @@ OAuthService.signInWithGoogle() called GoogleSignIn.instance.initialize() fresh 
 **Standard:** A third-party SDK's own documented lifecycle contract (init-exactly-once, singleton clients, etc.) has to be honored structurally (memoized/guarded), not just called correctly once and hoped to only run once.
 **Fix:** Memoized the initialize() call behind a cached Future (_googleInitialization), not just a bool guard, so concurrent calls before the first resolves also share the one real initialize() rather than racing. Also clears the memoized future on failure so a transient error doesn't permanently brick Google sign-in for the rest of the session.
 
+## google-signin-blocked-on-optional-access-token
+
+signInWithGoogle() let a failure requesting the Google access token (authorizationForScopes/authorizeScopes) abort the entire sign-in, even though Supabase's signInWithIdToken only requires the ID token (accessToken is nullable) and nothing else in the app uses the access token. Surfaced live as 'Null check operator used on a null value' - traced to a real bug in google_sign_in_web 1.1.3 itself (gis_client.dart's token-client response handler does response.expires_in! with no null guard), not app code, but the app's own code is what let that upstream failure block sign-in entirely.
+
+### 2026-08-19 | 03_build | caught: user
+signInWithGoogle() let a failure requesting the Google access token (authorizationForScopes/authorizeScopes) abort the entire sign-in, even though Supabase's signInWithIdToken only requires the ID token (accessToken is nullable) and nothing else in the app uses the access token. Surfaced live as 'Null check operator used on a null value' - traced to a real bug in google_sign_in_web 1.1.3 itself (gis_client.dart's token-client response handler does response.expires_in! with no null guard), not app code, but the app's own code is what let that upstream failure block sign-in entirely.
+**Standard:** When a third-party call is fetching data this app doesn't strictly need for the operation to succeed, a failure in that call shouldn't be allowed to fail the whole operation - especially when the dependency (here: an unpatchable upstream package bug) is outside this codebase's control.
+**Fix:** Wrapped the authorizationForScopes/authorizeScopes call in try/catch, falling back to accessToken: null on any failure. Verified nothing else in the app reads the Google access token before making this change.
+

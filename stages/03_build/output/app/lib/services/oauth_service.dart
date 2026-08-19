@@ -84,11 +84,29 @@ class OAuthService {
 
     final googleUser = await googleSignIn.authenticate();
     const scopes = ['email', 'profile'];
-    // authorizationForScopes returns null if the user hasn't already
-    // granted these scopes (e.g. first sign-in) — falls back to
-    // authorizeScopes, which prompts for consent.
-    final authorization = await googleUser.authorizationClient.authorizationForScopes(scopes) ??
-        await googleUser.authorizationClient.authorizeScopes(scopes);
+    // Best-effort only — Supabase's signInWithIdToken doesn't require an
+    // access token (accessToken is nullable there), and nothing else in
+    // this app uses the Google access token, so a failure requesting it
+    // shouldn't fail the sign-in itself. Found live 2026-08-19 (Caelan):
+    // google_sign_in_web 1.1.3 has a real bug here — its token-client
+    // response handler does `response.expires_in!` with no null check
+    // (gis_client.dart), which throws "Null check operator used on a null
+    // value" whenever Google's token response omits expires_in. Can't fix
+    // the package itself, so this catches it (and anything else that can
+    // go wrong in this step) and falls back to accessToken: null rather
+    // than blocking sign-in on a token this app doesn't actually use.
+    String? accessToken;
+    try {
+      // authorizationForScopes returns null if the user hasn't already
+      // granted these scopes (e.g. first sign-in) — falls back to
+      // authorizeScopes, which prompts for consent.
+      final authorization = await googleUser.authorizationClient.authorizationForScopes(scopes) ??
+          await googleUser.authorizationClient.authorizeScopes(scopes);
+      accessToken = authorization.accessToken;
+    } catch (_) {
+      // Swallowed deliberately — see comment above. The ID token alone is
+      // enough for signInWithIdToken to establish a real session.
+    }
     final idToken = googleUser.authentication.idToken;
 
     if (idToken == null) {
@@ -98,7 +116,7 @@ class OAuthService {
     await _client.auth.signInWithIdToken(
       provider: OAuthProvider.google,
       idToken: idToken,
-      accessToken: authorization.accessToken,
+      accessToken: accessToken,
     );
   }
 
