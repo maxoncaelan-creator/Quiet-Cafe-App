@@ -1,10 +1,12 @@
 # Quiet Restaurant Finder
 
-A Flutter app (iOS/Android/Web) that ranks Sydney restaurants by how quiet
-they are, combining review-text mining with first-party decibel readings
-crowdsourced from users' phones. The mic-reading feature is mobile-only —
-see `PLATFORM_SETUP.md`'s "Web" section for what's different on the web
-build.
+A Flutter app (iOS/Android/Web) that ranks restaurants across Greater
+Sydney — plus Newcastle, Dubbo, Moss Vale, and the Illawarra down to Kiama
+— by how quiet they are, combining review-text mining with first-party
+decibel readings crowdsourced from users' phones. Mic capture works on
+all three platforms: web uses a from-scratch Web Audio API implementation
+(`lib/services/mic_service_web.dart`), not a plugin — see
+`PLATFORM_SETUP.md`'s "Web" section for the details.
 
 The full history of *why* this app is built the way it is — research,
 ranking design, and a running build log of every session's work — lives in
@@ -29,23 +31,33 @@ it. If you're picking this project back up, start with the workspace's
 
 ## Features
 
-- Ranked list of Sydney restaurants by quietness, with cuisine/suburb/price
-  filters and voice search
+- Ranked list of restaurants by quietness, with a popout filter panel
+  (suburb, cuisine, loudness tier, minimum rating), sort options (quietest/
+  loudest first, rating highest/lowest), and voice search. The loudness
+  indicator is a single colored box around the category word (calmest teal
+  for Silent, angriest red for Earsplitting), not a numeric score.
 - Restaurant detail view with a confidence indicator; in-app microphone
   reading (rate-limited to one submission per 30 seconds per account) and
   a lightweight Quiet/Normal/Loud vote, both signed-in only and both
   feeding the same quietness score — a mic reading from the same account
   within 5 minutes of a vote takes precedence for scoring
+- Mic calibration: every signed-in user is walked through a "say
+  something" screen once on first sign-in and again roughly every 3
+  months, comparing their voice against the ~60 dBA human-speech
+  reference to correct that account's future ambient readings for their
+  specific device/browser's mic characteristics
 - GPS-based venue guess on the Search Assistant screen ("Are you at X?"),
   signed-in only, with a 30-minute cooldown after declining
 - Favorites (sign-in required)
 - Search Assistant — a Claude-powered chat for finding a restaurant that
   matches what you're after, gated to signed-in accounts with a
   10,000-token/5-hour budget per account
-- Account management: email/password or Google/Apple/Facebook sign-in,
-  password reset and change (both re-verified, not just accepted; hidden
-  entirely for Google-only accounts), account screen with your own reading
-  history
+- Account management: email/password or Google/Apple/Facebook sign-in
+  (Google renders its own button on web — a custom one can't drive
+  Google's web sign-in flow — and the existing custom button on
+  iOS/Android), password reset and change (both re-verified, not just
+  accepted; hidden entirely for Google-only accounts), account screen
+  with your own reading history
 
 ## Running it
 

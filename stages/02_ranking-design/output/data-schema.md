@@ -58,7 +58,7 @@ Individual readings, stored separately (one-to-many with the restaurant record) 
 | `place_id` | string | Foreign key to restaurant record |
 | `user_id` | uuid, not null | Real Supabase Auth account (decided 2026-08-15). References `auth.users`, defaults to `auth.uid()`, and RLS requires it match the submitter's own session — a client cannot submit under someone else's identity. A user can read back their own readings, not anyone else's. |
 | `decibel_value` | float | From native metering API, not stored audio |
-| `platform` | enum: `ios` \| `android` | Drives confidence weighting per [[quiet-restaurant-finder/stages/02_ranking-design/output/ranking-spec|ranking spec]] |
+| `platform` | enum: `ios` \| `android` \| `web` | Drives confidence weighting per [[quiet-restaurant-finder/stages/02_ranking-design/output/ranking-spec|ranking spec]]. `web` added 2026-08-19 (`0009_mic_readings_allow_web.sql`) once real Web Audio API capture existed — previously the CHECK constraint only allowed `ios`/`android`. |
 | `device_model` | string, nullable | For future per-device calibration work |
 | `recorded_at` | timestamp | |
 | `day_of_week` | derived | For time-of-day filtering |
@@ -108,6 +108,30 @@ Aggregated onto the restaurant record, mirroring the microphone signal's shape:
 | `vote_count` | integer | Count of votes actually counted toward scoring this run (post-precedence-rule), not the raw total in `loudness_votes` |
 | `vote_subscore` | float 0–100, nullable | Null if zero countable votes |
 | `vote_signal_updated_at` | timestamp | |
+
+## Mic calibration
+
+Added 2026-08-19, per Caelan —
+`stages/03_build/output/supabase/migrations/0010_mic_calibrations.sql`.
+One row per calibration attempt (not one per user — a user can
+recalibrate, and the pipeline only ever uses their most recent one), same
+account gate as `mic_readings`:
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | uuid | Primary key |
+| `user_id` | uuid, not null | Real Supabase Auth account — same gate as `mic_readings.user_id`. Not tied to any one restaurant; a calibration corrects that user's readings everywhere. |
+| `decibel_value` | float | The user's own recorded speaking volume, compared against the ~60 dBA human-voice reference (`HUMAN_VOICE_REFERENCE_DBA` in `scoring.js`) to derive their personal offset |
+| `platform` | enum: `ios` \| `android` \| `web` | Recorded for completeness; the correction itself doesn't currently distinguish by platform |
+| `recorded_at` | timestamp | Server-set (`now()`) |
+
+Not aggregated onto the restaurant record — unlike mic readings and
+loudness votes, a calibration isn't a per-venue signal. The pipeline reads
+every user's most recent calibration once per run
+(`fetchLatestCalibrationByUser` in `supabase.js`) and applies the
+resulting offset to that user's `mic_readings` rows before scoring — see
+[[quiet-restaurant-finder/stages/02_ranking-design/output/ranking-spec|ranking spec]]
+"Per-user mic calibration."
 
 ## Favorites
 

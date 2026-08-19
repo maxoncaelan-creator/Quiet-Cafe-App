@@ -66,6 +66,19 @@ quiet-restaurant-finder/
   feature branch and open a pull request for Caelan to review and merge (or
   merge only when he explicitly asks). See `_config/decisions.md`'s "Git
   workflow" — this followed an accidental direct push.
+- **A platform-specific SDK integration isn't done until it's been exercised
+  live on every platform it claims to support.** `flutter analyze` and a
+  successful build confirm the code is well-typed, not that a third-party
+  SDK's actual runtime contract is satisfied on that platform. Google
+  sign-in needed four independent live-caught fixes in one session
+  (2026-08-19) — re-initialization, an unguarded null-check in an optional
+  step, the wrong init parameter specifically on web, and finally
+  discovering the whole custom-button approach is unsupported on web by
+  design — because it was built and verified on Android only, then assumed
+  to "just work" once web shipped. See `MISTAKES.md`'s four `google-signin-*`
+  entries. When a real click-test isn't possible in the current session
+  (e.g. this sandbox can't render Flutter web), say so explicitly rather
+  than treating a clean build as equivalent proof.
 
 ## Standards and mistakes
 
