@@ -30,7 +30,7 @@ import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 import '../services/oauth_service.dart';
 import '../widgets/centered_scroll_form.dart';
 import '../widgets/email_option_button.dart';
-import '../widgets/google_sign_in_button.dart';
+import '../widgets/google_auth_button.dart';
 
 class AuthScreen extends StatefulWidget {
   const AuthScreen({super.key});
@@ -91,10 +91,13 @@ class _AuthScreenState extends State<AuthScreen> {
         child: CenteredScrollForm(
           children: [
               if (OAuthService.googleConfigured) ...[
-                GoogleSignInButton(
+                GoogleAuthButton(
                   label: 'Sign in with Google',
-                  onPressed:
-                      _submitting ? null : () => _runOAuth(OAuthService.signInWithGoogle, popOnSuccess: true),
+                  submitting: _submitting,
+                  onSignedIn: () {
+                    if (mounted) context.pop(true);
+                  },
+                  onError: (e) => setState(() => _error = 'Sign-in failed: $e'),
                 ),
                 const SizedBox(height: 12),
               ],

@@ -2274,8 +2274,63 @@ everything else this session; this is now the fourth Google-sign-in fix
 in a row without a real click-test, so a real pass once deployed matters
 more than usual here.
 
+## Session — 2026-08-19 (continued again): Google sign-in on web needed a genuinely different button, not another bug fix
+
+The clientId/serverClientId fix deployed and produced a new, self-
+explanatory error: `UnimplementedError: authenticate is not supported on
+the web. Instead, use renderButton to create a sign-in widget.` This
+wasn't a fourth bug in the same shape as the first three — it's
+`google_sign_in_web`'s intentional, documented design: Google's GIS SDK
+only allows *its own* rendered button to start a web sign-in; a custom
+button imperatively calling `authenticate()` is unsupported outright
+there, confirmed against the package's own README ("This implementation
+returns false for `supportsAuthentication`, and will throw if
+`authenticate` is called... you should display the Widget returned by
+`renderButton`... and listen to `authenticationEvents`").
+
+So the previous three fixes were all real and necessary (initialize()
+still needs to happen once, the access-token step is still best-effort,
+`clientId` still needs to be the right parameter on web) — they just
+weren't sufficient, because the fundamental *shape* of the web sign-in
+flow needed to be different from mobile's the whole time. `OAuthService`
+was built mobile-first back on 2026-08-18 and never actually re-verified
+once web became a real platform; logged as its own mistake class,
+`google-signin-never-verified-on-web`, distinct from the three bug-fix
+classes already logged today.
+
+**Fixed properly this time, not patched around**: new
+`widgets/google_auth_button.dart`, a `dart.library.html`-conditional
+export (same pattern as `mic_service.dart` earlier this session) between
+`google_auth_button_io.dart` (mobile — unchanged custom pill button +
+`authenticate()`) and `google_auth_button_web.dart` (web — renders
+Google's own button via `renderButton()`, completes sign-in from a
+`GoogleSignInAuthenticationEventSignIn` on
+`OAuthService.googleAuthenticationEvents` instead of an awaited call).
+Both platforms now share the actual Supabase-completion logic (ID token,
+best-effort access token) via a new `OAuthService.completeGoogleSignIn()`,
+extracted out of `signInWithGoogle()` rather than duplicated.
+`auth_screen.dart`/`create_account_screen.dart` both moved from
+`GoogleSignInButton` + `_runOAuth` to the new unified `GoogleAuthButton`
+(`onSignedIn`/`onError` callbacks instead of an awaited `Future`, since
+web has no such thing to await). `google_sign_in_web` added as an
+explicit `pubspec.yaml` dependency (was transitive-only) since
+`google_auth_button_web.dart` imports its `web_only.dart` directly, per
+that package's own README.
+
+**Verification**: `flutter analyze` — 0 issues (type-checks both
+conditional branches). `flutter test` — passing. `flutter build web
+--release` with the real `GOOGLE_WEB_CLIENT_ID` — succeeded, the real test
+here since it's what proves `renderButton()`/`web_only.dart` actually
+compiles for a genuine web target, not just resolves statically. **Not
+click-tested live** — same sandbox limitation as everything else this
+session; this is the fourth Google-sign-in change in a row without a real
+browser pass, so that matters more than usual here. Specifically worth
+checking once deployed: does Google's own rendered button actually show
+up where the custom pill used to be, and does tapping it complete a real
+session.
+
 ## Open items carried into further build work
-- **Google sign-in not click-tested live after any of the three fixes** — added 2026-08-19. Re-initialization, access-token-made-optional, and the clientId/serverClientId platform split are each independently verified by reading source/docs and clean builds, but none has been re-tried in an actual browser. Worth a full pass once deployed: fresh sign-in on web, a retry after cancelling, and confirming a session actually gets established.
+- **Google sign-in on web not click-tested live** — added 2026-08-19. The button is now structurally different (Google's own widget, not a custom one), which itself needs a first real look, on top of confirming the sign-in flow actually completes and establishes a session.
 - **Mic calibration not click-tested live** — added 2026-08-19. Same root cause as the item below. Specifically worth checking once deployed: does the screen actually trigger on a fresh sign-in and on an already-signed-in cold launch, does skipping correctly leave it due next time, and does a submitted calibration actually shift a subsequent reading's effective score.
 - **This session's UI/backend changes not click-tested live** — added 2026-08-19. Loudness vote buttons (does a real submission actually land in `loudness_votes`?), web mic capture (does a real browser's permission prompt and decibel numbers look sane?), and the filter drawer redesign all need a pass in a real browser once deployed — same root cause as every "not visually confirmed" item this session (sandboxed browser can't composite Flutter web's canvas).
 - **"Get the app" banner's copy is now partly stale** — added 2026-08-19. `download_app_banner.dart`/`get_app_prompt.dart` exist partly because mic reading was native-only; that's no longer true. Not changed — the banner may still earn its place for other reasons (notifications, general engagement), so this is Caelan's call, not assumed.
