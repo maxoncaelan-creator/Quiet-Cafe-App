@@ -1788,10 +1788,45 @@ suburb-level coverage; treat gaps found in testing as expected, not bugs.
 Work is on `feature/greater-nsw-scope-and-cuisine-display`, branched from
 `docs/web-deploy-live` (which itself picked up one more commit this session
 closing out the Site URL item, and is still not yet PR'd/merged — see its
-open item above). Not yet pushed or PR'd.
+open item above). Pushed; not yet PR'd/merged.
+
+## Session — 2026-08-19 (continued again): live pipeline run — real bug found (Edge Function never deployed), fixed, awaiting a clean re-run
+
+Caelan approved the live run, capped at 200 total Places requests (added
+`createRequestBudget()` in `places.js` — a shared counter across all areas,
+not per-area, so the cap is a real hard ceiling regardless of how many
+areas/pages that spans). Ran `npm start` in `data-pipeline/`.
+
+**It ran clean (exit 0) but produced the wrong result.** 1,221 restaurants
+were written and upserted to Supabase, but **0 of them had a `suburb`** —
+the exact bug this session was supposed to fix. Root cause, found by
+comparing the live Edge Function's deployed code
+(`get_edge_function` via the Supabase MCP tool) against the local source:
+**the `addressComponents`/pagination change to
+`supabase/functions/places-search/index.ts` was only ever edited locally,
+never actually deployed.** The live function Google was hit through was
+still the pre-session version — no `addressComponents` in the field mask
+(nothing to extract a suburb from) and no `nextPageToken` in its response
+(so `places.js`'s new pagination loop always saw `undefined` and stopped
+after page 1 every time, regardless of the `maxPages`/budget logic being
+correct). That's also why only 63 of the 200-request budget got used — one
+request per area, no pagination ever engaged. Logged as mistake
+`edge-function-not-deployed` in `MISTAKES.md`.
+
+The ~63 real Places API requests this run made were still billed for real
+— not recoverable, but small (well under the ~$7-8 worst-case estimate
+given to Caelan beforehand, likely closer to $2-3 for 63 single-page
+requests).
+
+**Fixed**: deployed the corrected function via the Supabase MCP
+`deploy_edge_function` tool (now version 5) — confirmed the field mask
+includes `addressComponents` and the response includes `nextPageToken`.
+Not yet re-run against the live API — holding for Caelan given this is a
+second real-money request against his billing, caused by this session's
+own deployment miss rather than something new he asked for.
 
 ## Open items carried into further build work
-- **Live pipeline run against the expanded area list, not done** — added 2026-08-19. `data-pipeline/src/searchAreas.js` and the pagination/dedupe wiring are code-complete and unit-tested, but never run against the real Google Places API — that's a real-money action against Caelan's billing, left for Caelan to run or explicitly greenlight. Once run, re-check the suburb filter and cuisine dropdown live with real data (this session's fixes are code-correct but visually unverified for the same reason the web UI pass below is).
+- **Pipeline needs a clean re-run now that the Edge Function fix is actually deployed** — added 2026-08-19. `data/restaurants.json` and the live `restaurants` table currently hold 1,221 real rows from the flawed run (no suburb data, single page per area only) — stale/incomplete, not wrong in a way that breaks the app, but the suburb filter and true area coverage won't be right until this re-runs. Caelan's call on when/whether to spend the next ~$2-8 to redo it.
 - **App branding still says "Sydney" only** — added 2026-08-19. AppBar title (`home_screen.dart`) and README/store copy weren't touched when scope expanded to Greater NSW; Caelan's call on whether/how to rename.
 - **Search area list is a curated regional spread, not exhaustive** — added 2026-08-19. 63 queries across Greater Sydney/Newcastle/Dubbo/Moss Vale/Kiama; extend `searchAreas.js` (or swap in a real suburb dataset) if live testing finds a gap.
 - **Web UI's actual rendered layout still not visually confirmed** — the live `.pages.dev` boot/routing check above confirms the app *works*, but didn't specifically re-check the rail/drawer swap at different widths, the download banner, or the max-width constraints now that a real browser is available. Worth a specific pass, not just "does it load."
