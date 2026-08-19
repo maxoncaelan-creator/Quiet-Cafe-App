@@ -1,11 +1,10 @@
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../models/restaurant.dart';
 import '../services/supabase_service.dart';
 import '../widgets/confidence_indicator.dart';
-import '../widgets/get_app_prompt.dart';
+import '../widgets/loudness_vote_buttons.dart';
 import '../widgets/max_width_content.dart';
 import '../widgets/noise_level_bar.dart';
 
@@ -79,6 +78,15 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
     context.push('/restaurant/${restaurant.placeId}/reading', extra: restaurant.name);
   }
 
+  /// Same point-of-need sign-in prompt as _startReading/favoriting, factored
+  /// out so LoudnessVoteButtons (which doesn't know about this screen's
+  /// SupabaseService instance) can reuse it.
+  Future<bool> _ensureSignedIn(BuildContext context) async {
+    if (_supabaseService.isSignedIn) return true;
+    final signedIn = await context.push<bool>('/sign-in');
+    return signedIn == true;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -103,39 +111,13 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
           const SizedBox(height: 16),
           _ScoreHeader(restaurant: restaurant),
           const SizedBox(height: 24),
-          const Text('Score breakdown', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-          const SizedBox(height: 8),
-          _SignalRow(
-            label: 'Microphone readings',
-            subscore: restaurant.mic.subscore,
-            detail: '${restaurant.mic.totalReadings} reading(s) '
-                '(${restaurant.mic.readingCountIos} iOS, ${restaurant.mic.readingCountAndroid} Android)',
-          ),
-          _SignalRow(
-            label: 'Review mentions',
-            subscore: restaurant.review.subscore,
-            detail: restaurant.review.subscore == null
-                ? 'Not enough review mentions yet'
-                : null,
-          ),
-          _SignalRow(
-            label: 'Popular times',
-            subscore: restaurant.popular.subscore,
-            detail: restaurant.popular.subscore == null ? 'No busyness data yet' : null,
-          ),
+          LoudnessVoteButtons(placeId: restaurant.placeId, ensureSignedIn: _ensureSignedIn),
           const SizedBox(height: 32),
-          if (kIsWeb)
-            OutlinedButton.icon(
-              icon: const Icon(Icons.mic_off_outlined),
-              label: const Text('Take a reading in the app'),
-              onPressed: () => showGetAppPrompt(context),
-            )
-          else
-            FilledButton.icon(
-              icon: const Icon(Icons.mic),
-              label: const Text('Take a reading here'),
-              onPressed: () => _startReading(context),
-            ),
+          FilledButton.icon(
+            icon: const Icon(Icons.mic),
+            label: const Text('Take a reading here'),
+            onPressed: () => _startReading(context),
+          ),
         ],
         ),
       ),
@@ -165,33 +147,3 @@ class _ScoreHeader extends StatelessWidget {
   }
 }
 
-class _SignalRow extends StatelessWidget {
-  final String label;
-  final num? subscore;
-  final String? detail;
-
-  const _SignalRow({required this.label, required this.subscore, this.detail});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(label),
-                if (detail != null)
-                  Text(detail!, style: Theme.of(context).textTheme.bodySmall),
-              ],
-            ),
-          ),
-          Text(subscore == null ? '—' : subscore!.round().toString()),
-        ],
-      ),
-    );
-  }
-}

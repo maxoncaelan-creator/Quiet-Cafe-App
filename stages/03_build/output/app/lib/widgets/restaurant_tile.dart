@@ -7,7 +7,6 @@ import 'package:go_router/go_router.dart';
 
 import '../models/restaurant.dart';
 import '../utils/text_format.dart';
-import 'confidence_indicator.dart';
 import 'noise_level_bar.dart';
 
 class RestaurantTile extends StatelessWidget {
@@ -66,16 +65,7 @@ class RestaurantTile extends StatelessWidget {
                 ],
               ),
             ),
-            Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                NoiseLevelBar(quietnessScore: restaurant.quietnessScore, compact: true),
-                if (restaurant.confidence != null) ...[
-                  const SizedBox(height: 4),
-                  ConfidenceIndicator(confidence: restaurant.confidence, showLabel: false, dotSize: 4),
-                ],
-              ],
-            ),
+            NoiseLevelBar(quietnessScore: restaurant.quietnessScore, compact: true),
             IconButton(
               icon: Icon(
                 isFavorite ? Icons.star_rounded : Icons.star_border_rounded,
