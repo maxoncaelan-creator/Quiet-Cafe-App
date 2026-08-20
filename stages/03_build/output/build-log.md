@@ -2613,13 +2613,112 @@ Branch: created `fix/desktop-nav-account-and-venue-coverage` off
 moved the changes off it rather than committing there). Pushed, PR open —
 same branch-then-PR rule as the rest of this repo, not merged.
 
+## Session — 2026-08-20 (continued again): closed-beta referral gate built and live-tested
+
+Built the referral gate that's been an open item since 2026-08-19. Caelan's
+design: one code per approved requester, single-use, expires after a year
+unused, hard-blocks the app with a message on any bad code, and dedupes
+repeat requests from the same email. The first version of the design
+proposed had the developer's approval done by replying to an email that an
+agent (Haiku) would read out of his real inbox; pushed back on that before
+building anything — it needed standing OAuth access to a personal inbox for
+no real gain, and a plain "click to approve" link would reproduce this
+project's own `otp_expired` mistake (a mail security scanner pre-fetching a
+GET link and silently doing the thing the link was for). Caelan agreed to
+the simpler equivalent below instead.
+
+**`early_access_signups` (0011) was never actually applied to the live
+project** — checked via `list_migrations` before writing anything, since an
+open item already flagged this table as untested; it simply didn't exist
+yet. `0012_beta_access_gate.sql` creates it itself rather than assuming, then
+extends it with `status`/`approval_token`/`approved_at` (it already *is* the
+beta-request record — one row per person asking to get in — so extended
+rather than adding a parallel table) and drops its old anon-insert policy,
+since writes now go through an Edge Function. Also adds `beta_codes` (one
+code per email, unique; `expires_at` defaults to `now() + interval '1
+year'`) with **no RLS policies granted to anyone** — every read/write goes
+through `redeem_beta_code()`, a `security definer` RPC, or the Edge
+Functions below, both service-role.
+
+**Two new Edge Functions:**
+- `beta-signup` (`verify_jwt: true`, called by the marketing site's existing
+  signup form) — looks up the email, sends Caelan a review-link email via
+  Resend if it's new, returns `submitted`/`duplicate`/`invalid`. Dedupe's
+  real guarantee is the insert's `23505` catch (case-insensitive, race-safe
+  via the unique index on `lower(email)`), not the pre-check select, which
+  is just there to avoid re-sending Caelan a duplicate notification.
+- `beta-approve` (`verify_jwt: false` — it's opened straight from an email
+  client, no bearer token available) — `GET ?token=` renders a plain HTML
+  confirm page (nothing approved yet); only the page's own `POST` actually
+  generates the code (excludes visually ambiguous characters — no `0/O/1/I`),
+  writes `beta_codes`, flips `early_access_signups.status`, and emails the
+  code to the requester. This is the part built specifically to not repeat
+  the GET-link mistake — approval only ever happens on a real form
+  submission, never on the link being merely opened/fetched.
+
+**`redeem_beta_code(p_code, p_device_id)`**, the app-facing half — anon RPC,
+`security definer`, three-way result (`ok`/`invalid`/`expired`/
+`already_redeemed`) matching Caelan's "hard block with a message" call
+rather than one generic failure. Redeeming an already-redeemed code again
+from the *same* `p_device_id` returns `ok` (idempotent — a reinstall on the
+same phone shouldn't lock its own owner out); a *different* device gets
+`already_redeemed`. `p_device_id` is a random id generated once and kept in
+`shared_preferences` (`BetaGateService`), not a real hardware identifier —
+all this needs to do is tell "this same device again" apart from "a
+different device," which doesn't call for anything more invasive.
+
+**Flutter side**: `BetaGateScreen` is now the entire app for a
+not-yet-unlocked install — `main.dart` checks `BetaGateService.isUnlocked()`
+once at launch and, if not, renders a bare `MaterialApp` with the gate
+screen as `home`, no router, no drawer, nothing else reachable (matches
+Caelan's "should not reach the app at all," not just a screen gating one
+feature the way mic-reading/favorites/Search Assistant already do). Skipped
+entirely when Supabase isn't configured, so the no-backend standalone/demo
+build (`PLATFORM_SETUP.md`) still runs without a code.
+
+**Live-tested end to end against the real project, not just deployed** —
+same standard as every other backend piece in this app. Using a disposable
+test address: submitted via `beta-signup` (row landed, `status: pending`),
+opened `beta-approve`'s `GET` (rendered the confirm page, nothing changed
+yet — confirmed via a fresh `select` that `status` was still `pending`),
+submitted its `POST` (code generated, `beta_codes` row landed, `status`
+flipped to `approved`), then exercised `redeem_beta_code` directly via
+`curl`: first redemption by a device → `ok`; same device again → `ok`
+(idempotent); a second, different device → `already_redeemed`; a bogus code
+→ `invalid`; a repeat `beta-signup` submission for the same email → `409
+duplicate`. Also confirmed the anon key gets back `[]` from both tables
+directly (`/rest/v1/beta_codes`, `/rest/v1/early_access_signups`) — the
+same "can't be scraped" check the 2026-08-19 open item asked for, which
+also closes that item out. All test rows deleted afterward; both tables
+confirmed back at 0 rows.
+
+**Not yet verified**: an actual email arriving in a real inbox. Both
+functions degrade to "logged, not sent" if `RESEND_API_KEY`/
+`DEVELOPER_EMAIL`/`MAIL_FROM` aren't set as Supabase Function Secrets — none
+of those were touched this session (dashboard-only, same pattern as every
+other secret here), and whether the Resend sending domain
+(`cafequiet.com`) has finished SPF/DKIM verification was last known
+incomplete (2026-08-18). Until both are confirmed, `beta-signup`/
+`beta-approve` will insert/generate correctly but the emails won't actually
+land anywhere. Also not yet click-tested on a real build/device — same
+standing limitation as the rest of this app; `flutter analyze` (0 issues)
+and `flutter test` (4/4 passed) are what's actually been run.
+
+`flutter analyze`: 0 issues. `flutter test`: 4/4 passed (unchanged tests,
+none of them exercise the new gate — it has no unit-testable logic of its
+own beyond what's already covered by the live RPC tests above).
+
+Branch: `feature/beta-referral-gate`, off `origin/main`.
+
 ## Open items carried into further build work
 - **Data pipeline needs a real re-run to pick up cafe/pub/bar coverage** — added 2026-08-20. `searchAreas.js` now queries restaurants, cafes, pubs and bars per area (see session above), but the live `restaurants` table still only reflects the old restaurants-only results until the pipeline is actually run again. Caelan's to run (needs `data-pipeline/.env` with the real Supabase credential, and spends real Google Places API budget). After running, specifically re-check Leaf Cafe & Co, Orange NSW — the reported missing case — and spot-check at least one known pub/bar per region now shows up.
-- **Marketing site signup never tested against a real Supabase** — added 2026-08-19. Apply `0011_early_access_signups.sql`, then submit a real address and confirm three things the fake host couldn't exercise: the row actually lands, a second submission of the same address returns the duplicate message rather than the generic one, and the anon key genuinely cannot read the table back (attempt a `select` with it and confirm it's refused — that's the check that the signup list isn't publicly scrapable).
+- ~~Marketing site signup never tested against a real Supabase~~ — resolved 2026-08-20 (referral-gate session): `early_access_signups` created live (0011 itself was never applied — folded into 0012 instead), and all three checks this item asked for came back clean: the row lands, a repeat submission returns `duplicate` rather than the generic error, and the anon key gets `[]` back from a direct `select` on both `early_access_signups` and the new `beta_codes`. Signup now posts to the `beta-signup` Edge Function rather than straight to PostgREST — see session above.
 - **Marketing site not deployed** — added 2026-08-19. Needs its own Cloudflare Pages project (settings in `marketing-site/README.md`), pointed at the apex `cafequiet.com` rather than `app.`. Caelan's, dashboard-only. Check the apex A/CNAME records while attaching it — this zone served a stale parking page from auto-imported records once already, 2026-08-19.
 - ~~Google sign-in on web: redirect_uri_mismatch~~ — resolved 2026-08-20: Caelan added the callback URL to Authorized redirect URIs and click-tested live end to end (real account picker, real sign-in, no errors). See session above.
 - **Claude-in-Chrome browser connector won't connect in this environment** — added 2026-08-19. Reports "turned off" regardless of the extension's own Enabled state in Chrome; tabs it creates resolve to `edge://newtab/`, suggesting it's attached to Edge rather than Chrome on this machine. Setting Chrome as the Windows default browser didn't fix it. Not investigated further this session since it wasn't blocking the actual app work — spawned as a separate background task. Would be genuinely useful once working: this agent could click-test Flutter web itself instead of every fix needing a round trip through Caelan's screenshots.
-- **Referral-code gate for the closed beta — not built, and marketing copy already assumes it.** Added 2026-08-19, handed over from the `quiet-restaurant-finder-marketing` workspace. Today the app gates *mic-reading submission* behind Supabase auth; nothing gates access to the app itself. The beta needs the other thing: someone without a valid referral code should not reach the app at all. This blocks the marketing site going live — its homepage copy says "Closed beta. You'll need a referral code to get in", which is currently untrue. Design questions are open and Caelan's: single-use or reusable codes, whether each beta user gets codes to hand out (that is what makes it a *referral* rather than an invite list), expiry, and what someone sees when they arrive with a bad code or none. The point of the gate is to keep the group small while real mic-reading data accumulates before full launch, so whatever gets built should make it easy to see how many codes are outstanding and how many were redeemed.
+- ~~Referral-code gate for the closed beta — not built, and marketing copy already assumes it.~~ — built and live-tested 2026-08-20, see session above (`feature/beta-referral-gate`, not yet merged). Design confirmed with Caelan: one code per person, single-use, expires after a year unused, hard block with a message on any bad code, dedupe repeat requests. Two things this item's own "make it easy to see how many codes are outstanding/redeemed" ask doesn't have yet, carried forward as their own items below: an actual email arriving in a real inbox (blocked on Resend secrets/domain verification, untouched this session), and any admin-facing view of `beta_codes` — right now that's a direct SQL query, nothing built for Caelan to check it without this agent or the Supabase dashboard.
+- **Referral-gate emails not yet confirmed delivered** — added 2026-08-20. `beta-signup`/`beta-approve` need `RESEND_API_KEY`, `DEVELOPER_EMAIL`, and `MAIL_FROM` (an address on `cafequiet.com`, Resend's verified sending domain) as Supabase Function Secrets — none were set this session (dashboard-only, never shared in chat, same pattern as every other secret here). Both functions degrade to "logged, not sent" if any are missing, so the insert/approve/code-generation logic was fully verified live but no actual email has been confirmed to land anywhere yet. Also depends on whether `cafequiet.com`'s Resend SPF/DKIM verification (open since 2026-08-18) has actually completed — check that before assuming the secrets alone are enough.
+- **Referral gate not click-tested on a real build/device** — added 2026-08-20, same standing limitation as everything else in this app: `flutter analyze`/`flutter test` are what ran, not a real install. Specifically worth checking once secrets are set: the gate actually blocks a fresh install, a real code redeems and unlocks it, re-entering the same code on the same device after that doesn't re-block it, and the standalone/no-Supabase demo build still skips the gate entirely.
 - ~~Marketing website doesn't exist~~ — built 2026-08-19, see the session above; still undeployed and untested against a real Supabase (both tracked as their own items above). **The rule it carried still stands: this workspace builds the site, `quiet-restaurant-finder-marketing` supplies what goes in it. Do not write the copy here.** Every headline, paragraph, button label and line of microcopy comes from the marketing workspace's output (`stages/05_finalize/output/final.md` once it exists; currently only `stages/03_draft/output/draft.md`). If a string is missing, ask for it rather than filling the gap — that workspace holds the positioning, the reading-level standard, and the constraints on what may be claimed about score accuracy. Same branch-and-PR rule as the rest of this repo.
 - ~~Google sign-in on web not click-tested end to end with the new signInWithOAuth flow~~ — superseded 2026-08-19: it was click-tested (see "redirect_uri_mismatch" session above), which is how that finding turned up.
 - ~~Google OAuth client missing the production origin~~ — resolved 2026-08-19: Caelan added both origins in Google Cloud Console; confirmed working past that step since the failure moved to the nonce handshake instead.

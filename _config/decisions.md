@@ -163,6 +163,23 @@ credentials/steps breakdown. Domain verification is required, not
 optional — Resend won't deliver to real recipients from an unverified
 domain.
 
+## Closed-beta referral gate
+
+**Decided and built with Caelan, 2026-08-20.** One referral code per
+approved requester, single-use, expiring a year after issuance if never
+redeemed. A requester submits the marketing site's existing "Request early
+access" form; Caelan gets one email with a review link (a real confirm page
+with a button, not a bare "click to approve" link — see build log
+"Referral-code gate" for why that distinction is load-bearing); approving
+generates the code and emails it to the requester. The app hard-blocks
+entry with a message on any invalid, expired, or already-used-elsewhere
+code; repeat requests from the same email dedupe rather than emailing
+Caelan twice. See
+[[quiet-restaurant-finder/stages/03_build/output/build-log|build log]]
+"closed-beta referral gate built and live-tested" for the full design and
+what's live-verified vs. still open (email delivery itself needs Resend
+secrets Caelan hasn't set yet; not click-tested on a real device).
+
 ## Account & Search Assistant access
 
 **Search Assistant requires sign-in**, decided with Caelan 2026-08-18 — same

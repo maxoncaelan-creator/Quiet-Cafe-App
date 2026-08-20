@@ -1,14 +1,17 @@
 // Early-access signup for the cafequiet marketing site.
 //
-// Posts straight to Supabase's REST endpoint rather than pulling in the
-// supabase-js bundle — one insert into one table doesn't justify the
-// dependency on a page whose whole point is loading fast for search.
+// Posts to the beta-signup Edge Function rather than straight to PostgREST
+// (still no supabase-js bundle — a plain fetch is enough either way). This
+// changed 2026-08-20 when the referral gate landed: a signup now has to
+// trigger a real side effect (emailing Caelan an approve link), and an API
+// key for that (Resend) can't live in client-side code the way the old
+// direct-insert approach worked for a plain table write. See
+// supabase/functions/beta-signup/index.ts and build-log.md
+// "Referral-code gate" for the full design.
 //
-// Security: the anon key is public by design and safe in the client. What
-// actually protects the signup list is RLS —
-// supabase/migrations/0011_early_access_signups.sql grants anon INSERT and
-// nothing else, so this key cannot read back a single address. Do not add a
-// select policy to that table without rethinking this.
+// Security: the anon key is public by design and safe in the client — the
+// function itself is what enforces dedupe and rate-shaping now, the same
+// role RLS played for the old direct insert.
 //
 // Every user-visible string here is owned by the quiet-restaurant-finder-
 // marketing workspace (stages/05_finalize/output/final.md, "Signup form").
@@ -36,7 +39,7 @@
 
   var config = window.CAFEQUIET_CONFIG || {};
   var endpoint = config.supabaseUrl
-    ? config.supabaseUrl.replace(/\/+$/, '') + '/rest/v1/early_access_signups'
+    ? config.supabaseUrl.replace(/\/+$/, '') + '/functions/v1/beta-signup'
     : null;
 
   function say(message, kind) {
@@ -84,30 +87,26 @@
       headers: {
         'Content-Type': 'application/json',
         'apikey': config.supabaseAnonKey,
-        'Authorization': 'Bearer ' + config.supabaseAnonKey,
-        'Prefer': 'return=minimal'
+        'Authorization': 'Bearer ' + config.supabaseAnonKey
       },
       body: JSON.stringify({ email: email })
     })
       .then(function (response) {
-        if (response.ok) {
-          form.hidden = true;
-          say(STRINGS.success, 'ok');
-          return;
-        }
-        // 23505 = unique_violation. The unique index on lower(email) is what
-        // makes "already on the list" distinguishable from a real failure.
-        if (response.status === 409) {
-          say(STRINGS.duplicate, 'err');
-          return;
-        }
-        return response.text().then(function (body) {
-          if (body && body.indexOf('23505') !== -1) {
-            say(STRINGS.duplicate, 'err');
-          } else {
-            say(STRINGS.generic, 'err');
-            if (window.console) console.error('cafequiet signup failed:', response.status, body);
+        return response.json().catch(function () { return {}; }).then(function (data) {
+          if (response.ok && data.status === 'submitted') {
+            form.hidden = true;
+            say(STRINGS.success, 'ok');
+            return;
           }
+          // The function returns this both when the email already requested
+          // access and when it was already approved — same user-facing
+          // message either way, per the existing copy.
+          if (response.status === 409 || data.status === 'duplicate') {
+            say(STRINGS.duplicate, 'err');
+            return;
+          }
+          say(STRINGS.generic, 'err');
+          if (window.console) console.error('cafequiet signup failed:', response.status, data);
         });
       })
       .catch(function (error) {
