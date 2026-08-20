@@ -176,3 +176,12 @@ signInWithGoogleOAuth() and signInWithFacebook() both left redirectTo unset/null
 **Standard:** A redirect target that varies by origin has to be computed from the live origin at call time, not delegated to a provider-wide fallback - and every origin it can resolve to has to be in the provider's redirect allow-list, since an unlisted value silently reverts to the same fallback.
 **Fix:** Added a _webRedirectTo getter (Uri.base.origin) passed as redirectTo on both providers, and documented in PLATFORM_SETUP.md that every serving origin must be registered in Supabase's Redirect URLs. Facebook carried the identical bug latently and was fixed in the same pass.
 
+## mistake-class-slug-too-granular
+
+Recorded near-duplicate mistake slugs describing one root cause, so no class reached a threshold and no guard was ever required.
+
+### 2026-08-20 | 03_build | caught: self
+The five Google-sign-in-on-web failures were filed under four separate slugs named after their symptoms (reinitialized-per-call, blocked-on-optional-access-token, wrong-param-for-web-client-id, never-verified-on-web). Each therefore sat at count 1, read as an isolated incident, and never approached the 5-occurrence threshold that forces a guard - so the system recorded every occurrence faithfully and still produced no rule, while the same root cause survived five consecutive fixes. Surfaced when Caelan asked why the defect kept recurring; the workspace showed 19 occurrences across 18 classes with zero guards, which is the signature of slugs used as incident descriptions rather than class identities.
+**Standard:** _system/mistakes.md: the slug is the identity of the mistake and the only thing counting works on - reuse an existing slug rather than inventing a near-duplicate, because two slugs for one class hide the pattern that would have shown as one.
+**Fix:** Merged the four into vendor-sdk-flow-wrong-for-platform, added the unrecorded fifth occurrence, which took the class to 5 and made a Guard line mandatory. Before opening a new class, check whether an existing one already names the same root cause rather than the symptom seen this time.
+
