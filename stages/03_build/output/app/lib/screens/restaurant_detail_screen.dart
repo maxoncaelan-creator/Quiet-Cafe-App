@@ -19,7 +19,14 @@ class RestaurantDetailScreen extends StatefulWidget {
 
 class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
   final _supabaseService = SupabaseService();
-  Restaurant get restaurant => widget.restaurant;
+
+  // Mutable (not just widget.restaurant) since 2026-08-20: a vote or mic
+  // reading submitted from this screen changes the venue's score
+  // server-side, and the screen needs to actually show that, not keep
+  // rendering the static object it was first built with. See
+  // _refreshRestaurant.
+  late Restaurant _restaurant = widget.restaurant;
+  Restaurant get restaurant => _restaurant;
 
   bool _isFavorite = false;
   bool _favoriteBusy = false;
@@ -28,6 +35,21 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
   void initState() {
     super.initState();
     _loadFavoriteStatus();
+  }
+
+  /// Re-fetches this restaurant and updates the displayed score/confidence.
+  /// Called after a vote (submitLoudnessVote already triggered the
+  /// server-side recompute by the time this runs) and after returning from
+  /// the mic-reading screen. Best-effort — a failure here just leaves the
+  /// screen showing what it already had, same as any other background
+  /// refresh in this app.
+  Future<void> _refreshRestaurant() async {
+    try {
+      final updated = await _supabaseService.fetchRestaurantByPlaceId(restaurant.placeId);
+      if (mounted) setState(() => _restaurant = updated);
+    } catch (_) {
+      // Non-fatal — see doc comment above.
+    }
   }
 
   Future<void> _loadFavoriteStatus() async {
@@ -75,7 +97,12 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
     }
 
     if (!context.mounted) return;
-    context.push('/restaurant/${restaurant.placeId}/reading', extra: restaurant.name);
+    // Awaited regardless of how the reading screen was left (submitted,
+    // backed out, or errored) — refreshing on a plain "did we come back" is
+    // simpler and just as correct as threading a result value through the
+    // push, since a refetch when nothing actually changed is harmless.
+    await context.push('/restaurant/${restaurant.placeId}/reading', extra: restaurant.name);
+    await _refreshRestaurant();
   }
 
   /// Same point-of-need sign-in prompt as _startReading/favoriting, factored
@@ -111,7 +138,11 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
           const SizedBox(height: 16),
           _ScoreHeader(restaurant: restaurant),
           const SizedBox(height: 24),
-          LoudnessVoteButtons(placeId: restaurant.placeId, ensureSignedIn: _ensureSignedIn),
+          LoudnessVoteButtons(
+            placeId: restaurant.placeId,
+            ensureSignedIn: _ensureSignedIn,
+            onVoted: _refreshRestaurant,
+          ),
           const SizedBox(height: 32),
           FilledButton.icon(
             icon: const Icon(Icons.mic),
