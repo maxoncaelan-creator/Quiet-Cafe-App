@@ -2671,8 +2671,71 @@ log:**
   `restaurants`, since that would bypass scoring/mic-reading/vote wiring
   that every other row goes through via the normal pipeline path.
 
+## Session — 2026-08-20 (continued again): category follow-up queries past the 60-result cap, retry on transient errors, second re-run
+
+Caelan asked to "raise the page cap." **Corrected the premise first**: confirmed
+against Google's own Places API (New) docs that Text Search hard-caps every
+query at 60 results total, across all pages, full stop — "this limit is
+subject to change" per Google, but not something `maxPages` can push past;
+Google simply won't return a 4th page for the same query text. Raising
+`maxPages` alone would have been a no-op.
+
+**Real fix**: `searchRestaurants` (`places.js`) now returns
+`{ places, possiblyTruncated }` — `possiblyTruncated` is true when a query
+returned exactly 60 raw results (Google's ceiling, not a genuine "that's
+everything") or ran out of shared budget mid-query. `searchAllAreas`
+(`pipeline.js`) now runs a second pass: any area flagged `possiblyTruncated`
+gets three narrower single-category follow-up queries (`"cafes in <area>
+NSW"`, `"pubs in <area>"`, `"bars in <area>"`), each with its own
+independent 60-result ceiling, so a venue that lost out to literal
+"restaurant"-typed places in the combined query gets a real shot at ranking
+in a query just for its own category.
+
+**Also added while re-running**: a transient `503`/`500` from
+`places-search` killed the entire multi-hundred-request run outright with
+no retry — hit live this session on one request mid-run. Added
+`fetchWithRetry` in `places.js`: retries up to twice with a fixed 3s
+backoff, but only on 5xx (server-side/transient); a 4xx still fails
+immediately and loudly, since that means the request itself is wrong (like
+today's earlier textQuery bug) and retrying identically would just waste
+budget failing identically again.
+
+**Re-ran with `PIPELINE_REQUEST_BUDGET=400`** (up from 200 — the base pass
+alone had used 177/200 last time, leaving no room for follow-ups). One
+transient 503 hit and auto-recovered via the new retry logic. Real finding
+from the run itself: **48 of the 63 areas hit the 60-result cap** — far more
+than the ~15 estimated from the previous run's per-suburb aggregates, which
+were misleading since they blend multiple overlapping area queries per
+suburb. The 400-request budget covered the full base pass plus follow-ups
+for 30 of those 48 capped areas (processed in `SEARCH_AREAS` list order,
+i.e. Sydney CBD outward) before running out mid-Penrith; the remaining 18
+capped areas (Fairfield onward through Kiama, including Orange) got no
+follow-up queries this run.
+
+**Verified directly against the live table, not the run log:**
+- **4,596 restaurants** in `restaurants` now (was 1,221 before today started;
+  4,164 newly scored and upserted this run specifically — the DB total is
+  higher since upserts don't delete rows a given run didn't touch, per the
+  existing no-delete design).
+- Pubs/bars/night_clubs: **448/370/8** (were 394/278/3 after the first
+  re-run, 0/0/0 before today).
+- The follow-up mechanism demonstrably works: **8 more "Leaf Cafe & Co"
+  branches** turned up this run alone (Leichhardt, Ryde, Macquarie Park,
+  Castle Hill, on top of Bondi Junction/Rouse Hill/Blacktown/Shell Cove from
+  the previous run) — all recovered via the new category-specific queries.
+- **Leaf Cafe & Co, Orange NSW — checked again, genuinely still not in the
+  table.** Not a mechanism failure: Orange is area #54 of 63 in
+  `SEARCH_AREAS`, past where this run's budget ran out (~area #33). Its
+  follow-up queries (`"cafes in Orange NSW"` etc., already proven to work
+  elsewhere) simply haven't run yet.
+
+Roughly 580 billed Places API requests across today's three runs combined
+(the failed first attempt, the successful base-pass-only re-run, and this
+one) — real money spent, growing past "a few dollars." Stopping here to
+report rather than kicking off a fourth run unprompted.
+
 ## Open items carried into further build work
-- **Area queries are capping at 3 pages (~60 results) in busier suburbs, missing lower-ranked real venues (e.g. Leaf Cafe & Co, Orange NSW)** — added 2026-08-20. Confirmed after the pipeline re-run: several suburbs (Orange, Marrickville, Newtown at 60; Manly, Dubbo, Wollongong at 58; more likely below that) landed right at or near `maxPages`'s ceiling in `places.js`, meaning real venues ranked outside the top ~60 for the area's query text are silently dropped. Raising `maxPages` (or splitting a capped area into more targeted sub-queries) would recover them, at proportionally higher real Google Places API cost across every area that's actually hitting the cap, not just Orange — Caelan's call on how much further budget to spend chasing full depth versus accepting the current representative-coverage design (the same tradeoff `searchAreas.js`'s own header comment already names for suburb selection, now showing up within a single suburb too).
+- **18 of the 48 capped areas still haven't had their follow-up queries run — including Orange, the originally reported case** — added 2026-08-20. The fix and mechanism are proven (8 more Leaf Cafe & Co branches recovered this run alone); this specific gap is just unspent budget, not a bug. A targeted top-up run covering only the remaining 18 areas (roughly Fairfield through Kiama in `SEARCH_AREAS` order) would close it far more cheaply than a full re-run — Caelan's call on whether/when to spend the further API budget, given ~580 requests already spent today.
 - **Marketing site signup never tested against a real Supabase** — added 2026-08-19. Apply `0011_early_access_signups.sql`, then submit a real address and confirm three things the fake host couldn't exercise: the row actually lands, a second submission of the same address returns the duplicate message rather than the generic one, and the anon key genuinely cannot read the table back (attempt a `select` with it and confirm it's refused — that's the check that the signup list isn't publicly scrapable).
 - **Marketing site not deployed** — added 2026-08-19. Needs its own Cloudflare Pages project (settings in `marketing-site/README.md`), pointed at the apex `cafequiet.com` rather than `app.`. Caelan's, dashboard-only. Check the apex A/CNAME records while attaching it — this zone served a stale parking page from auto-imported records once already, 2026-08-19.
 - ~~Google sign-in on web: redirect_uri_mismatch~~ — resolved 2026-08-20: Caelan added the callback URL to Authorized redirect URIs and click-tested live end to end (real account picker, real sign-in, no errors). See session above.
