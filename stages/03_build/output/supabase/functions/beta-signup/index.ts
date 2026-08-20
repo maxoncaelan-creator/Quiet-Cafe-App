@@ -46,11 +46,10 @@ async function sendApprovalEmail(email: string, approvalToken: string) {
     console.error('beta-signup: RESEND_API_KEY/DEVELOPER_EMAIL/MAIL_FROM not fully configured — approval email not sent');
     return;
   }
-  // Deliberately not a "click here to approve" GET link — see
-  // beta-approve/index.ts for why (MISTAKES.md, the otp_expired
-  // confirmation-link precedent: mail security scanners pre-fetch GET
-  // links). This just links to a confirm page; the approval itself only
-  // happens on the POST that page's own button submits.
+  // A single click approves — see beta-approve/index.ts's header comment
+  // for why this isn't the GET-renders-a-page/POST-approves split
+  // originally intended (Supabase Edge Functions can't actually serve a
+  // clickable HTML page, confirmed live) and what that tradeoff accepts.
   const reviewUrl = `${SUPABASE_URL}/functions/v1/beta-approve?token=${approvalToken}`;
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
