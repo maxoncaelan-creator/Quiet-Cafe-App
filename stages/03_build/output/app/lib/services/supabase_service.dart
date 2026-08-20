@@ -62,6 +62,14 @@ class SupabaseService {
 
   String? get currentUserEmail => _client.auth.currentUser?.email;
 
+  /// True only for accounts that actually have a password — i.e. they have
+  /// an 'email' identity, from signing up directly rather than exclusively
+  /// through Google/Facebook/Apple. An OAuth-only account has no password to
+  /// change, so the Account screen's "Change password" row should not show
+  /// for it (Caelan, 2026-08-20).
+  bool get currentUserHasPassword =>
+      _client.auth.currentUser?.identities?.any((i) => i.provider == 'email') ?? false;
+
   /// Fires on sign-in, sign-out, and token refresh — lets the UI show
   /// current auth state live instead of only checking it once at build time.
   Stream<AuthState> get authStateChanges => _client.auth.onAuthStateChange;

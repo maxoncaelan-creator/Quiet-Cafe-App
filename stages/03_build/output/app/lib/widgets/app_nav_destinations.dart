@@ -1,7 +1,6 @@
-// Single source of truth for the 5 top-level nav destinations, shared by
-// AppDrawer (narrow layouts) and AppNavRail (wide layouts) so the two can't
-// drift apart. `login` stays special-cased in both — it's a push (not a
-// route swap) whose target depends on sign-in state, unlike these 5.
+// Single source of truth for the 5 top-level nav destinations, read by
+// AppDrawer. `login` stays special-cased — it's a push (not a route swap)
+// whose target depends on sign-in state, unlike these 5.
 import 'package:flutter/material.dart';
 
 enum AppRoute { searchAssistant, list, favourites, login, settings, donate }

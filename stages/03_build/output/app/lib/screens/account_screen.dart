@@ -65,6 +65,7 @@ class _AccountScreenState extends State<AccountScreen> {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final email = _supabaseService.currentUserEmail ?? '';
+    final hasPassword = _supabaseService.currentUserHasPassword;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Account')),
@@ -77,14 +78,19 @@ class _AccountScreenState extends State<AccountScreen> {
               title: const Text('Email'),
               subtitle: Text(email),
             ),
-            const Divider(height: 32),
-            const _SectionHeader('Security'),
-            ListTile(
-              leading: const Icon(Icons.lock_outline),
-              title: const Text('Change password'),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () => context.push('/account/change-password'),
-            ),
+            // Only accounts with a password (i.e. signed up with
+            // email/password, not exclusively via Google/Facebook/Apple)
+            // have anything here to change.
+            if (hasPassword) ...[
+              const Divider(height: 32),
+              const _SectionHeader('Security'),
+              ListTile(
+                leading: const Icon(Icons.lock_outline),
+                title: const Text('Change password'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => context.push('/account/change-password'),
+              ),
+            ],
             const Divider(height: 32),
             const _SectionHeader('Your activity'),
             _ActivitySection(readings: _readings, error: _readingsError, formatDate: _formatDate),
