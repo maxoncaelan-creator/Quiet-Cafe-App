@@ -66,6 +66,14 @@ quiet-restaurant-finder/
   feature branch and open a pull request for Caelan to review and merge (or
   merge only when he explicitly asks). See `_config/decisions.md`'s "Git
   workflow" — this followed an accidental direct push.
+- **Build the marketing site here; don't write its copy here.** The site is
+  code, so it belongs in stage 03 like any other surface. Every user-visible
+  string in it comes from the `quiet-restaurant-finder-marketing` workspace
+  — take it verbatim, and ask for anything missing instead of writing a
+  placeholder that ships. That workspace owns the positioning, the voice,
+  and the limits on what may be claimed about score accuracy; writing copy
+  here bypasses all three.
+
 - **Choose the auth/integration flow per platform before writing code.** When
   a hosted provider (Supabase here) offers both a vendor client-SDK flow and
   its own server-side redirect flow, those are different mechanisms with
