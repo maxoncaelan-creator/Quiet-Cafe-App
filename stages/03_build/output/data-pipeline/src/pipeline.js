@@ -88,21 +88,60 @@ export function computeScoredRestaurants(restaurants) {
  * total billed requests across the *entire* run (all areas combined), not
  * per area — once spent, remaining areas are skipped rather than each
  * getting its own allowance.
+ *
+ * A second pass follows up any area `searchRestaurants` flagged as
+ * `possiblyTruncated` (hit Google's 60-result-per-query ceiling — see the
+ * comment on `searchRestaurants`) with narrower single-category queries.
+ * Each has its own independent 60-result cap, so a venue that lost out to
+ * literal "restaurant"-typed places in the combined query gets a real shot
+ * at ranking within a query just for its own category. Found live
+ * 2026-08-20: Leaf Cafe & Co, Orange NSW existed in Google's data all
+ * along but never ranked inside the combined query's top 60 for Orange.
  */
+const CATEGORY_FOLLOWUP_QUERIES = ['cafes', 'pubs', 'bars'];
+const AREA_QUERY_PREFIX = 'restaurants, cafes, pubs and bars ';
+
 async function searchAllAreas({ requestBudget, ...config }) {
   const byPlaceId = new Map();
   const budget = createRequestBudget(requestBudget ?? Infinity);
+  const truncatedAreaQueries = [];
+
   for (const [i, query] of SEARCH_AREAS.entries()) {
     if (budget.remaining <= 0) {
       console.log(`Request budget spent — stopping after ${i}/${SEARCH_AREAS.length} areas.`);
       break;
     }
     console.log(`[${i + 1}/${SEARCH_AREAS.length}] ${query} (${budget.remaining} requests left)`);
-    const results = await searchRestaurants(query, { ...config, budget });
+    const { places: results, possiblyTruncated } = await searchRestaurants(query, { ...config, budget });
     for (const r of results) {
       if (r.placeId) byPlaceId.set(r.placeId, r);
     }
+    if (possiblyTruncated) truncatedAreaQueries.push(query);
   }
+
+  if (truncatedAreaQueries.length > 0) {
+    console.log(
+      `${truncatedAreaQueries.length} area(s) hit the 60-result cap — following up with ` +
+        `${CATEGORY_FOLLOWUP_QUERIES.join('/')} queries where budget allows.`
+    );
+  }
+  for (const [i, areaQuery] of truncatedAreaQueries.entries()) {
+    if (budget.remaining <= 0) {
+      console.log(`Request budget spent — stopping follow-ups after ${i}/${truncatedAreaQueries.length}.`);
+      break;
+    }
+    const suffix = areaQuery.startsWith(AREA_QUERY_PREFIX) ? areaQuery.slice(AREA_QUERY_PREFIX.length) : areaQuery;
+    for (const category of CATEGORY_FOLLOWUP_QUERIES) {
+      if (budget.remaining <= 0) break;
+      const followupQuery = `${category} ${suffix}`;
+      console.log(`  follow-up [${i + 1}/${truncatedAreaQueries.length}]: ${followupQuery} (${budget.remaining} requests left)`);
+      const { places: results } = await searchRestaurants(followupQuery, { ...config, budget });
+      for (const r of results) {
+        if (r.placeId) byPlaceId.set(r.placeId, r);
+      }
+    }
+  }
+
   return [...byPlaceId.values()];
 }
 
