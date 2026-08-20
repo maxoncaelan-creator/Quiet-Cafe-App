@@ -51,6 +51,17 @@ class SearchAssistantRateLimited implements Exception {
   const SearchAssistantRateLimited(this.resetAt);
 }
 
+/// A restaurant near the user's current position — see
+/// [SupabaseService.findNearestRestaurant]. Deliberately just enough to
+/// show "Are you at X?" and navigate; the full [Restaurant] is fetched by
+/// router.dart's own by-id loader only if the user says yes.
+class NearbyRestaurant {
+  final String placeId;
+  final String name;
+  final double distanceMeters;
+  const NearbyRestaurant({required this.placeId, required this.name, required this.distanceMeters});
+}
+
 class SupabaseService {
   static bool get isConfigured => _supabaseUrl.isNotEmpty && _supabaseAnonKey.isNotEmpty;
 
@@ -154,6 +165,33 @@ class SupabaseService {
     return _restaurantFromRow(row);
   }
 
+  /// Nearest restaurant to (lat, lng) within [maxDistanceMeters], or null if
+  /// none qualify — backs the Search Assistant screen's "Are you at X?" GPS
+  /// guess. Server-side (find_nearest_restaurant, 0014_find_nearest_restaurant.sql)
+  /// rather than fetching every restaurant and computing distance in Dart —
+  /// that was the original 2026-08-18 approach, fine at the table's size
+  /// then, wasteful bandwidth at today's 5,000+ rows.
+  Future<NearbyRestaurant?> findNearestRestaurant(
+    double lat,
+    double lng, {
+    double maxDistanceMeters = 100,
+  }) async {
+    if (!isConfigured) return null;
+    final rows = await _client.rpc('find_nearest_restaurant', params: {
+      'user_lat': lat,
+      'user_lng': lng,
+      'max_distance_meters': maxDistanceMeters,
+    });
+    final list = rows as List;
+    if (list.isEmpty) return null;
+    final row = list.first as Map<String, dynamic>;
+    return NearbyRestaurant(
+      placeId: row['place_id'] as String,
+      name: row['name'] as String,
+      distanceMeters: (row['distance_meters'] as num).toDouble(),
+    );
+  }
+
   /// Empty for a signed-out user — favoriting requires an account (same gate
   /// as mic readings, see 0004_favorites.sql), browsing doesn't.
   Future<Set<String>> fetchFavoritePlaceIds() async {
@@ -228,6 +266,23 @@ class SupabaseService {
       'platform': reading.platform,
       'recorded_at': reading.recordedAt.toIso8601String(),
     });
+    await _recomputeScore(reading.placeId);
+  }
+
+  /// Calls the recompute-restaurant-score Edge Function so a submitted vote
+  /// or reading actually shows up in quietness_score/confidence, instead of
+  /// only ever being picked up by the next full data-pipeline run (which
+  /// Caelan triggers manually and which re-fetches every restaurant from
+  /// Google Places — real API cost, so it can't run on every submission).
+  /// Best-effort: the vote/reading write this follows already succeeded, so
+  /// a recompute failure here isn't surfaced to the user — the next full
+  /// pipeline run would still pick it up eventually.
+  Future<void> _recomputeScore(String placeId) async {
+    try {
+      await _client.functions.invoke('recompute-restaurant-score', body: {'placeId': placeId});
+    } catch (_) {
+      // Non-fatal — see doc comment above.
+    }
   }
 
   /// The signed-in user's most recent mic calibration, or null if they've
@@ -265,6 +320,7 @@ class SupabaseService {
   Future<void> submitLoudnessVote(String placeId, String vote) async {
     if (!isConfigured) throw SupabaseNotConfigured();
     await _client.from('loudness_votes').insert({'place_id': placeId, 'vote': vote});
+    await _recomputeScore(placeId);
   }
 
   /// Maps a `restaurants` table row (see 0001_init.sql) onto the same

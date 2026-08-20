@@ -6,6 +6,27 @@
 // SUPABASE_ANON_KEY, and PIPELINE_SHARED_SECRET.
 
 /**
+ * Retries only on 5xx (transient/Google-or-Supabase-side, e.g. the
+ * "Internal server error. Please retry." Places sometimes returns) — never
+ * on 4xx, which means the request itself is wrong (like the missing-
+ * textQuery bug fixed 2026-08-20) and retrying identically would just fail
+ * identically. Added the same day a live 63-area run died on a single
+ * transient 500 partway through, discarding every request already spent
+ * getting there — with follow-up queries now also billed, that got more
+ * expensive to keep re-triggering by hand. Bounded (2 retries, short fixed
+ * backoff) rather than exhaustive — a real outage should still surface as
+ * an error, not spin forever.
+ */
+async function fetchWithRetry(url, options, { retries = 2, delayMs = 3000 } = {}) {
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(url, options);
+    if (res.ok || res.status < 500 || attempt >= retries) return res;
+    console.log(`  transient ${res.status} from places-search, retrying (${attempt + 1}/${retries})...`);
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+}
+
+/**
  * A shared, mutable cap on total billed places-search requests across an
  * entire run (not per-area) — created once by the caller and passed into
  * every searchRestaurants() call so areas late in the list stop cleanly
@@ -34,8 +55,20 @@ export function createRequestBudget(limit) {
  * each extra page is a billed request. Pass `budget` (see
  * createRequestBudget) to cap total requests across an entire multi-area
  * run rather than just per-area.
+ *
+ * `maxPages` tops out at meaningful effect at 3: Google's Places API (New)
+ * Text Search hard-caps every query at 60 results total, full stop —
+ * "Text Search (New) returns a maximum of 60 results across all pages,
+ * although this limit is subject to change" (confirmed against Google's
+ * own docs 2026-08-20). Passing a higher maxPages doesn't recover more
+ * results for the same query text; Google just won't return a 4th page.
+ * The only way past 60 for one area is a narrower, differently-worded
+ * query with its own independent 60-result ceiling — see
+ * `CATEGORY_FOLLOWUP_QUERIES` in pipeline.js, which does exactly that for
+ * areas `possiblyTruncated` flags here.
  * @param {string} query e.g. "restaurants in Newtown NSW"
  * @param {{ supabaseUrl: string, supabaseAnonKey: string, pipelineSharedSecret: string, maxPages?: number, budget?: ReturnType<typeof createRequestBudget> }} config
+ * @returns {Promise<{ places: object[], possiblyTruncated: boolean }>}
  */
 export async function searchRestaurants(
   query,
@@ -49,11 +82,15 @@ export async function searchRestaurants(
 
   const places = [];
   let pageToken;
+  let stoppedForBudget = false;
 
   for (let page = 0; page < maxPages; page++) {
-    if (budget && !budget.take()) break;
+    if (budget && !budget.take()) {
+      stoppedForBudget = true;
+      break;
+    }
 
-    const res = await fetch(`${supabaseUrl}/functions/v1/places-search`, {
+    const res = await fetchWithRetry(`${supabaseUrl}/functions/v1/places-search`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -61,7 +98,13 @@ export async function searchRestaurants(
         apikey: supabaseAnonKey,
         'x-pipeline-secret': pipelineSharedSecret,
       },
-      body: JSON.stringify(pageToken ? { pageToken } : { query }),
+      // Google requires textQuery repeated identically on every page-token
+      // follow-up, not just the initial request — confirmed 2026-08-20 the
+      // hard way, first real live pagination run threw "Empty text_query...
+      // paging requests must match the initial SearchText request." `query`
+      // never changes across pages of the same area, so this is safe to
+      // always send.
+      body: JSON.stringify({ query, ...(pageToken ? { pageToken } : {}) }),
     });
 
     if (!res.ok) {
@@ -77,7 +120,16 @@ export async function searchRestaurants(
     await new Promise((resolve) => setTimeout(resolve, 2000));
   }
 
-  return places.map(normalizePlace);
+  return {
+    places: places.map(normalizePlace),
+    // 60 raw results is the reliable signal that Google's hard per-query
+    // cap (not a genuine "that's everything") ended this query — a real
+    // area with fewer than 60 actual matches would have stopped naturally
+    // via a missing nextPageToken well before 3 full pages. Running out of
+    // shared budget mid-query is the same situation in effect: there may
+    // well be more real results this run didn't fetch.
+    possiblyTruncated: places.length >= 60 || stoppedForBudget,
+  };
 }
 
 // Places API (New) addressComponents types, in the order Australian

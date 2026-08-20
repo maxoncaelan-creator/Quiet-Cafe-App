@@ -71,9 +71,13 @@ Deno.serve(async (req) => {
 
   const pageToken = body.pageToken?.trim();
   const query = body.query?.trim();
-  // A page token alone is a valid follow-up request — Google resolves it to
-  // a specific query+cursor server-side, so `query` isn't required then.
-  if (!query && !pageToken) {
+  // Google requires textQuery repeated identically on a page-token
+  // follow-up — "All parameters other than maxResultCount, pageSize, and
+  // pageToken must be the same as the previous request. Otherwise, the API
+  // returns an INVALID_ARGUMENT error." (confirmed against Google's own
+  // docs 2026-08-20, after a live run hit exactly that error trying to
+  // send pageToken alone). So query is always required, page 1 or not.
+  if (!query) {
     return jsonResponse({ error: '"query" is required' }, 400);
   }
 
@@ -84,7 +88,7 @@ Deno.serve(async (req) => {
       'X-Goog-Api-Key': GOOGLE_PLACES_API_KEY,
       'X-Goog-FieldMask': `${FIELD_MASK},nextPageToken`,
     },
-    body: JSON.stringify(pageToken ? { pageToken } : { textQuery: query }),
+    body: JSON.stringify({ textQuery: query, ...(pageToken ? { pageToken } : {}) }),
   });
 
   if (!placesRes.ok) {

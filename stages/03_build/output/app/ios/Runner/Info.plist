@@ -30,6 +30,8 @@
 	<string>Quiet Restaurant Finder uses your microphone to measure ambient noise level at the restaurant you're at. No audio is recorded or stored.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Quiet Restaurant Finder uses speech recognition so you can search by voice instead of typing.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Quiet Restaurant Finder uses your location to guess which restaurant you're at, so you don't have to search for it.</string>
 	<!-- Supabase Auth redirect: OAuth (Facebook, Google web flow) and email
 	     confirmation / magic links come back through this, instead of
 	     Supabase's generic hosted page. Registered in Supabase's Auth

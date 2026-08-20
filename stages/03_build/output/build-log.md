@@ -2763,9 +2763,381 @@ email arrived** with the exact matching code. This is the first fully
 verified real user round trip through the entire gate: request → email →
 approve → code → delivered.
 
+## Session — 2026-08-20 (continued again): negative web decibel readings and loudness votes not affecting the score, both fixed
+
+Caelan reported two real bugs from actually using the app: the decibel
+counter on web reads negative, and voting Quiet/Normal/Loud doesn't visibly
+change a venue's loudness or confidence.
+
+**Negative web decibel readings — a real calibration bug, not a display
+issue.** `mic_service_web.dart`'s Web Audio capture computed
+`20 * log10(rms)` directly on the normalized `[-1, 1]` amplitude from
+`getByteTimeDomainData`. That's dBFS (decibels relative to *full scale*,
+where 1.0 = 0dB) — negative for any rms below 1.0, which is essentially
+always. Read `noise_meter`'s actual source
+(`~/.pub-cache/hosted/pub.dev/noise_meter-5.0.2/lib/noise_meter.dart`,
+confirmed rather than assumed) to see what the native path really does:
+`20 * log10(maxAmp * amplitude)` with `maxAmp = 2^15` (32768, a 16-bit PCM
+sample's max value) — it rescales the normalized amplitude back up before
+taking the log, which is what actually lands native readings in a
+positive, real-world-plausible range. The file's own header comment
+already claimed to do this ("RMS -> dB the same way noise_meter does it")
+but the `maxAmp` multiplication was simply missing. Fixed by adding the
+same `32768.0` factor; kept the existing RMS-across-the-buffer computation
+(more standard than noise_meter's own crude min/max-average, and not what
+was actually broken).
+
+**Loudness votes never affecting quietness_score/confidence — a real
+architecture gap, confirmed by reading the pipeline rather than assumed.**
+`data-pipeline/src/pipeline.js` is the *only* thing that ever writes
+`quietness_score`/`confidence`/the mic and vote sub-score columns, and it
+only runs when Caelan manually triggers it — a full run also re-fetches
+every restaurant from Google Places (real API cost), so it was never
+going to run on every vote. `SupabaseService.submitLoudnessVote`/
+`submitMicReading` were correctly inserting into `loudness_votes`/
+`mic_readings` the entire time; nothing downstream ever picked either up
+outside a full pipeline run. Separately, even fixing that server-side gap
+wouldn't have been visible: `RestaurantDetailScreen` held its `Restaurant`
+in an immutable `widget.restaurant` with no refetch path, so the screen
+would keep showing the pre-vote score/confidence regardless of what the
+database did.
+
+Fixed both halves:
+- **New `recompute-restaurant-score` Edge Function** — does the same
+  `combineScores()` math `scoring.js` does, but only for the one affected
+  restaurant, reading `review_subscore`/`popular_subscore` already stored
+  on `restaurants` rather than re-fetching or re-mining anything (no
+  Google Places calls, so safe to call after every vote/reading, unlike
+  the full pipeline). Deployed (`verify_jwt: true`) and live-tested against
+  a real, clean-baseline restaurant (Mr. Wong, zero prior signals): inserted
+  a real `loud` vote, called the function, confirmed `vote_count: 1`,
+  `vote_subscore: 0`, `quietness_score: 0`, `confidence: 'Very Low'` — all
+  matching `scoring.js`'s formula by hand. Cleaned up the test vote and
+  re-ran the function to confirm the restaurant returns cleanly to
+  `null`/`null`. **This duplicates `scoring.js`'s formulas in TypeScript**
+  (different runtime, no package shared with the Node pipeline today) —
+  flagged here explicitly so a future change to the scoring formula doesn't
+  get made in one place and silently drift from the other.
+- `SupabaseService.submitLoudnessVote`/`submitMicReading` now call this
+  function right after their insert succeeds (best-effort — a recompute
+  failure doesn't undo the vote/reading write, which already succeeded).
+- `RestaurantDetailScreen` now holds its `Restaurant` as mutable state and
+  refetches it: immediately after a vote (via a new `onVoted` callback on
+  `LoudnessVoteButtons`), and after returning from the mic-reading screen
+  (refetch-on-return regardless of outcome, simpler and just as correct as
+  threading a result value back through the navigation push).
+
+`flutter analyze`: 0 issues. `flutter test`: 4/4 passed (unchanged — none
+of these exercise live Supabase).
+
+**Not yet click-tested on a real device/build** — same standing limitation
+as the rest of this app; the recompute function's own logic was verified
+live via direct SQL + curl (above), but the actual button-tap → visible
+score change round trip on-screen hasn't been driven by a human yet.
+
+Branch: `fix/loudness-vote-score-and-web-mic-db`, off `origin/main`
+(separate from the still-unmerged `feature/beta-referral-gate` branch from
+earlier today — unrelated changes, kept independent on purpose; merged
+main back into this branch afterward to pick up the pipeline/pagination
+work below, which landed on `main` via a parallel branch while this one
+was in progress).
+
+## Session — 2026-08-20 (continued again): pipeline re-run — a second real bug found (pagination), fixed, deployed, verified live
+
+Caelan asked for the pipeline to actually be run. First attempt (`npm start`)
+failed immediately: `Error: places-search request failed: 502 ... "Empty
+text_query. Request parameters for paging requests must match the initial
+SearchText request."` — thrown on the very first area.
+
+**Real finding, not deployment drift this time** — checked the live Edge
+Function against local source first, given the 2026-08-19 precedent
+(`edge-function-not-deployed`); they matched, version 5 on both. The actual
+bug: `places.js`'s page-token follow-up requests sent `{ pageToken }` alone,
+dropping `query` entirely, on the assumption (stated in a comment at the
+time) that Google resolves a pageToken to its original query server-side.
+Confirmed against Google's own Places API (New) Text Search docs: `textQuery`
+must be repeated identically on every paged request alongside `pageToken` —
+"All parameters other than maxResultCount, pageSize, and pageToken must be
+the same as the previous request. Otherwise, the API returns an
+INVALID_ARGUMENT error." This had never been exercised live before today:
+the 2026-08-19 run's Edge Function was still pre-`addressComponents`, so its
+responses never included `nextPageToken` and the pagination loop never
+actually fired a follow-up request — meaning this bug is exactly as old as
+pagination itself, just never hit until pagination started actually working.
+
+Fixed in both `places.js` (always sends `query`, `pageToken` only when
+present) and `supabase/functions/places-search/index.ts` (same, plus
+`query` is now unconditionally required). Deployed as version 6 via the
+Supabase MCP `deploy_edge_function` tool. `npm test` still 48/48 (no test
+exercised this path, expected — network-dependent).
+
+**Re-ran clean.** All 63 areas, budget spent down to 23/200 remaining
+(pagination now genuinely engaging, unlike 2026-08-19's every-area-stopped-
+after-1-page run). **2,890 scored restaurants written and upserted** to
+`restaurants`, versus 1,221 on the last successful run — roughly 2.4x,
+consistent with cafes/pubs/bars now being asked for at all.
+
+**Verified against both of Caelan's reported cases directly against the
+live table (`execute_sql` via Supabase MCP), not assumed from the run
+log:**
+- Pubs and bars: 394 `pub`, 278 `bar`, 3 `night_club` rows now exist
+  (were 0 before today). Confirmed present, not just requested.
+- Leaf Cafe & Co, Orange NSW: **still not in the table** after the full
+  re-run — genuinely checked, not assumed fixed. A one-off single-page
+  diagnostic query for `"Leaf Cafe Orange NSW"` specifically (1 extra
+  billed request, run directly through `places.js`) confirms it **does**
+  exist as its own listing in Google's data, with its own place ID,
+  distinct from "Venue Cafe Bar" — a different business already in the
+  table at the exact same address (190 Anson St). So this was never a
+  suburb-data or category-coverage bug for this specific case; it's that
+  Orange's area query hit exactly its 3-page/60-result cap (`suburb, count(*)
+  group by suburb` shows Orange at 60, alongside Marrickville 60, Newtown 60,
+  Manly 58, Dubbo 58, Wollongong 58, and others landing right at or near the
+  same ceiling) and Leaf Cafe ranked below the top 60 results for the broad
+  "restaurants, cafes, pubs and bars in Orange NSW" query specifically.
+  Not fixed by this session's changes — a real, separate, still-open gap.
+  Not patched by hand-inserting the one diagnostic result directly into
+  `restaurants`, since that would bypass scoring/mic-reading/vote wiring
+  that every other row goes through via the normal pipeline path.
+
+## Session — 2026-08-20 (continued again): category follow-up queries past the 60-result cap, retry on transient errors, second re-run
+
+Caelan asked to "raise the page cap." **Corrected the premise first**: confirmed
+against Google's own Places API (New) docs that Text Search hard-caps every
+query at 60 results total, across all pages, full stop — "this limit is
+subject to change" per Google, but not something `maxPages` can push past;
+Google simply won't return a 4th page for the same query text. Raising
+`maxPages` alone would have been a no-op.
+
+**Real fix**: `searchRestaurants` (`places.js`) now returns
+`{ places, possiblyTruncated }` — `possiblyTruncated` is true when a query
+returned exactly 60 raw results (Google's ceiling, not a genuine "that's
+everything") or ran out of shared budget mid-query. `searchAllAreas`
+(`pipeline.js`) now runs a second pass: any area flagged `possiblyTruncated`
+gets three narrower single-category follow-up queries (`"cafes in <area>
+NSW"`, `"pubs in <area>"`, `"bars in <area>"`), each with its own
+independent 60-result ceiling, so a venue that lost out to literal
+"restaurant"-typed places in the combined query gets a real shot at ranking
+in a query just for its own category.
+
+**Also added while re-running**: a transient `503`/`500` from
+`places-search` killed the entire multi-hundred-request run outright with
+no retry — hit live this session on one request mid-run. Added
+`fetchWithRetry` in `places.js`: retries up to twice with a fixed 3s
+backoff, but only on 5xx (server-side/transient); a 4xx still fails
+immediately and loudly, since that means the request itself is wrong (like
+today's earlier textQuery bug) and retrying identically would just waste
+budget failing identically again.
+
+**Re-ran with `PIPELINE_REQUEST_BUDGET=400`** (up from 200 — the base pass
+alone had used 177/200 last time, leaving no room for follow-ups). One
+transient 503 hit and auto-recovered via the new retry logic. Real finding
+from the run itself: **48 of the 63 areas hit the 60-result cap** — far more
+than the ~15 estimated from the previous run's per-suburb aggregates, which
+were misleading since they blend multiple overlapping area queries per
+suburb. The 400-request budget covered the full base pass plus follow-ups
+for 30 of those 48 capped areas (processed in `SEARCH_AREAS` list order,
+i.e. Sydney CBD outward) before running out mid-Penrith; the remaining 18
+capped areas (Fairfield onward through Kiama, including Orange) got no
+follow-up queries this run.
+
+**Verified directly against the live table, not the run log:**
+- **4,596 restaurants** in `restaurants` now (was 1,221 before today started;
+  4,164 newly scored and upserted this run specifically — the DB total is
+  higher since upserts don't delete rows a given run didn't touch, per the
+  existing no-delete design).
+- Pubs/bars/night_clubs: **448/370/8** (were 394/278/3 after the first
+  re-run, 0/0/0 before today).
+- The follow-up mechanism demonstrably works: **8 more "Leaf Cafe & Co"
+  branches** turned up this run alone (Leichhardt, Ryde, Macquarie Park,
+  Castle Hill, on top of Bondi Junction/Rouse Hill/Blacktown/Shell Cove from
+  the previous run) — all recovered via the new category-specific queries.
+- **Leaf Cafe & Co, Orange NSW — checked again, genuinely still not in the
+  table.** Not a mechanism failure: Orange is area #54 of 63 in
+  `SEARCH_AREAS`, past where this run's budget ran out (~area #33). Its
+  follow-up queries (`"cafes in Orange NSW"` etc., already proven to work
+  elsewhere) simply haven't run yet.
+
+Roughly 580 billed Places API requests across today's three runs combined
+(the failed first attempt, the successful base-pass-only re-run, and this
+one) — real money spent, growing past "a few dollars." Stopping here to
+report rather than kicking off a fourth run unprompted.
+
+## Session — 2026-08-20 (continued): remaining-area top-up closes the Orange gap; on-demand suburb top-up architecture built and live-verified
+
+**Remaining-area top-up.** Ran a one-off script (`topup-remaining-areas.mjs`,
+not committed — a manual invocation of the same reusable
+`possiblyTruncated`/category-followup mechanism already in
+`places.js`/`pipeline.js`, not new logic) covering exactly the 31 areas
+after Penrith in `SEARCH_AREAS` that the prior run's budget never reached,
+rather than re-running all 63 (which would have re-spent on 32 areas
+already fully done). Found 2,321 unique places. **Leaf Cafe & Co, Orange
+NSW — the original report — confirmed present**, with its real Google
+data (4.8★, 5 real review texts) upserted correctly. Applied the same
+calibration-offset treatment to any mic readings as the main pipeline
+(`applyCalibrationOffsets`), matching `main()`'s behavior exactly rather
+than a shortcut version.
+
+**Mid-task discovery: this working directory is shared.** While the above
+was running, the checked-out branch changed out from under this session
+(`fix/desktop-nav-account-and-venue-coverage` → `feature/beta-referral-gate`,
+with real uncommitted referral-gate work already on it — new screens,
+services, two Edge Functions, a migration). Confirmed with Caelan this is
+expected concurrent work (likely another session building the
+already-flagged referral-gate open item). Left it untouched. Also found
+that PR #20 had merged almost immediately after opening — before the
+pagination-fix and retry/follow-up commits existed — so `main` was two
+commits behind what this branch actually had. Opened a second PR
+(`fix/desktop-nav-account-and-venue-coverage` → `main`, connector still
+403s on this repo, direct link given to Caelan) to close that gap. Rather
+than keep editing inside the shared, actively-changing directory, created
+an isolated git worktree (`../quiet-restaurant-finder-ondemand`, branch
+`feature/ondemand-suburb-topup`, based on the fix branch so it already had
+today's pagination/retry/follow-up work) for the architecture change below.
+
+**On-demand suburb top-up — the architectural change Caelan asked for.**
+The batch pipeline pre-populates a curated, representative area list; this
+adds the other half — when a real search comes up thin for a suburb, ask
+Haiku whether it's worth a real, billed Google Places call to fill it in,
+rather than either ignoring the gap or hitting Google on every thin search.
+Daily cap set at 20 (Caelan's call, chosen over a 5/day conservative option
+and no-cap-yet).
+
+New: `0013_ondemand_topup.sql` (`ondemand_topup_events` — logs every
+decision, yes or no, backing both the daily-cap count and each area's
+"when did we last check" recency for Haiku's context; RLS enabled, no
+policies, service-role-only same as `search_assistant_usage`) and the
+`ondemand-topup` Edge Function.
+
+Three real things worth recording about how it's built:
+
+- **Deliberately additive-only.** The batch pipeline's upsert intentionally
+  overwrites every column on conflict, including mic/vote signals, because
+  it always re-fetches those fresh. This function never fetches mic
+  readings or votes at all — upserting the same way would have silently
+  wiped real accumulated user data on any venue it happened to
+  re-discover. Caught before shipping, not after: uses
+  `ON CONFLICT (place_id) DO NOTHING` instead. New venues only; re-scoring
+  an existing venue stays the batch pipeline's job.
+- **No new DB secret available, so it uses `SUPABASE_SERVICE_ROLE_KEY`
+  instead of the pipeline's `pipeline_service` Postgres role.** The
+  pipeline's own role is the more scoped, RLS-respecting choice and is
+  what the Node pipeline uses, but its connection string lives only in
+  local `data-pipeline/.env` — setting a new Supabase Function secret is
+  dashboard/CLI-only, nothing this session had a tool for. Service-role
+  was already precedented in this exact codebase (`search-assistant`'s
+  `search_assistant_usage` writes) for the same reason: a write anon can't
+  do and no scoped role's credential is available here. Flagged as an open
+  item below rather than treated as equivalent to the pipeline's approach.
+- **Haiku wraps JSON in a ```` ```json ```` fence more often than not**,
+  despite the system prompt explicitly saying not to. Found live: the
+  first two real test calls both silently fell back to the "couldn't
+  parse, default to no" safe path — a real bug, not a Haiku-reasoning
+  problem (the underlying reasoning was correct both times, e.g. "coverage
+  is excellent with 105 venues" for Newtown). Fixed by stripping a leading
+  ` ```json ` / trailing ` ``` ` fence before parsing rather than fighting
+  the model harder in the prompt.
+
+**Verified live**, not just deployed: the daily-cap check, an already-covered
+area correctly declining (`Newtown`, 105 venues → "no", correct reasoning,
+no Google spend), and a genuinely uncovered real NSW town triggering the
+full path end to end (`Cowra` → "yes" → searched, scored, upserted — 46
+real venues landed with correct additive scoring: zero mic/vote signals as
+expected for brand-new rows, one venue picked up a real review-mention
+score). Confirmed directly against `restaurants` and `ondemand_topup_events`
+via SQL, not inferred from the HTTP response alone.
+
+Not yet done: wiring an actual trigger from the Flutter app (thin search
+results) or the Search Assistant ("more options") to call this function —
+the backend half is built and proven; the two trigger points are still
+open, intentionally scoped out of this pass rather than also touching
+untested app code in the same batch as a new backend service.
+
+## Session — 2026-08-20 (continued): real device geolocation + the GPS venue guess recovered from a stale branch
+
+Caelan asked for user geolocation, framed around three uses: Search
+Assistant suggestions, populating venues near the user, and a proximity
+prompt — "Are you at X?" replacing the Search Assistant's normal splash
+when the device is right next to a known venue, Yes/No buttons, Yes opens
+that restaurant, No returns to the normal splash, sending a message
+dismisses it the same way. Built the concretely-specified piece (the
+proximity prompt, full geolocation plumbing to support it) this pass; the
+Haiku-suggestion and populate-near-user pieces need their own design
+decisions (how to weight distance vs. quietness, whether reverse-geocoding
+is worth its own Google API cost) and are carried as an open item rather
+than guessed at.
+
+**Checked for prior art before writing anything — found real prior art.**
+`ui-design-decisions.md` documented a "GPS venue guess" as already
+"Done, partially live-verified 2026-08-18," but grepping the actual
+current tree for `geolocator`/`getCurrentPosition`/"Are you at" turned up
+nothing. Same shape as the loudness-votes gap found 2026-08-19: real,
+tested work that only ever landed on the stale unmerged
+`feature/loudness-votes-and-venue-guess` branch. That branch's single
+commit (`374d41d`, Caelan, 2026-08-18) already had this near-exactly
+specified — 100m proximity check, "Are you at X?", Yes/No, a 30-minute
+SharedPreferences dismissal cooldown on No — plus a real bug already
+found and fixed there: the original `getCurrentPosition()` call had no
+platform-level time bound, only a Dart-side `.timeout()`, and could hang
+the whole app hard enough to trigger a real Android ANR on a poor/absent
+location fix. Fixed there by adding an explicit `timeLimit` to
+`LocationSettings` itself, confirmed live that this actually prevents the
+freeze. The "found a venue and showed the prompt" path specifically was
+never confirmed live in that session (the test emulator's location
+backend never produced a real fix before the emulator grew unstable).
+
+**Ported rather than rebuilt — same practice as the loudness-votes
+recovery**: `location_service.dart` copied across essentially verbatim
+(the ANR fix is exactly the kind of hard-won lesson worth keeping intact,
+not re-deriving). `search_assistant_screen.dart`'s integration was
+re-applied by hand onto the current, much-changed file (sign-in gating,
+rate-limit messaging, drawer, composer restructuring all postdate the
+stale commit) rather than merged directly.
+
+**One deliberate change from the original, not just a straight port**:
+the 2026-08-18 version fetched the *entire* `restaurants` table
+client-side (`fetchRankedRestaurants()`) just to loop through computing
+distance in Dart — reasonable at whatever size the table was then, real
+wasted mobile bandwidth at today's 5,300+ rows, each carrying review text
+and every signal column. Replaced with `find_nearest_restaurant`
+(`0014_find_nearest_restaurant.sql`) — server-side haversine with a
+bounding-box pre-filter, returns only place_id/name/distance. The app
+doesn't even fetch the full `Restaurant` for a "yes": navigating with just
+the placeId (`context.push('/restaurant/$placeId')`, no `extra`) reuses
+router.dart's existing `_RestaurantByIdLoader`, built for exactly this
+"no in-memory Restaurant object" case (originally for direct/bookmarked
+URL loads). Also updated confirm-guess navigation from the stale branch's
+raw `Navigator.push(MaterialPageRoute(...))` to today's `context.push`
+go_router pattern — the raw-Navigator approach predates the web-support
+routing refactor and would have bypassed it.
+
+Added `geolocator: ^13.0.0` (pulls in real web support via
+`geolocator_web` automatically — unlike `noise_meter`/`audio_streamer`,
+no io/web conditional split needed, one API surface covers all three
+platforms). `ACCESS_COARSE_LOCATION`/`ACCESS_FINE_LOCATION` added to
+`AndroidManifest.xml`, `NSLocationWhenInUseUsageDescription` added to
+`Info.plist` (same wording as the original commit).
+
+**Verified**: `flutter analyze` clean, `flutter test` 4/4 passing. The RPC
+itself tested live with two real cases — exact coordinates of Leaf Cafe &
+Co Orange returned itself at 0m; Sydney CBD coordinates (Martin Place
+area) returned Toby's Estate 25 Martin Place at 28.5m, a real, plausible
+nearby venue. **Not yet click-tested end to end on a real device** — same
+"found a venue and showed the prompt" gap the original session never
+closed either; this pass's RPC-level verification is new, but nobody has
+walked up to a real venue with this build and watched the prompt appear.
+
 ## Open items carried into further build work
-- **Data pipeline needs a real re-run to pick up cafe/pub/bar coverage** — added 2026-08-20. `searchAreas.js` now queries restaurants, cafes, pubs and bars per area (see session above), but the live `restaurants` table still only reflects the old restaurants-only results until the pipeline is actually run again. Caelan's to run (needs `data-pipeline/.env` with the real Supabase credential, and spends real Google Places API budget). After running, specifically re-check Leaf Cafe & Co, Orange NSW — the reported missing case — and spot-check at least one known pub/bar per region now shows up.
-- ~~Marketing site signup never tested against a real Supabase~~ — resolved 2026-08-20 (referral-gate session): `early_access_signups` created live (0011 itself was never applied — folded into 0012 instead), and all three checks this item asked for came back clean: the row lands, a repeat submission returns `duplicate` rather than the generic error, and the anon key gets `[]` back from a direct `select` on both `early_access_signups` and the new `beta_codes`. Signup now posts to the `beta-signup` Edge Function rather than straight to PostgREST — see session above.
+- **GPS venue guess not click-tested live on a real device** — added 2026-08-20. Neither this pass nor the original 2026-08-18 one confirmed the actual "walked up to a venue, saw Are you at X?, tapped Yes, landed on the right restaurant" path against a real GPS fix — only the underlying pieces (RPC, permission flow, ANR fix) were verified independently. Needs a real device outdoors or near a loaded venue.
+- **Haiku suggestions and populate-near-user, from the same ask, not yet built** — added 2026-08-20. Caelan's original ask covered three uses for geolocation; this pass built the proximity-prompt piece (fully specified) and the LocationService/RPC infrastructure it needed. Feeding the user's position into the Search Assistant's Haiku context (so suggestions can favor nearby venues, not just by quietness_score) and connecting position to `ondemand-topup` (auto-triggering a top-up near the user rather than requiring a typed suburb) both need their own design calls — how much to weight distance vs. quietness, whether reverse-geocoding a coordinate into a suburb name is worth its own Google API cost — that weren't specified the way the proximity prompt was. The infrastructure (LocationService, position access) is now in place for both.
+- **`ondemand-topup` uses `SUPABASE_SERVICE_ROLE_KEY`, not a scoped role** — added 2026-08-20, see session above. Would be worth moving to a purpose-built role (mirroring `pipeline_service`, or a new one scoped to just `restaurants` insert + `ondemand_topup_events` read/write) once there's a way to set a new Supabase Function secret in-session — currently dashboard/CLI-only. Caelan's to decide if/when this is worth the extra setup versus the precedented service-role approach already used elsewhere in this codebase.
+- **App-side and Search Assistant-side triggers for `ondemand-topup` not built** — added 2026-08-20. The backend is deployed and live-verified (see session above); nothing in the Flutter app or the `search-assistant` function calls it yet. Two trigger points discussed with Caelan: a thin/empty suburb search result, and the Search Assistant running low on real candidates when asked for "more options."
+- **`ondemand-topup` has no automated tests** — added 2026-08-20. Verified live end-to-end (cap check, a real "no" decision, a real "yes" decision through to upsert) rather than unit-tested — same category as the rest of this session's live-only verification, but worth a real test file if this function gets extended.
+- **Loudness-vote/mic-reading recompute fix not yet click-tested on a real device** — added 2026-08-20. `recompute-restaurant-score`'s own logic was verified live via direct SQL + curl (insert a vote, call the function, confirm the exact expected score/confidence, clean up), but the actual on-screen round trip — tap Loud, watch the noise bar and confidence dots change on the same screen — hasn't been driven by a human yet. Same for a mic reading: submit one, back out to the detail screen, confirm it now shows the updated score.
+- **`recompute-restaurant-score` duplicates `scoring.js`'s formulas in TypeScript** — added 2026-08-20. No shared package between the Node pipeline and the Edge Function runtime today, so `MIN_DBA`/`MAX_DBA`/`DEFAULT_WEIGHTS`/`VOTE_TIERS`/etc. exist in both places by hand. If the scoring model ever changes, both files need updating — worth watching for drift, or worth extracting into a shared package if this project ends up with a third place that needs the same math.
+- ~~Data pipeline needs a real re-run to pick up cafe/pub/bar coverage~~ — resolved 2026-08-20: re-run twice more the same day on a parallel branch (see "pipeline re-run" and "category follow-up queries" sessions above) — 4,596 restaurants now loaded, pub/bar/night_club coverage confirmed present via `execute_sql`, not just the run log. The remaining gap is narrower than "needs a re-run" — see the next item.
+- ~~18 of the 48 capped areas still haven't had their follow-up queries run — including Orange, the originally reported case~~ — resolved 2026-08-20: a targeted remaining-area top-up run (see "remaining-area top-up closes the Orange gap" session above) covered the 31 areas after Penrith in `SEARCH_AREAS` order — a superset of these 18 — and explicitly confirmed Leaf Cafe & Co, Orange NSW now present with its real Google data. Not independently re-counted that every one of the 18 specifically got a follow-up query rather than just base coverage, but the originally reported case is closed.
+- ~~Marketing site signup never tested against a real Supabase~~ — resolved 2026-08-20 (referral-gate session, see above): `early_access_signups` created live (0011 itself was never applied — folded into 0012 instead), and all three checks this item asked for came back clean: the row lands, a repeat submission returns `duplicate` rather than the generic error, and the anon key gets `[]` back from a direct `select` on both `early_access_signups` and the new `beta_codes`. Signup now posts to the `beta-signup` Edge Function rather than straight to PostgREST.
 - **Marketing site not deployed** — added 2026-08-19. Needs its own Cloudflare Pages project (settings in `marketing-site/README.md`), pointed at the apex `cafequiet.com` rather than `app.`. Caelan's, dashboard-only. Check the apex A/CNAME records while attaching it — this zone served a stale parking page from auto-imported records once already, 2026-08-19.
 - ~~Google sign-in on web: redirect_uri_mismatch~~ — resolved 2026-08-20: Caelan added the callback URL to Authorized redirect URIs and click-tested live end to end (real account picker, real sign-in, no errors). See session above.
 - **Claude-in-Chrome browser connector won't connect in this environment** — added 2026-08-19. Reports "turned off" regardless of the extension's own Enabled state in Chrome; tabs it creates resolve to `edge://newtab/`, suggesting it's attached to Edge rather than Chrome on this machine. Setting Chrome as the Windows default browser didn't fix it. Not investigated further this session since it wasn't blocking the actual app work — spawned as a separate background task. Would be genuinely useful once working: this agent could click-test Flutter web itself instead of every fix needing a round trip through Caelan's screenshots.
