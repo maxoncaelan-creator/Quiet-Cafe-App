@@ -2534,10 +2534,90 @@ rather than cut from `main` — that branch had uncommitted build-log edits
 and unmerged OAuth notes, so branching from `main` would have conflicted.
 Rebases cleanly once the OAuth PR merges.
 
+## Session — 2026-08-20: Google sign-in on web — redirect_uri_mismatch resolved, click-tested live
+
+Caelan added `https://aesorixtfasfuvcqrvem.supabase.co/auth/v1/callback`
+to the Web OAuth client's **Authorized redirect URIs** (step 4b,
+`PLATFORM_SETUP.md`), waited a minute for propagation, and clicked
+through Google sign-in on the live `.pages.dev` site directly (this
+agent again tried to drive it via the in-app browser first; confirmed
+the same known limitation as before — Flutter web renders to
+`<canvas>`, so the accessibility tree is empty and there's nothing to
+click or find, `read_page`/`find` both came back empty — so it stayed a
+manual click-test rather than a tooling problem worth chasing further).
+Real account picker, real credential entry, successful sign-in, no
+errors. This closes the five-fix Google-on-web saga end to end for the
+first time.
+
+## Session — 2026-08-20 (continued): duplicate desktop nav, password option on OAuth-only accounts, cafe/pub/bar coverage gap
+
+Three real bugs found by Caelan clicking around the live site.
+
+**Duplicate desktop navigation.** `AppShell` (`lib/widgets/app_shell.dart`)
+wrapped every screen with a persistent `NavigationRail` on wide layouts,
+*alongside* each screen's own hamburger `Drawer` — the screens were never
+changed when the rail was added, so both surfaces showed the same 5
+destinations at once above the wide-layout breakpoint (840px). Fix: `AppShell`
+is now a trivial passthrough; the hamburger drawer is the only nav surface
+at every width. Deleted the now-unused `app_nav_rail.dart`. `flutter analyze`
+clean.
+
+**Change password shown on Google-only accounts.** `AccountScreen` always
+showed a "Change password" row regardless of how the account signed in — an
+account that only ever used Google/Facebook/Apple has no password to change.
+Added `SupabaseService.currentUserHasPassword`, which checks
+`currentUser.identities` for a `provider == 'email'` entry (confirmed the
+field on the installed `gotrue` package, `identities: List<UserIdentity>`,
+each with a `provider` string) rather than the singular `appMetadata.provider`
+field, which only reflects the most recently used provider, not all linked
+ones. The Security section now only renders when that's true.
+
+Same session, separate ask: the Account entry in the hamburger drawer was
+styled as an `ActionChip`, visually inconsistent with the plain `_DrawerItem`
+row style every other destination uses. Restyled to match.
+
+**Restaurant/cafe/pub/bar coverage gap — real finding, not a suburb-data
+bug.** Caelan reported Leaf Cafe & Co (Orange NSW) missing from both the app
+and the `restaurants` table, and pubs/bars missing everywhere. Root cause
+was not suburb extraction (`normalizePlace` already reads suburb from
+`addressComponents` via `extractSuburb`, not just address text) — it was the
+query text itself. Every `SEARCH_AREAS` entry (`src/searchAreas.js`) read
+`"restaurants in <area> NSW"` only. Google Places Text Search ranks by
+relevance to the query text, so a place typed "cafe" competes poorly against
+literal "restaurant" matches and is easy to miss within the ~60-result cap
+(3 pages × 20) — explaining Orange specifically, where a small total result
+count means Leaf Cafe likely never made the page. Pubs and bars were absent
+outright: nothing in any query asked for them.
+
+Fix: reworded all 63 area queries from `"restaurants in <area> NSW"` to
+`"restaurants, cafes, pubs and bars in <area> NSW"` (bulk sed, same
+structure otherwise). Deliberately did **not** split this into a separate
+query per category — that would have roughly quadrupled the per-run request
+count (63 areas × 4 categories × up to 3 pages, against a 200-request
+budget and Google's real per-call cost), for a fix that broadening the
+existing query text achieves at the same request count. `npm test` still
+48/48 passing (no test asserted the old query text).
+
+**Not yet re-run against live data** — this is a data-pipeline code change,
+not a data change; the `restaurants` table itself still reflects the old,
+narrower query results until the pipeline runs again with a real
+`GOOGLE_PLACES_KEY`-backed `places-search` call, which costs real Google
+Places API money and needs `data-pipeline/.env`'s real Supabase credential.
+Neither this agent has that credential loosely nor should the run happen
+without Caelan initiating it, per this workspace's cost-sensitive API
+calls. Carried as an open item below.
+
+Branch: created `fix/desktop-nav-account-and-venue-coverage` off
+`origin/main` for this batch (the working tree had drifted onto the stray
+`docs/recover-greater-nsw-documentation` branch, unrelated to this work;
+moved the changes off it rather than committing there). Pushed, PR open —
+same branch-then-PR rule as the rest of this repo, not merged.
+
 ## Open items carried into further build work
+- **Data pipeline needs a real re-run to pick up cafe/pub/bar coverage** — added 2026-08-20. `searchAreas.js` now queries restaurants, cafes, pubs and bars per area (see session above), but the live `restaurants` table still only reflects the old restaurants-only results until the pipeline is actually run again. Caelan's to run (needs `data-pipeline/.env` with the real Supabase credential, and spends real Google Places API budget). After running, specifically re-check Leaf Cafe & Co, Orange NSW — the reported missing case — and spot-check at least one known pub/bar per region now shows up.
 - **Marketing site signup never tested against a real Supabase** — added 2026-08-19. Apply `0011_early_access_signups.sql`, then submit a real address and confirm three things the fake host couldn't exercise: the row actually lands, a second submission of the same address returns the duplicate message rather than the generic one, and the anon key genuinely cannot read the table back (attempt a `select` with it and confirm it's refused — that's the check that the signup list isn't publicly scrapable).
 - **Marketing site not deployed** — added 2026-08-19. Needs its own Cloudflare Pages project (settings in `marketing-site/README.md`), pointed at the apex `cafequiet.com` rather than `app.`. Caelan's, dashboard-only. Check the apex A/CNAME records while attaching it — this zone served a stale parking page from auto-imported records once already, 2026-08-19.
-- **Google sign-in on web: redirect_uri_mismatch, one more dashboard step needed** — added 2026-08-19 (this session). Needs Caelan to add the Supabase callback URL to the Google Web client's Authorized redirect URIs (step 4b, `PLATFORM_SETUP.md`), then retest. If this clears it, that's the flow complete end to end for the first time.
+- ~~Google sign-in on web: redirect_uri_mismatch~~ — resolved 2026-08-20: Caelan added the callback URL to Authorized redirect URIs and click-tested live end to end (real account picker, real sign-in, no errors). See session above.
 - **Claude-in-Chrome browser connector won't connect in this environment** — added 2026-08-19. Reports "turned off" regardless of the extension's own Enabled state in Chrome; tabs it creates resolve to `edge://newtab/`, suggesting it's attached to Edge rather than Chrome on this machine. Setting Chrome as the Windows default browser didn't fix it. Not investigated further this session since it wasn't blocking the actual app work — spawned as a separate background task. Would be genuinely useful once working: this agent could click-test Flutter web itself instead of every fix needing a round trip through Caelan's screenshots.
 - **Referral-code gate for the closed beta — not built, and marketing copy already assumes it.** Added 2026-08-19, handed over from the `quiet-restaurant-finder-marketing` workspace. Today the app gates *mic-reading submission* behind Supabase auth; nothing gates access to the app itself. The beta needs the other thing: someone without a valid referral code should not reach the app at all. This blocks the marketing site going live — its homepage copy says "Closed beta. You'll need a referral code to get in", which is currently untrue. Design questions are open and Caelan's: single-use or reusable codes, whether each beta user gets codes to hand out (that is what makes it a *referral* rather than an invite list), expiry, and what someone sees when they arrive with a bad code or none. The point of the gate is to keep the group small while real mic-reading data accumulates before full launch, so whatever gets built should make it easy to see how many codes are outstanding and how many were redeemed.
 - ~~Marketing website doesn't exist~~ — built 2026-08-19, see the session above; still undeployed and untested against a real Supabase (both tracked as their own items above). **The rule it carried still stands: this workspace builds the site, `quiet-restaurant-finder-marketing` supplies what goes in it. Do not write the copy here.** Every headline, paragraph, button label and line of microcopy comes from the marketing workspace's output (`stages/05_finalize/output/final.md` once it exists; currently only `stages/03_draft/output/draft.md`). If a string is missing, ask for it rather than filling the gap — that workspace holds the positioning, the reading-level standard, and the constraints on what may be claimed about score accuracy. Same branch-and-PR rule as the rest of this repo.

@@ -63,27 +63,19 @@ class AppDrawer extends StatelessWidget {
                 selected: currentRoute == d.route,
                 onTap: () => _go(context, d.route, d.path),
               ),
-            // Login/Account moved to the bottom of the menu items and
-            // restyled as a chip, per Caelan (2026-08-19) — was a full-width
-            // row between Favourites and Settings before.
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: ActionChip(
-                  avatar: Icon(signedIn ? Icons.account_circle : Icons.login, size: 18),
-                  label: Text(
-                    signedIn ? 'Account' : 'Login / Signup',
-                    style: TextStyle(
-                      fontWeight: currentRoute == AppRoute.login ? FontWeight.w600 : FontWeight.normal,
-                    ),
-                  ),
-                  onPressed: () {
-                    Navigator.of(context).pop();
-                    context.push(signedIn ? '/account' : '/sign-in');
-                  },
-                ),
-              ),
+            // Login/Account stays at the bottom of the menu items (Caelan,
+            // 2026-08-19) but matches the same _DrawerItem style as the rest
+            // of the list rather than a chip (Caelan, 2026-08-20) — it had
+            // been visually inconsistent with Search Assistant/List/etc.
+            _DrawerItem(
+              icon: signedIn ? Icons.account_circle_outlined : Icons.login,
+              selectedIcon: signedIn ? Icons.account_circle : Icons.login,
+              label: signedIn ? 'Account' : 'Login / Signup',
+              selected: currentRoute == AppRoute.login,
+              onTap: () {
+                Navigator.of(context).pop();
+                context.push(signedIn ? '/account' : '/sign-in');
+              },
             ),
             const Spacer(),
             const Divider(height: 1),
