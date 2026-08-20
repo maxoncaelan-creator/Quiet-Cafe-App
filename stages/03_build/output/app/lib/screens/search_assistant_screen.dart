@@ -18,6 +18,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 
+import '../services/location_service.dart';
 import '../services/supabase_service.dart';
 import '../widgets/app_drawer.dart';
 
@@ -38,6 +39,7 @@ class _SearchAssistantScreenState extends State<SearchAssistantScreen> {
   final _controller = TextEditingController();
   final _scrollController = ScrollController();
   final _supabaseService = SupabaseService();
+  final _locationService = LocationService();
   final List<_ChatMessage> _messages = [];
   bool _sending = false;
 
@@ -45,25 +47,71 @@ class _SearchAssistantScreenState extends State<SearchAssistantScreen> {
   bool _signedIn = false;
   DateTime? _rateLimitedUntil;
   Timer? _rateLimitRefreshTimer;
+  NearbyRestaurant? _guessedRestaurant;
 
   @override
   void initState() {
     super.initState();
     if (SupabaseService.isConfigured) {
       _signedIn = _supabaseService.isSignedIn;
-      if (_signedIn) _checkRateLimitStatus();
+      if (_signedIn) {
+        _checkRateLimitStatus();
+        _maybeGuessVenue();
+      }
       _authSubscription = _supabaseService.authStateChanges.listen((_) {
         if (!mounted) return;
         final signedIn = _supabaseService.isSignedIn;
         setState(() => _signedIn = signedIn);
         if (signedIn) {
           _checkRateLimitStatus();
+          _maybeGuessVenue();
         } else {
           _rateLimitRefreshTimer?.cancel();
-          setState(() => _rateLimitedUntil = null);
+          setState(() {
+            _rateLimitedUntil = null;
+            _guessedRestaurant = null;
+          });
         }
       });
     }
+  }
+
+  /// Replaces the empty-state splash with "Are you at X?" when a GPS fix
+  /// lands within 100m of exactly one restaurant (find_nearest_restaurant,
+  /// 0014_find_nearest_restaurant.sql — server-side, not a full-table
+  /// fetch). Silently gives up at any step (no permission, location
+  /// services off, no fix, nothing nearby, still in the post-"No"
+  /// cooldown) — this is a convenience on top of the normal splash, never
+  /// something to show an error for.
+  Future<void> _maybeGuessVenue() async {
+    if (!await LocationService.canGuessAgain()) return;
+
+    final position = await _locationService.getCurrentPosition();
+    if (position == null || !mounted) return;
+
+    NearbyRestaurant? nearest;
+    try {
+      nearest = await _supabaseService.findNearestRestaurant(position.latitude, position.longitude);
+    } catch (_) {
+      return;
+    }
+    if (nearest != null && mounted) {
+      setState(() => _guessedRestaurant = nearest);
+    }
+  }
+
+  void _confirmGuess() {
+    final restaurant = _guessedRestaurant;
+    if (restaurant == null) return;
+    // No `extra` — the by-id loader (router.dart's _RestaurantByIdLoader)
+    // fetches the full Restaurant itself, same as opening a bookmarked or
+    // shared restaurant URL directly.
+    context.push('/restaurant/${restaurant.placeId}');
+  }
+
+  Future<void> _dismissGuess() async {
+    await LocationService.recordDismissal();
+    if (mounted) setState(() => _guessedRestaurant = null);
   }
 
   /// A plain table read under RLS (search_assistant_usage's own-row SELECT
@@ -170,7 +218,13 @@ class _SearchAssistantScreenState extends State<SearchAssistantScreen> {
                     children: [
                       Expanded(
                         child: _messages.isEmpty
-                            ? const _EmptyState()
+                            ? (_guessedRestaurant != null
+                                ? _VenueGuessPrompt(
+                                    restaurant: _guessedRestaurant!,
+                                    onYes: _confirmGuess,
+                                    onNo: _dismissGuess,
+                                  )
+                                : const _EmptyState())
                             : _MessageList(
                                 messages: _messages,
                                 sending: _sending,
@@ -294,6 +348,54 @@ class _EmptyState extends StatelessWidget {
               'Ready to start searching for quiet eating spots?',
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.titleMedium,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Occupies the exact same slot as [_EmptyState] rather than a dialog or
+/// popup — Caelan was specific that this replaces the splash icon/message
+/// in place, not overlays it. Sending a message hides it automatically:
+/// _messages becomes non-empty, and build()'s own ternary swaps to
+/// _MessageList before this widget is ever reached again.
+class _VenueGuessPrompt extends StatelessWidget {
+  final NearbyRestaurant restaurant;
+  final VoidCallback onYes;
+  final VoidCallback onNo;
+
+  const _VenueGuessPrompt({required this.restaurant, required this.onYes, required this.onNo});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 40),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircleAvatar(
+              radius: 40,
+              backgroundColor: scheme.primaryContainer,
+              child: Icon(Icons.place_outlined, color: scheme.onPrimaryContainer, size: 36),
+            ),
+            const SizedBox(height: 24),
+            Text(
+              'Are you at ${restaurant.name}?',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 20),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                OutlinedButton(onPressed: onNo, child: const Text('No')),
+                const SizedBox(width: 12),
+                FilledButton(onPressed: onYes, child: const Text('Yes')),
+              ],
             ),
           ],
         ),

@@ -45,6 +45,17 @@ class SearchAssistantRateLimited implements Exception {
   const SearchAssistantRateLimited(this.resetAt);
 }
 
+/// A restaurant near the user's current position — see
+/// [SupabaseService.findNearestRestaurant]. Deliberately just enough to
+/// show "Are you at X?" and navigate; the full [Restaurant] is fetched by
+/// router.dart's own by-id loader only if the user says yes.
+class NearbyRestaurant {
+  final String placeId;
+  final String name;
+  final double distanceMeters;
+  const NearbyRestaurant({required this.placeId, required this.name, required this.distanceMeters});
+}
+
 class SupabaseService {
   static bool get isConfigured => _supabaseUrl.isNotEmpty && _supabaseAnonKey.isNotEmpty;
 
@@ -123,6 +134,33 @@ class SupabaseService {
 
     final row = await _client.from('restaurants').select().eq('place_id', placeId).single();
     return _restaurantFromRow(row);
+  }
+
+  /// Nearest restaurant to (lat, lng) within [maxDistanceMeters], or null if
+  /// none qualify — backs the Search Assistant screen's "Are you at X?" GPS
+  /// guess. Server-side (find_nearest_restaurant, 0014_find_nearest_restaurant.sql)
+  /// rather than fetching every restaurant and computing distance in Dart —
+  /// that was the original 2026-08-18 approach, fine at the table's size
+  /// then, wasteful bandwidth at today's 5,000+ rows.
+  Future<NearbyRestaurant?> findNearestRestaurant(
+    double lat,
+    double lng, {
+    double maxDistanceMeters = 100,
+  }) async {
+    if (!isConfigured) return null;
+    final rows = await _client.rpc('find_nearest_restaurant', params: {
+      'user_lat': lat,
+      'user_lng': lng,
+      'max_distance_meters': maxDistanceMeters,
+    });
+    final list = rows as List;
+    if (list.isEmpty) return null;
+    final row = list.first as Map<String, dynamic>;
+    return NearbyRestaurant(
+      placeId: row['place_id'] as String,
+      name: row['name'] as String,
+      distanceMeters: (row['distance_meters'] as num).toDouble(),
+    );
   }
 
   /// Empty for a signed-out user — favoriting requires an account (same gate

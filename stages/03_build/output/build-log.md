@@ -2903,7 +2903,83 @@ the backend half is built and proven; the two trigger points are still
 open, intentionally scoped out of this pass rather than also touching
 untested app code in the same batch as a new backend service.
 
+## Session — 2026-08-20 (continued): real device geolocation + the GPS venue guess recovered from a stale branch
+
+Caelan asked for user geolocation, framed around three uses: Search
+Assistant suggestions, populating venues near the user, and a proximity
+prompt — "Are you at X?" replacing the Search Assistant's normal splash
+when the device is right next to a known venue, Yes/No buttons, Yes opens
+that restaurant, No returns to the normal splash, sending a message
+dismisses it the same way. Built the concretely-specified piece (the
+proximity prompt, full geolocation plumbing to support it) this pass; the
+Haiku-suggestion and populate-near-user pieces need their own design
+decisions (how to weight distance vs. quietness, whether reverse-geocoding
+is worth its own Google API cost) and are carried as an open item rather
+than guessed at.
+
+**Checked for prior art before writing anything — found real prior art.**
+`ui-design-decisions.md` documented a "GPS venue guess" as already
+"Done, partially live-verified 2026-08-18," but grepping the actual
+current tree for `geolocator`/`getCurrentPosition`/"Are you at" turned up
+nothing. Same shape as the loudness-votes gap found 2026-08-19: real,
+tested work that only ever landed on the stale unmerged
+`feature/loudness-votes-and-venue-guess` branch. That branch's single
+commit (`374d41d`, Caelan, 2026-08-18) already had this near-exactly
+specified — 100m proximity check, "Are you at X?", Yes/No, a 30-minute
+SharedPreferences dismissal cooldown on No — plus a real bug already
+found and fixed there: the original `getCurrentPosition()` call had no
+platform-level time bound, only a Dart-side `.timeout()`, and could hang
+the whole app hard enough to trigger a real Android ANR on a poor/absent
+location fix. Fixed there by adding an explicit `timeLimit` to
+`LocationSettings` itself, confirmed live that this actually prevents the
+freeze. The "found a venue and showed the prompt" path specifically was
+never confirmed live in that session (the test emulator's location
+backend never produced a real fix before the emulator grew unstable).
+
+**Ported rather than rebuilt — same practice as the loudness-votes
+recovery**: `location_service.dart` copied across essentially verbatim
+(the ANR fix is exactly the kind of hard-won lesson worth keeping intact,
+not re-deriving). `search_assistant_screen.dart`'s integration was
+re-applied by hand onto the current, much-changed file (sign-in gating,
+rate-limit messaging, drawer, composer restructuring all postdate the
+stale commit) rather than merged directly.
+
+**One deliberate change from the original, not just a straight port**:
+the 2026-08-18 version fetched the *entire* `restaurants` table
+client-side (`fetchRankedRestaurants()`) just to loop through computing
+distance in Dart — reasonable at whatever size the table was then, real
+wasted mobile bandwidth at today's 5,300+ rows, each carrying review text
+and every signal column. Replaced with `find_nearest_restaurant`
+(`0014_find_nearest_restaurant.sql`) — server-side haversine with a
+bounding-box pre-filter, returns only place_id/name/distance. The app
+doesn't even fetch the full `Restaurant` for a "yes": navigating with just
+the placeId (`context.push('/restaurant/$placeId')`, no `extra`) reuses
+router.dart's existing `_RestaurantByIdLoader`, built for exactly this
+"no in-memory Restaurant object" case (originally for direct/bookmarked
+URL loads). Also updated confirm-guess navigation from the stale branch's
+raw `Navigator.push(MaterialPageRoute(...))` to today's `context.push`
+go_router pattern — the raw-Navigator approach predates the web-support
+routing refactor and would have bypassed it.
+
+Added `geolocator: ^13.0.0` (pulls in real web support via
+`geolocator_web` automatically — unlike `noise_meter`/`audio_streamer`,
+no io/web conditional split needed, one API surface covers all three
+platforms). `ACCESS_COARSE_LOCATION`/`ACCESS_FINE_LOCATION` added to
+`AndroidManifest.xml`, `NSLocationWhenInUseUsageDescription` added to
+`Info.plist` (same wording as the original commit).
+
+**Verified**: `flutter analyze` clean, `flutter test` 4/4 passing. The RPC
+itself tested live with two real cases — exact coordinates of Leaf Cafe &
+Co Orange returned itself at 0m; Sydney CBD coordinates (Martin Place
+area) returned Toby's Estate 25 Martin Place at 28.5m, a real, plausible
+nearby venue. **Not yet click-tested end to end on a real device** — same
+"found a venue and showed the prompt" gap the original session never
+closed either; this pass's RPC-level verification is new, but nobody has
+walked up to a real venue with this build and watched the prompt appear.
+
 ## Open items carried into further build work
+- **GPS venue guess not click-tested live on a real device** — added 2026-08-20. Neither this pass nor the original 2026-08-18 one confirmed the actual "walked up to a venue, saw Are you at X?, tapped Yes, landed on the right restaurant" path against a real GPS fix — only the underlying pieces (RPC, permission flow, ANR fix) were verified independently. Needs a real device outdoors or near a loaded venue.
+- **Haiku suggestions and populate-near-user, from the same ask, not yet built** — added 2026-08-20. Caelan's original ask covered three uses for geolocation; this pass built the proximity-prompt piece (fully specified) and the LocationService/RPC infrastructure it needed. Feeding the user's position into the Search Assistant's Haiku context (so suggestions can favor nearby venues, not just by quietness_score) and connecting position to `ondemand-topup` (auto-triggering a top-up near the user rather than requiring a typed suburb) both need their own design calls — how much to weight distance vs. quietness, whether reverse-geocoding a coordinate into a suburb name is worth its own Google API cost — that weren't specified the way the proximity prompt was. The infrastructure (LocationService, position access) is now in place for both.
 - **`ondemand-topup` uses `SUPABASE_SERVICE_ROLE_KEY`, not a scoped role** — added 2026-08-20, see session above. Would be worth moving to a purpose-built role (mirroring `pipeline_service`, or a new one scoped to just `restaurants` insert + `ondemand_topup_events` read/write) once there's a way to set a new Supabase Function secret in-session — currently dashboard/CLI-only. Caelan's to decide if/when this is worth the extra setup versus the precedented service-role approach already used elsewhere in this codebase.
 - **App-side and Search Assistant-side triggers for `ondemand-topup` not built** — added 2026-08-20. The backend is deployed and live-verified (see session above); nothing in the Flutter app or the `search-assistant` function calls it yet. Two trigger points discussed with Caelan: a thin/empty suburb search result, and the Search Assistant running low on real candidates when asked for "more options."
 - **`ondemand-topup` has no automated tests** — added 2026-08-20. Verified live end-to-end (cap check, a real "no" decision, a real "yes" decision through to upsert) rather than unit-tested — same category as the rest of this session's live-only verification, but worth a real test file if this function gets extended.
