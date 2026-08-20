@@ -383,6 +383,7 @@ Deno.serve(async (req) => {
     }
     return jsonResponse({ triggered: true, placesFound: rows.length, reason });
   } catch (err) {
-    return jsonResponse({ error: 'Search/upsert failed', detail: err instanceof Error ? err.message : String(err) }, 502);
+    console.error('ondemand-topup: Search/upsert failed', err);
+    return jsonResponse({ error: 'Search/upsert failed' }, 502);
   }
 });
