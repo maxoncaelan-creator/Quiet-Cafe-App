@@ -20,6 +20,12 @@ const _supabaseAnonKey = String.fromEnvironment('SUPABASE_ANON_KEY');
 
 class SupabaseNotConfigured implements Exception {}
 
+/// Mirrors redeem_beta_code()'s text return values (0012_beta_access_gate.sql)
+/// — kept as distinct cases rather than a bool so BetaGateScreen can tell
+/// "wrong code" apart from "expired" apart from "someone else already used
+/// this one," per Caelan's "hard block with a message" call.
+enum BetaCodeResult { ok, invalid, expired, alreadyRedeemed, error }
+
 /// The signed-in user's current Search Assistant usage window — see
 /// search_assistant_usage in 0007_search_assistant_rate_limit.sql. Kept in
 /// sync with the search-assistant Edge Function's own constants
@@ -86,6 +92,29 @@ class SupabaseService {
   Stream<AuthState> get authStateChanges => _client.auth.onAuthStateChange;
 
   Future<void> signOut() => _client.auth.signOut();
+
+  /// Redeems a referral code via the security-definer redeem_beta_code()
+  /// RPC (0012_beta_access_gate.sql) — anon key, no sign-in needed, since
+  /// this gate runs before any account exists. [deviceId] lets the same
+  /// device re-enter its own already-redeemed code idempotently (e.g.
+  /// after a reinstall) without letting a *different* device reuse it.
+  Future<BetaCodeResult> redeemBetaCode(String code, String deviceId) async {
+    if (!isConfigured) return BetaCodeResult.error;
+    try {
+      final result = await _client.rpc('redeem_beta_code', params: {
+        'p_code': code,
+        'p_device_id': deviceId,
+      });
+      return switch (result as String?) {
+        'ok' => BetaCodeResult.ok,
+        'expired' => BetaCodeResult.expired,
+        'already_redeemed' => BetaCodeResult.alreadyRedeemed,
+        _ => BetaCodeResult.invalid,
+      };
+    } catch (_) {
+      return BetaCodeResult.error;
+    }
+  }
 
   Future<void> updatePassword(String newPassword) async {
     if (!isConfigured) throw SupabaseNotConfigured();
