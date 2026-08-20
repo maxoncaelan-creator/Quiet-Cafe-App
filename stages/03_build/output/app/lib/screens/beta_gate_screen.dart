@@ -1,18 +1,21 @@
-// Shown before anything else in the app until a valid referral code is
-// redeemed — the closed-beta gate Caelan asked for 2026-08-20. Everything
-// else in the app (browsing included) sits behind this; there is no way
-// past it without a code emailed after Caelan approves a request made on
-// the marketing site. See build-log.md "Referral-code gate."
+// Shown to a signed-in account that hasn't redeemed a beta code yet —
+// reached only after sign-in now (router.dart's redirect enforces that
+// ordering), per Caelan's 2026-08-21 correction: codes attach to the
+// account, not the device, so this screen's only job is asking for a code
+// and telling BetaGateNotifier to recheck once one redeems successfully.
+// See 0015_beta_code_account_binding.sql for why this replaced the earlier
+// device-bound version — that one locked Caelan himself out on a second
+// browser using his own real code.
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import '../services/beta_gate_service.dart';
+import '../services/beta_gate_notifier.dart';
 import '../services/supabase_service.dart';
 
 class BetaGateScreen extends StatefulWidget {
-  final VoidCallback onUnlocked;
+  final BetaGateNotifier gateNotifier;
 
-  const BetaGateScreen({super.key, required this.onUnlocked});
+  const BetaGateScreen({super.key, required this.gateNotifier});
 
   @override
   State<BetaGateScreen> createState() => _BetaGateScreenState();
@@ -20,6 +23,7 @@ class BetaGateScreen extends StatefulWidget {
 
 class _BetaGateScreenState extends State<BetaGateScreen> {
   final _controller = TextEditingController();
+  final _supabaseService = SupabaseService();
   bool _submitting = false;
   String? _error;
 
@@ -32,13 +36,14 @@ class _BetaGateScreenState extends State<BetaGateScreen> {
       _error = null;
     });
 
-    final deviceId = await BetaGateService.deviceId();
-    final result = await SupabaseService().redeemBetaCode(code, deviceId);
+    final result = await _supabaseService.redeemBetaCode(code);
     if (!mounted) return;
 
     if (result == BetaCodeResult.ok) {
-      await BetaGateService.markUnlocked();
-      widget.onUnlocked();
+      // Updates gateNotifier.hasAccess and fires notifyListeners(), which
+      // GoRouter's refreshListenable picks up to redirect away from this
+      // screen on its own — no manual navigation needed here.
+      await widget.gateNotifier.refresh();
       return;
     }
 
@@ -46,12 +51,19 @@ class _BetaGateScreenState extends State<BetaGateScreen> {
       _submitting = false;
       _error = switch (result) {
         BetaCodeResult.expired => 'That code has expired. Request a new one on our website.',
-        BetaCodeResult.alreadyRedeemed => 'That code has already been used.',
+        BetaCodeResult.alreadyRedeemed => 'That code has already been used by another account.',
         BetaCodeResult.invalid => "That code isn't valid. Check it and try again.",
         BetaCodeResult.ok => null, // unreachable, handled above
         BetaCodeResult.error => 'Something went wrong. Try again in a moment.',
       };
     });
+  }
+
+  Future<void> _signOut() async {
+    await _supabaseService.signOut();
+    // authStateChanges fires from this, which BetaGateNotifier already
+    // listens to and refreshes from — the redirect sends them to
+    // /sign-in on its own once hasAccess resets.
   }
 
   @override
@@ -75,8 +87,9 @@ class _BetaGateScreenState extends State<BetaGateScreen> {
                 children: [
                   Text('Closed beta', style: Theme.of(context).textTheme.headlineMedium),
                   const SizedBox(height: 8),
-                  const Text(
-                    "You'll need a referral code to get in. Enter it below, or "
+                  Text(
+                    "You're signed in as ${_supabaseService.currentUserEmail ?? 'this account'}, "
+                    "but it doesn't have beta access yet. Enter a referral code below, or "
                     'request access on our website.',
                   ),
                   const SizedBox(height: 24),
@@ -103,6 +116,11 @@ class _BetaGateScreenState extends State<BetaGateScreen> {
                   TextButton(
                     onPressed: () => launchUrl(Uri.parse('https://cafequiet.com')),
                     child: const Text('Request access'),
+                  ),
+                  const SizedBox(height: 24),
+                  TextButton(
+                    onPressed: _submitting ? null : _signOut,
+                    child: const Text('Not you? Sign out'),
                   ),
                 ],
               ),

@@ -165,20 +165,31 @@ domain.
 
 ## Closed-beta referral gate
 
-**Decided and built with Caelan, 2026-08-20.** One referral code per
-approved requester, single-use, expiring a year after issuance if never
-redeemed. A requester submits the marketing site's existing "Request early
-access" form; Caelan gets one email with a review link (a real confirm page
-with a button, not a bare "click to approve" link — see build log
-"Referral-code gate" for why that distinction is load-bearing); approving
-generates the code and emails it to the requester. The app hard-blocks
-entry with a message on any invalid, expired, or already-used-elsewhere
-code; repeat requests from the same email dedupe rather than emailing
-Caelan twice. See
+**Decided and built with Caelan, 2026-08-20; codes rebound to accounts
+2026-08-21.** One referral code per approved requester, single-use per
+account, expiring a year after issuance if never redeemed. A requester
+submits the marketing site's existing "Request early access" form; Caelan
+gets one email with a review link that approves the request on a single
+click (originally designed as a GET-renders-a-page/POST-approves split to
+avoid a mail-scanner pre-fetch risk, but Supabase Edge Functions turned out
+unable to serve real clickable HTML at all — see build log "Resend secrets
+set, domain verified" session for that finding); approving generates the
+code and emails it to the requester. Repeat requests from the same email
+dedupe rather than emailing Caelan twice.
+
+**Codes attach to the signed-in account, not the device that redeems
+them** — corrected 2026-08-21 after the original device-bound design
+locked Caelan himself out on a second browser using his own real code.
+During the closed beta, sign-in is required before anything else in the
+app (a temporary override of "browsing never needs an account" below, not
+a permanent change); a signed-in account without a redeemed code sees the
+code-entry screen, with a "sign out and try another account" way out.
+Entering an already-used-elsewhere code hard-blocks with a message, same
+as before. See
 [[quiet-restaurant-finder/stages/03_build/output/build-log|build log]]
-"closed-beta referral gate built and live-tested" for the full design and
-what's live-verified vs. still open (email delivery itself needs Resend
-secrets Caelan hasn't set yet; not click-tested on a real device).
+"beta codes rebound to accounts, not devices" for the full design and
+what's live-verified (the account-binding RPCs, with real test accounts)
+vs. still open (not yet click-tested on a real device/build).
 
 ## Account & Search Assistant access
 

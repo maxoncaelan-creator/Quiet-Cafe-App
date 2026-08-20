@@ -44,6 +44,21 @@ class _AuthScreenState extends State<AuthScreen> {
   String? _error;
   String? _info;
 
+  /// Was this screen reached via a push (from _ensureSignedIn/_startReading,
+  /// pre-beta pattern) or via router.dart's top-level gate redirect (added
+  /// 2026-08-21 — no caller waiting for a pop result in that case)? Popping
+  /// with nothing beneath this route would be a no-op at best; go('/') lets
+  /// the gate redirect itself decide where this account actually belongs
+  /// (straight in, or to /beta-gate) rather than assuming '/' is reachable.
+  void _completeSignIn() {
+    if (!mounted) return;
+    if (context.canPop()) {
+      context.pop(true);
+    } else {
+      context.go('/');
+    }
+  }
+
   Future<void> _runOAuth(Future<void> Function() signIn, {required bool popOnSuccess}) async {
     setState(() {
       _submitting = true;
@@ -52,7 +67,7 @@ class _AuthScreenState extends State<AuthScreen> {
     });
     try {
       await signIn();
-      if (popOnSuccess && mounted) context.pop(true);
+      if (popOnSuccess) _completeSignIn();
     } catch (e) {
       setState(() => _error = 'Sign-in failed: $e');
     } finally {
@@ -62,7 +77,7 @@ class _AuthScreenState extends State<AuthScreen> {
 
   Future<void> _signInWithEmail() async {
     final result = await context.push<bool>('/sign-in/email');
-    if (result == true && mounted) context.pop(true);
+    if (result == true) _completeSignIn();
   }
 
   /// Pushes the create-account flow and relays its result: `true` means a
@@ -78,7 +93,7 @@ class _AuthScreenState extends State<AuthScreen> {
         if (mounted) setState(() => _info = message);
       },
     );
-    if (result == true && mounted) context.pop(true);
+    if (result == true) _completeSignIn();
   }
 
   @override
@@ -94,9 +109,7 @@ class _AuthScreenState extends State<AuthScreen> {
                 GoogleAuthButton(
                   label: 'Sign in with Google',
                   submitting: _submitting,
-                  onSignedIn: () {
-                    if (mounted) context.pop(true);
-                  },
+                  onSignedIn: _completeSignIn,
                   onError: (e) => setState(() => _error = 'Sign-in failed: $e'),
                 ),
                 const SizedBox(height: 12),
