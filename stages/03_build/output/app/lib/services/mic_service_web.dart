@@ -3,10 +3,25 @@
 // no web platform at all, so this is a from-scratch implementation, not a
 // gated-off stub: getUserMedia for the raw audio stream, an AnalyserNode
 // for time-domain amplitude samples, RMS -> dB the same way noise_meter
-// does it (20*log10(amplitude)) so both platforms feed scoring.js's
-// micSubscore the same dBA-shaped scale. No audio is recorded or stored —
-// same privacy constraint as the native path, just enforced by never
-// calling anything but getByteTimeDomainData on the analyser.
+// does it so both platforms feed scoring.js's micSubscore the same
+// dBA-shaped scale.
+//
+// Fixed 2026-08-20: this previously computed 20*log10(rms) directly, which
+// is dBFS (decibels relative to *full scale*, where 1.0 = 0dB) — negative
+// for any rms below 1.0, which is essentially always, since normalized
+// samples live in roughly [-1, 1]. That's why readings showed up negative
+// (Caelan reported this live). noise_meter's own source
+// (package:noise_meter's NoiseReading, wrapping audio_streamer) computes
+// 20*log10(maxAmp * amplitude) with maxAmp = 2^15 (32768, the max value of
+// a 16-bit PCM sample) — i.e. it rescales the normalized amplitude back up
+// before taking the log, which is what actually lands it in the same
+// positive, real-world-plausible dB range native readings produce. Applying
+// the same maxAmp factor here is what "the same way noise_meter does it"
+// was always supposed to mean; the multiplication was just missing.
+//
+// No audio is recorded or stored — same privacy constraint as the native
+// path, just enforced by never calling anything but getByteTimeDomainData
+// on the analyser.
 
 import 'dart:async';
 import 'dart:js_interop';
@@ -65,7 +80,12 @@ class MicService {
           sumSquares += normalized * normalized;
         }
         final rms = math.sqrt(sumSquares / buffer.length);
-        final db = rms > 0 ? 20 * math.log(rms) / math.ln10 : 0.0;
+        // Matches noise_meter's own calibration exactly (NoiseReading in
+        // package:noise_meter) — see the file-header comment for why this
+        // factor is what turns a negative dBFS-style result into the same
+        // positive scale native readings use.
+        const maxAmp = 32768.0; // 2^15
+        final db = rms > 0 ? 20 * math.log(maxAmp * rms) / math.ln10 : 0.0;
         onReading(db.isFinite ? db : 0);
       } catch (e) {
         onError(e);
