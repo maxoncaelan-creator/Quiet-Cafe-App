@@ -66,6 +66,38 @@ quiet-restaurant-finder/
   feature branch and open a pull request for Caelan to review and merge (or
   merge only when he explicitly asks). See `_config/decisions.md`'s "Git
   workflow" — this followed an accidental direct push.
+- **Choose the auth/integration flow per platform before writing code.** When
+  a hosted provider (Supabase here) offers both a vendor client-SDK flow and
+  its own server-side redirect flow, those are different mechanisms with
+  different credentials, different dashboard fields and different failure
+  modes — not two styles of the same thing. The vendor SDK belongs on native,
+  where it gives a real native account picker; the provider's redirect flow
+  belongs on web, where adopting the vendor's browser SDK means reimplementing
+  its button rendering, its once-per-page init contract and its nonce handling
+  inside this app. Google sign-in on web was built the wrong way round and
+  produced five consecutive live-caught failures before the choice itself was
+  revisited (`MISTAKES.md`, `vendor-sdk-flow-wrong-for-platform`). Switching
+  web to `signInWithOAuth` deleted all five at once and none recurred.
+
+  Two signals that the *flow* is wrong rather than the code:
+  - You are writing code to manage the vendor SDK's lifecycle — memoizing an
+    initializer, hashing a nonce, subscribing to an SDK event stream to learn
+    that an operation finished — rather than code that states what this app
+    wants.
+  - **Three or more consecutive fixes in one integration.** At that point the
+    next patch is the wrong move; re-derive the design instead. This is the
+    rule that would have saved the most time here and the easiest one to skip,
+    precisely because each individual fix still looks correct in isolation —
+    each of these five was.
+
+  Related, and still true: a platform-specific SDK integration isn't done
+  until it has been exercised live on that platform. A clean `flutter analyze`
+  and a successful build confirm the code is well-typed, not that a
+  third-party SDK's runtime contract is satisfied. When a real click-test
+  isn't possible in the current session (this sandbox cannot render Flutter
+  web — it draws to `<canvas>` with no accessible DOM until a genuine user
+  gesture enables semantics), say so plainly rather than reporting a clean
+  build as equivalent proof.
 
 ## Standards and mistakes
 
