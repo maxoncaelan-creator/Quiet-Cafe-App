@@ -107,14 +107,45 @@ Not active:
 
 ## Domain
 
-`cafequiet.com` — purchased by Caelan, confirmed 2026-08-17. No hosting
-pointed at it yet (currently resolves to the registrar, Crazy Domains).
-Planned uses: the marketing site (see the `quiet-restaurant-finder-marketing`
-workspace), Supabase Auth's Site URL (still `http://localhost:3000`, needs
-updating — dashboard-only change, not yet done), and eventually Universal
-Links (iOS) / App Links (Android) once real hosting + an Apple Developer
-Team ID + an Android signing key all exist — see `PLATFORM_SETUP.md`
-"Universal Links / App Links."
+`cafequiet.com` — purchased by Caelan, confirmed 2026-08-17. DNS fully
+delegated to Cloudflare as of 2026-08-19 (nameservers confirmed via direct
+lookup, not assumed) — no longer sitting on the registrar (Crazy Domains)
+the way it was when this section was last accurate.
+
+**Parking-page incident, found and resolved 2026-08-19.** The apex and
+`www` were briefly serving an unrelated ad-tech/parking page (a
+`consentmanager.net` script, a Cloudflare bot-challenge, and hidden
+"Intentionally hidden, please ignore" text — flagged to Caelan as a likely
+prompt-injection attempt aimed at AI browsing agents, not acted on).
+Root cause: stale Crazy Domains default-parking `A` records
+(`27.124.125.171`, proxied) that got auto-imported into the new Cloudflare
+zone during the 2026-08-17 nameserver migration's "Scan DNS Records" step,
+and were never replaced once real hosting was planned — not a compromise;
+Cloudflare's audit log was checked directly and every action traced to
+Caelan's own account or `system`. Caelan deleted the stale `A` records and
+separately enabled Domain Lock at the registrar (found off — a real,
+unrelated transfer-risk exposure). If `cafequiet.com` or any subdomain
+ever shows unexpected content again, check Cloudflare's DNS records first
+— this exact failure mode has already happened once.
+
+**Supabase Auth's Site URL updated to `https://cafequiet.com`**, resolved
+2026-08-19 (previously `http://localhost:3000`) — confirmed saved live,
+not just submitted. `https://app.cafequiet.com` stays as its own explicit
+Redirect URL alongside the app's custom URL scheme; Site URL and Redirect
+URLs serve different roles (fallback/email-template variable vs. an
+explicit allow-list), so there was never a real conflict between the two
+domains once separated that way.
+
+Still open, both Caelan's: attaching `app.cafequiet.com` as the Cloudflare
+Pages custom domain (see "Platform" above), and adding both
+`https://quiet-restaurant-finder.pages.dev` and `https://app.cafequiet.com`
+to the Google OAuth Web client's Authorized JavaScript origins (see
+`PLATFORM_SETUP.md`'s Google section — currently blocking Google sign-in
+on web entirely). Also still planned: the marketing site (see the
+`quiet-restaurant-finder-marketing` workspace) at the apex, and eventually
+Universal Links (iOS) / App Links (Android) once real hosting + an Apple
+Developer Team ID + an Android signing key all exist — see
+`PLATFORM_SETUP.md` "Universal Links / App Links."
 
 ## Email delivery
 
@@ -204,10 +235,18 @@ the existing Settings → Location GPS toggle — see `ui-design-decisions.md`
 commit was accidentally pushed straight to `main` in an earlier session.
 Every change goes through a feature branch and a pull request that Caelan
 reviews and merges himself (or explicitly asks this agent to merge). A real
-GitHub branch-protection rule enforcing this hasn't been set up yet — no
-session so far has had an authenticated path to github.com to configure it
-— so this is currently a behavioral rule, not a platform-enforced one. See
-`AGENTS.md`'s "Rules specific to this workspace."
+GitHub branch-protection rule enforcing this still hasn't been set up —
+**update 2026-08-19**: a GitHub connector became available and does
+authenticate (`get_me` resolves to `maxoncaelan-creator`), but every
+repo-scoped call against `Quiet-Cafe-App` specifically still 404s
+(confirmed several times, including immediately after Caelan changed the
+app's permissions once) — the GitHub App installation doesn't have this
+repo in its access list, or that grant hasn't propagated. So this is still
+a behavioral rule, not a platform-enforced one, and PRs still need to be
+opened by Caelan from a compare link this agent generates — but the
+blocker is now "this repo isn't in the App's access list," a narrower,
+more fixable gap than "no authenticated path at all." See `AGENTS.md`'s
+"Rules specific to this workspace."
 
 ## Git tracking
 
@@ -232,3 +271,46 @@ The app's code is mirrored at
 (pushed 2026-08-16). This workspace remains the source of truth for *why*
 each decision was made and for the build log; the GitHub repo is where future
 code changes happen.
+
+## Repository visibility
+
+**Changed 2026-08-20**: Caelan manually changed
+[Quiet-Cafe-App](https://github.com/maxoncaelan-creator/Quiet-Cafe-App) from
+**Private to Public**, and the run of GitHub failures that had been blocking
+work stopped immediately — the repo became visible and interactive in the same
+moment.
+
+**Cause.** The authorised GitHub connector has **public-repo access only**.
+A private repository is not merely refused, it is invisible: it does not appear
+in `search_repositories`, and reads against it come back as *not found* rather
+than *not authorised*. That failure shape is what made this expensive to
+diagnose — it reads like a broken connector, a wrong owner, or a typo in the
+repo name, so the debugging goes looking for those instead. Check repository
+visibility **first** when GitHub calls fail against a repo that should exist.
+
+**This was misdiagnosed once already.** A `private: false` reading taken from
+the API *after* the change was cited as evidence that visibility had never been
+the problem. An observation taken after the state changed cannot testify about
+the state before it (`MISTAKES.md`,
+`verification-cannot-detect-the-fault`).
+
+**Consequence, still open.** The repo is public as a workaround, not as a
+decision anybody made on the merits. While public, the full source, the build
+log, `MISTAKES.md`, `AGENTS.md` and the whole PR history are world-readable.
+Anything committed while it was private on the assumption it stayed private —
+credentials, endpoints, internal notes — is exposed now, and flipping it back
+does not un-expose whatever has already been fetched or indexed. Worth an
+explicit pass over the history for secrets regardless of which way this lands.
+
+Two ways to close it, Caelan's call:
+
+- **Re-grant the connector private-repo access** (claude.ai connector settings)
+  and flip the repo back to Private. This is the durable fix; the current grant
+  appears to have been approved for public repositories only.
+- **Leave it public** if that was always the intent — it is a consumer app with
+  a marketing site in flight, so a public repo may be fine by design. Then this
+  stops being a workaround and becomes the decision.
+
+Note that `data-pipeline/.env` holds a real Supabase credential and is
+gitignored; that protection is unchanged by visibility, but it is the first
+thing to confirm still holds if the repo stays public.

@@ -21,15 +21,6 @@ Auth screens (auth_screen.dart, create_account_screen.dart, and others) were bui
 **Standard:** Forms with text fields need to handle a keyboard-shrunk viewport (a scrollable container), not assume content always fits the available height.
 **Fix:** Wrapped every auth screen's form in a shared CenteredScrollForm widget (LayoutBuilder + SingleChildScrollView + ConstrainedBox), then verified live by forcing the emulator's soft keyboard on and confirming no overflow.
 
-## incomplete-verification-build-flags
-
-Reported a verification as passing without using the full documented run configuration, hiding a config gap as a false bug report.
-
-### 2026-08-18 | 03_build | caught: user
-Verified the auth-flow restructuring live on the emulator without passing --dart-define=GOOGLE_WEB_CLIENT_ID. The Google/Apple sign-in buttons correctly hid themselves per existing design (missing config = hide, not error), but I reported the check as 'Verified live on the emulator' without noticing they were absent from my own screenshots. Caelan reported it as a removed feature before it was traced back to the incomplete test config.
-**Standard:** A 'verified live' claim should use the full documented run configuration (PLATFORM_SETUP.md's dart-define flags), and screenshots taken as evidence should be checked for what's missing, not just what's present.
-**Fix:** Confirmed via git diff that no OAuth code had actually changed, then rebuilt with the complete flag set and reverified; used the full flag set in every subsequent rebuild this session.
-
 ## raw-backend-error-shown-to-user
 
 Displayed a raw backend error message to the user instead of a written one, causing real confusion about what was actually wrong.
@@ -61,6 +52,8 @@ A call to mcp__ccd_directory__request_directory fired mid-session, granting acce
 
 Mistakes happened during the session but weren't recorded until asked for at the very end, despite AGENTS.md requiring recording as they happen.
 
+**Guard:** AGENTS.md - "As it happens has one concrete trigger: being corrected"
+
 ### 2026-08-18 | - | caught: self
 None of the five mistakes above were recorded in this workspace's MISTAKES.md at the point they actually happened. All five (plus this one) were only written after Caelan explicitly asked for a full-conversation review at the end of the session.
 **Standard:** This workspace's AGENTS.md: 'record it in this workspace's MISTAKES.md as it happens, not at the end.'
@@ -70,6 +63,11 @@ None of the five mistakes above were recorded in this workspace's MISTAKES.md at
 Second occurrence: none of this session's work (Google/password fix, list-screen and reading-flow redesign, loudness votes, GPS venue guess, the unbounded-native-async-call ANR) was logged to MISTAKES.md as it happened, despite this exact failure already being recorded once before. Only written now because Caelan asked at the end of the session, again.
 **Standard:** This workspace's AGENTS.md: 'record it in this workspace's MISTAKES.md as it happens, not at the end.'
 **Fix:** Logged now via full-conversation review. Still within the 1-2 occurrence 'incident' band per _system/mistakes.md's threshold table, so no guard is required yet -- but a third occurrence would cross into 'approaching' and call for one.
+
+### 2026-08-20 | 03_build | caught: user
+Made the private/public error, was corrected by Caelan, then wrote a session-memory entry about the connector constraint and moved on without logging the mistake. Both of this session's occurrences were written only after Caelan explicitly asked, a turn later. The correction itself was the moment of discovery and it passed unrecorded.
+**Standard:** _system/mistakes.md: record on discovery, not at the end - the moment the mistake is apparent, write it. Being corrected by the user is that moment; no prompt should be needed.
+**Fix:** Recorded both occurrences from this session in one pass and recompiled MasterMistakes.md.
 
 ## unbounded-native-async-call
 
@@ -194,3 +192,32 @@ The five Google-sign-in-on-web failures were filed under four separate slugs nam
 **Standard:** _system/mistakes.md: the slug is the identity of the mistake and the only thing counting works on - reuse an existing slug rather than inventing a near-duplicate, because two slugs for one class hide the pattern that would have shown as one.
 **Fix:** Merged the four into vendor-sdk-flow-wrong-for-platform, added the unrecorded fifth occurrence, which took the class to 5 and made a Guard line mandatory. Before opening a new class, check whether an existing one already names the same root cause rather than the symptom seen this time.
 
+## decision-documented-as-shipped-when-unmerged
+
+_config/decisions.md's 'Loudness votes' entry read as a completed feature ('decided with Caelan 2026-08-18... Replaced the detail screen's Score breakdown section entirely') when in fact only the backend (migration, scoring.js) had actually been applied live - the UI (loudness_vote_buttons.dart, the wiring into restaurant_detail_screen.dart) was built the same day but only ever committed to feature/loudness-votes-and-venue-guess, a branch that never got merged to main. The decisions.md entry was written as if the whole feature had shipped, not just the decision. Found by chance while implementing an unrelated detail-screen redesign request and noticing the app still showed the old Score breakdown Caelan had asked to replace.
+
+### 2026-08-19 | 03_build | caught: self
+_config/decisions.md's 'Loudness votes' entry read as a completed feature ('decided with Caelan 2026-08-18... Replaced the detail screen's Score breakdown section entirely') when in fact only the backend (migration, scoring.js) had actually been applied live - the UI (loudness_vote_buttons.dart, the wiring into restaurant_detail_screen.dart) was built the same day but only ever committed to feature/loudness-votes-and-venue-guess, a branch that never got merged to main. The decisions.md entry was written as if the whole feature had shipped, not just the decision. Found by chance while implementing an unrelated detail-screen redesign request and noticing the app still showed the old Score breakdown Caelan had asked to replace.
+**Standard:** A decisions.md entry describing a UI change as done should be checked against what's actually in main/merged, not just what's been decided and partially built - 'decided and backend-built' and 'shipped' are different claims and read the same way to a future session skimming this file.
+**Fix:** Added a 2026-08-19 correction note directly in the decisions.md entry explaining the gap and pointing at the real cause, rather than silently rewriting history. Ported the actual UI work (loudness_vote_buttons.dart, migration file, scoring/pipeline/supabase wiring) from the stale branch onto the current codebase and shipped it for real this session.
+
+## verification-cannot-detect-the-fault
+
+Reported a conclusion from a check that could not have detected the thing being claimed - wrong run configuration, a reading taken after the state changed, or a field the endpoint never populates.
+
+**Guard:** AGENTS.md - "Before reporting a check as conclusive, say what it would show if the claim were false"
+
+### 2026-08-18 | 03_build | caught: user
+Verified the auth-flow restructuring live on the emulator without passing --dart-define=GOOGLE_WEB_CLIENT_ID. The Google/Apple sign-in buttons correctly hid themselves per existing design (missing config = hide, not error), but I reported the check as 'Verified live on the emulator' without noticing they were absent from my own screenshots. Caelan reported it as a removed feature before it was traced back to the incomplete test config.
+**Standard:** A 'verified live' claim should use the full documented run configuration (PLATFORM_SETUP.md's dart-define flags), and screenshots taken as evidence should be checked for what's missing, not just what's present.
+**Fix:** Confirmed via git diff that no OAuth code had actually changed, then rebuilt with the complete flag set and reverified; used the full flag set in every subsequent rebuild this session.
+
+### 2026-08-20 | 03_build | caught: user
+Told Caelan that the private-repo theory does not hold, citing private:false from the GitHub API. That reading was taken after he had already flipped Quiet-Cafe-App from Private to Public, so it could only ever return false and could not test the claim at all. The repo being private was in fact the entire cause of the GitHub failures. Caelan corrected it directly - he had manually changed it to Public and access started working immediately - after the wrong assertion had already pointed the debugging away from the real cause.
+**Standard:** An observation taken after a state has changed is not evidence about the state before it. Before reporting a check as conclusive, confirm the check could have returned a different answer if the claim were false.
+**Fix:** Retracted the claim and recorded the real constraint: the GitHub connector has public-repo-only access, so a private repo reads as not-found rather than not-authorized. Written to _config/decisions.md and to session memory.
+
+### 2026-08-20 | 03_build | caught: self
+Reported to Caelan as a finding worth chasing that all 16 closed PRs show merged:false, so nothing had ever landed on main through a pull request. The list_pull_requests endpoint does not populate the merged boolean - it carries merged_at instead - so every PR reads merged:false there regardless of the truth. git log shows the tip of main is a merge commit for PR 18, and the single-PR endpoint returns merged:true for both 16 and 18. Caught while verifying the claim before writing it into documentation, one turn after asserting it.
+**Standard:** A field read from a list endpoint is not evidence unless that endpoint populates it. A value identical across every record is a signal the field is unpopulated, not a finding.
+**Fix:** Verified against git log and the single-PR endpoint, corrected the claim to Caelan, and kept it out of the documentation.

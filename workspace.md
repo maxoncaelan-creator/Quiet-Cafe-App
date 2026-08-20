@@ -3,7 +3,7 @@ name: quiet-restaurant-finder
 title: Quiet Restaurant Finder
 status: active
 kind: content
-purpose: Research, design, and build a mobile app that ranks Sydney restaurants by how quiet they are.
+purpose: Research, design, and build a mobile app that ranks restaurants across Greater Sydney and beyond by how quiet they are.
 inputs: Confirmed product decisions from Caelan; research on restaurant and noise data sources.
 outputs: A research brief, a PRD, a ranking spec and data schema, and the running Flutter app + data pipeline + Supabase backend, with a build log of what's verified and what's open.
 triggers:
