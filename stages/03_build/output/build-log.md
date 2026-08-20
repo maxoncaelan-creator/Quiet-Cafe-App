@@ -2734,8 +2734,100 @@ Roughly 580 billed Places API requests across today's three runs combined
 one) — real money spent, growing past "a few dollars." Stopping here to
 report rather than kicking off a fourth run unprompted.
 
+## Session — 2026-08-20 (continued): remaining-area top-up closes the Orange gap; on-demand suburb top-up architecture built and live-verified
+
+**Remaining-area top-up.** Ran a one-off script (`topup-remaining-areas.mjs`,
+not committed — a manual invocation of the same reusable
+`possiblyTruncated`/category-followup mechanism already in
+`places.js`/`pipeline.js`, not new logic) covering exactly the 31 areas
+after Penrith in `SEARCH_AREAS` that the prior run's budget never reached,
+rather than re-running all 63 (which would have re-spent on 32 areas
+already fully done). Found 2,321 unique places. **Leaf Cafe & Co, Orange
+NSW — the original report — confirmed present**, with its real Google
+data (4.8★, 5 real review texts) upserted correctly. Applied the same
+calibration-offset treatment to any mic readings as the main pipeline
+(`applyCalibrationOffsets`), matching `main()`'s behavior exactly rather
+than a shortcut version.
+
+**Mid-task discovery: this working directory is shared.** While the above
+was running, the checked-out branch changed out from under this session
+(`fix/desktop-nav-account-and-venue-coverage` → `feature/beta-referral-gate`,
+with real uncommitted referral-gate work already on it — new screens,
+services, two Edge Functions, a migration). Confirmed with Caelan this is
+expected concurrent work (likely another session building the
+already-flagged referral-gate open item). Left it untouched. Also found
+that PR #20 had merged almost immediately after opening — before the
+pagination-fix and retry/follow-up commits existed — so `main` was two
+commits behind what this branch actually had. Opened a second PR
+(`fix/desktop-nav-account-and-venue-coverage` → `main`, connector still
+403s on this repo, direct link given to Caelan) to close that gap. Rather
+than keep editing inside the shared, actively-changing directory, created
+an isolated git worktree (`../quiet-restaurant-finder-ondemand`, branch
+`feature/ondemand-suburb-topup`, based on the fix branch so it already had
+today's pagination/retry/follow-up work) for the architecture change below.
+
+**On-demand suburb top-up — the architectural change Caelan asked for.**
+The batch pipeline pre-populates a curated, representative area list; this
+adds the other half — when a real search comes up thin for a suburb, ask
+Haiku whether it's worth a real, billed Google Places call to fill it in,
+rather than either ignoring the gap or hitting Google on every thin search.
+Daily cap set at 20 (Caelan's call, chosen over a 5/day conservative option
+and no-cap-yet).
+
+New: `0013_ondemand_topup.sql` (`ondemand_topup_events` — logs every
+decision, yes or no, backing both the daily-cap count and each area's
+"when did we last check" recency for Haiku's context; RLS enabled, no
+policies, service-role-only same as `search_assistant_usage`) and the
+`ondemand-topup` Edge Function.
+
+Three real things worth recording about how it's built:
+
+- **Deliberately additive-only.** The batch pipeline's upsert intentionally
+  overwrites every column on conflict, including mic/vote signals, because
+  it always re-fetches those fresh. This function never fetches mic
+  readings or votes at all — upserting the same way would have silently
+  wiped real accumulated user data on any venue it happened to
+  re-discover. Caught before shipping, not after: uses
+  `ON CONFLICT (place_id) DO NOTHING` instead. New venues only; re-scoring
+  an existing venue stays the batch pipeline's job.
+- **No new DB secret available, so it uses `SUPABASE_SERVICE_ROLE_KEY`
+  instead of the pipeline's `pipeline_service` Postgres role.** The
+  pipeline's own role is the more scoped, RLS-respecting choice and is
+  what the Node pipeline uses, but its connection string lives only in
+  local `data-pipeline/.env` — setting a new Supabase Function secret is
+  dashboard/CLI-only, nothing this session had a tool for. Service-role
+  was already precedented in this exact codebase (`search-assistant`'s
+  `search_assistant_usage` writes) for the same reason: a write anon can't
+  do and no scoped role's credential is available here. Flagged as an open
+  item below rather than treated as equivalent to the pipeline's approach.
+- **Haiku wraps JSON in a ```` ```json ```` fence more often than not**,
+  despite the system prompt explicitly saying not to. Found live: the
+  first two real test calls both silently fell back to the "couldn't
+  parse, default to no" safe path — a real bug, not a Haiku-reasoning
+  problem (the underlying reasoning was correct both times, e.g. "coverage
+  is excellent with 105 venues" for Newtown). Fixed by stripping a leading
+  ` ```json ` / trailing ` ``` ` fence before parsing rather than fighting
+  the model harder in the prompt.
+
+**Verified live**, not just deployed: the daily-cap check, an already-covered
+area correctly declining (`Newtown`, 105 venues → "no", correct reasoning,
+no Google spend), and a genuinely uncovered real NSW town triggering the
+full path end to end (`Cowra` → "yes" → searched, scored, upserted — 46
+real venues landed with correct additive scoring: zero mic/vote signals as
+expected for brand-new rows, one venue picked up a real review-mention
+score). Confirmed directly against `restaurants` and `ondemand_topup_events`
+via SQL, not inferred from the HTTP response alone.
+
+Not yet done: wiring an actual trigger from the Flutter app (thin search
+results) or the Search Assistant ("more options") to call this function —
+the backend half is built and proven; the two trigger points are still
+open, intentionally scoped out of this pass rather than also touching
+untested app code in the same batch as a new backend service.
+
 ## Open items carried into further build work
-- **18 of the 48 capped areas still haven't had their follow-up queries run — including Orange, the originally reported case** — added 2026-08-20. The fix and mechanism are proven (8 more Leaf Cafe & Co branches recovered this run alone); this specific gap is just unspent budget, not a bug. A targeted top-up run covering only the remaining 18 areas (roughly Fairfield through Kiama in `SEARCH_AREAS` order) would close it far more cheaply than a full re-run — Caelan's call on whether/when to spend the further API budget, given ~580 requests already spent today.
+- **`ondemand-topup` uses `SUPABASE_SERVICE_ROLE_KEY`, not a scoped role** — added 2026-08-20, see session above. Would be worth moving to a purpose-built role (mirroring `pipeline_service`, or a new one scoped to just `restaurants` insert + `ondemand_topup_events` read/write) once there's a way to set a new Supabase Function secret in-session — currently dashboard/CLI-only. Caelan's to decide if/when this is worth the extra setup versus the precedented service-role approach already used elsewhere in this codebase.
+- **App-side and Search Assistant-side triggers for `ondemand-topup` not built** — added 2026-08-20. The backend is deployed and live-verified (see session above); nothing in the Flutter app or the `search-assistant` function calls it yet. Two trigger points discussed with Caelan: a thin/empty suburb search result, and the Search Assistant running low on real candidates when asked for "more options."
+- **`ondemand-topup` has no automated tests** — added 2026-08-20. Verified live end-to-end (cap check, a real "no" decision, a real "yes" decision through to upsert) rather than unit-tested — same category as the rest of this session's live-only verification, but worth a real test file if this function gets extended.
 - **Marketing site signup never tested against a real Supabase** — added 2026-08-19. Apply `0011_early_access_signups.sql`, then submit a real address and confirm three things the fake host couldn't exercise: the row actually lands, a second submission of the same address returns the duplicate message rather than the generic one, and the anon key genuinely cannot read the table back (attempt a `select` with it and confirm it's refused — that's the check that the signup list isn't publicly scrapable).
 - **Marketing site not deployed** — added 2026-08-19. Needs its own Cloudflare Pages project (settings in `marketing-site/README.md`), pointed at the apex `cafequiet.com` rather than `app.`. Caelan's, dashboard-only. Check the apex A/CNAME records while attaching it — this zone served a stale parking page from auto-imported records once already, 2026-08-19.
 - ~~Google sign-in on web: redirect_uri_mismatch~~ — resolved 2026-08-20: Caelan added the callback URL to Authorized redirect URIs and click-tested live end to end (real account picker, real sign-in, no errors). See session above.
