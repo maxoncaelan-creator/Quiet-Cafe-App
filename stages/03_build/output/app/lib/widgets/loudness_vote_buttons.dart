@@ -9,6 +9,13 @@
 // Ported from feature/loudness-votes-and-venue-guess (2026-08-18), which
 // built this but never got merged — the backend (migration, scoring) was
 // already live; only this widget and its wiring were missing.
+//
+// onVoted added 2026-08-20: SupabaseService.submitLoudnessVote now
+// recomputes the venue's score server-side, but this widget has no
+// Restaurant object of its own to update — the parent screen owns that, so
+// it refetches and updates its state once this callback fires. Before this,
+// a vote landed correctly in loudness_votes but the visible score/
+// confidence on screen never changed, which is what Caelan reported.
 
 import 'package:flutter/material.dart';
 
@@ -22,7 +29,16 @@ class LoudnessVoteButtons extends StatefulWidget {
   /// whether a mic reading from that same account supersedes it).
   final Future<bool> Function(BuildContext context) ensureSignedIn;
 
-  const LoudnessVoteButtons({super.key, required this.placeId, required this.ensureSignedIn});
+  /// Called after a vote is successfully recorded (and the server-side
+  /// score recompute has been kicked off) — see file header comment.
+  final VoidCallback onVoted;
+
+  const LoudnessVoteButtons({
+    super.key,
+    required this.placeId,
+    required this.ensureSignedIn,
+    required this.onVoted,
+  });
 
   @override
   State<LoudnessVoteButtons> createState() => _LoudnessVoteButtonsState();
@@ -42,6 +58,7 @@ class _LoudnessVoteButtonsState extends State<LoudnessVoteButtons> {
     try {
       await _supabaseService.submitLoudnessVote(widget.placeId, vote);
       if (!mounted) return;
+      widget.onVoted();
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Thanks for your vote!')),
       );

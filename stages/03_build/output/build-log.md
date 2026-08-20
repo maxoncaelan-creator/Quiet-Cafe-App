@@ -2613,6 +2613,85 @@ Branch: created `fix/desktop-nav-account-and-venue-coverage` off
 moved the changes off it rather than committing there). Pushed, PR open —
 same branch-then-PR rule as the rest of this repo, not merged.
 
+## Session — 2026-08-20 (continued again): negative web decibel readings and loudness votes not affecting the score, both fixed
+
+Caelan reported two real bugs from actually using the app: the decibel
+counter on web reads negative, and voting Quiet/Normal/Loud doesn't visibly
+change a venue's loudness or confidence.
+
+**Negative web decibel readings — a real calibration bug, not a display
+issue.** `mic_service_web.dart`'s Web Audio capture computed
+`20 * log10(rms)` directly on the normalized `[-1, 1]` amplitude from
+`getByteTimeDomainData`. That's dBFS (decibels relative to *full scale*,
+where 1.0 = 0dB) — negative for any rms below 1.0, which is essentially
+always. Read `noise_meter`'s actual source
+(`~/.pub-cache/hosted/pub.dev/noise_meter-5.0.2/lib/noise_meter.dart`,
+confirmed rather than assumed) to see what the native path really does:
+`20 * log10(maxAmp * amplitude)` with `maxAmp = 2^15` (32768, a 16-bit PCM
+sample's max value) — it rescales the normalized amplitude back up before
+taking the log, which is what actually lands native readings in a
+positive, real-world-plausible range. The file's own header comment
+already claimed to do this ("RMS -> dB the same way noise_meter does it")
+but the `maxAmp` multiplication was simply missing. Fixed by adding the
+same `32768.0` factor; kept the existing RMS-across-the-buffer computation
+(more standard than noise_meter's own crude min/max-average, and not what
+was actually broken).
+
+**Loudness votes never affecting quietness_score/confidence — a real
+architecture gap, confirmed by reading the pipeline rather than assumed.**
+`data-pipeline/src/pipeline.js` is the *only* thing that ever writes
+`quietness_score`/`confidence`/the mic and vote sub-score columns, and it
+only runs when Caelan manually triggers it — a full run also re-fetches
+every restaurant from Google Places (real API cost), so it was never
+going to run on every vote. `SupabaseService.submitLoudnessVote`/
+`submitMicReading` were correctly inserting into `loudness_votes`/
+`mic_readings` the entire time; nothing downstream ever picked either up
+outside a full pipeline run. Separately, even fixing that server-side gap
+wouldn't have been visible: `RestaurantDetailScreen` held its `Restaurant`
+in an immutable `widget.restaurant` with no refetch path, so the screen
+would keep showing the pre-vote score/confidence regardless of what the
+database did.
+
+Fixed both halves:
+- **New `recompute-restaurant-score` Edge Function** — does the same
+  `combineScores()` math `scoring.js` does, but only for the one affected
+  restaurant, reading `review_subscore`/`popular_subscore` already stored
+  on `restaurants` rather than re-fetching or re-mining anything (no
+  Google Places calls, so safe to call after every vote/reading, unlike
+  the full pipeline). Deployed (`verify_jwt: true`) and live-tested against
+  a real, clean-baseline restaurant (Mr. Wong, zero prior signals): inserted
+  a real `loud` vote, called the function, confirmed `vote_count: 1`,
+  `vote_subscore: 0`, `quietness_score: 0`, `confidence: 'Very Low'` — all
+  matching `scoring.js`'s formula by hand. Cleaned up the test vote and
+  re-ran the function to confirm the restaurant returns cleanly to
+  `null`/`null`. **This duplicates `scoring.js`'s formulas in TypeScript**
+  (different runtime, no package shared with the Node pipeline today) —
+  flagged here explicitly so a future change to the scoring formula doesn't
+  get made in one place and silently drift from the other.
+- `SupabaseService.submitLoudnessVote`/`submitMicReading` now call this
+  function right after their insert succeeds (best-effort — a recompute
+  failure doesn't undo the vote/reading write, which already succeeded).
+- `RestaurantDetailScreen` now holds its `Restaurant` as mutable state and
+  refetches it: immediately after a vote (via a new `onVoted` callback on
+  `LoudnessVoteButtons`), and after returning from the mic-reading screen
+  (refetch-on-return regardless of outcome, simpler and just as correct as
+  threading a result value back through the navigation push).
+
+`flutter analyze`: 0 issues. `flutter test`: 4/4 passed (unchanged — none
+of these exercise live Supabase).
+
+**Not yet click-tested on a real device/build** — same standing limitation
+as the rest of this app; the recompute function's own logic was verified
+live via direct SQL + curl (above), but the actual button-tap → visible
+score change round trip on-screen hasn't been driven by a human yet.
+
+Branch: `fix/loudness-vote-score-and-web-mic-db`, off `origin/main`
+(separate from the still-unmerged `feature/beta-referral-gate` branch from
+earlier today — unrelated changes, kept independent on purpose; merged
+main back into this branch afterward to pick up the pipeline/pagination
+work below, which landed on `main` via a parallel branch while this one
+was in progress).
+
 ## Session — 2026-08-20 (continued again): pipeline re-run — a second real bug found (pagination), fixed, deployed, verified live
 
 Caelan asked for the pipeline to actually be run. First attempt (`npm start`)
@@ -2828,6 +2907,10 @@ untested app code in the same batch as a new backend service.
 - **`ondemand-topup` uses `SUPABASE_SERVICE_ROLE_KEY`, not a scoped role** — added 2026-08-20, see session above. Would be worth moving to a purpose-built role (mirroring `pipeline_service`, or a new one scoped to just `restaurants` insert + `ondemand_topup_events` read/write) once there's a way to set a new Supabase Function secret in-session — currently dashboard/CLI-only. Caelan's to decide if/when this is worth the extra setup versus the precedented service-role approach already used elsewhere in this codebase.
 - **App-side and Search Assistant-side triggers for `ondemand-topup` not built** — added 2026-08-20. The backend is deployed and live-verified (see session above); nothing in the Flutter app or the `search-assistant` function calls it yet. Two trigger points discussed with Caelan: a thin/empty suburb search result, and the Search Assistant running low on real candidates when asked for "more options."
 - **`ondemand-topup` has no automated tests** — added 2026-08-20. Verified live end-to-end (cap check, a real "no" decision, a real "yes" decision through to upsert) rather than unit-tested — same category as the rest of this session's live-only verification, but worth a real test file if this function gets extended.
+- **Loudness-vote/mic-reading recompute fix not yet click-tested on a real device** — added 2026-08-20. `recompute-restaurant-score`'s own logic was verified live via direct SQL + curl (insert a vote, call the function, confirm the exact expected score/confidence, clean up), but the actual on-screen round trip — tap Loud, watch the noise bar and confidence dots change on the same screen — hasn't been driven by a human yet. Same for a mic reading: submit one, back out to the detail screen, confirm it now shows the updated score.
+- **`recompute-restaurant-score` duplicates `scoring.js`'s formulas in TypeScript** — added 2026-08-20. No shared package between the Node pipeline and the Edge Function runtime today, so `MIN_DBA`/`MAX_DBA`/`DEFAULT_WEIGHTS`/`VOTE_TIERS`/etc. exist in both places by hand. If the scoring model ever changes, both files need updating — worth watching for drift, or worth extracting into a shared package if this project ends up with a third place that needs the same math.
+- ~~Data pipeline needs a real re-run to pick up cafe/pub/bar coverage~~ — resolved 2026-08-20: re-run twice more the same day on a parallel branch (see "pipeline re-run" and "category follow-up queries" sessions above) — 4,596 restaurants now loaded, pub/bar/night_club coverage confirmed present via `execute_sql`, not just the run log. The remaining gap is narrower than "needs a re-run" — see the next item.
+- **18 of the 48 capped areas still haven't had their follow-up queries run — including Orange, the originally reported case** — added 2026-08-20. The fix and mechanism are proven (8 more Leaf Cafe & Co branches recovered this run alone); this specific gap is just unspent budget, not a bug. A targeted top-up run covering only the remaining 18 areas (roughly Fairfield through Kiama in `SEARCH_AREAS` order) would close it far more cheaply than a full re-run — Caelan's call on whether/when to spend the further API budget, given ~580 requests already spent today.
 - **Marketing site signup never tested against a real Supabase** — added 2026-08-19. Apply `0011_early_access_signups.sql`, then submit a real address and confirm three things the fake host couldn't exercise: the row actually lands, a second submission of the same address returns the duplicate message rather than the generic one, and the anon key genuinely cannot read the table back (attempt a `select` with it and confirm it's refused — that's the check that the signup list isn't publicly scrapable).
 - **Marketing site not deployed** — added 2026-08-19. Needs its own Cloudflare Pages project (settings in `marketing-site/README.md`), pointed at the apex `cafequiet.com` rather than `app.`. Caelan's, dashboard-only. Check the apex A/CNAME records while attaching it — this zone served a stale parking page from auto-imported records once already, 2026-08-19.
 - ~~Google sign-in on web: redirect_uri_mismatch~~ — resolved 2026-08-20: Caelan added the callback URL to Authorized redirect URIs and click-tested live end to end (real account picker, real sign-in, no errors). See session above.
