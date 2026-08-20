@@ -167,6 +167,15 @@ signInWithIdToken rejected the ID token with 'Passed nonce and nonce in id_token
 **Standard:** Three or more consecutive fixes in one integration is evidence the approach is wrong, not that the next patch is missing - at that point re-derive the design rather than continuing to fix symptoms.
 **Fix:** Wired the raw/hashed nonce pair for the mobile ID-token path (hash to initialize(), raw to signInWithIdToken), then stopped patching and replaced the web path entirely with Supabase's redirect-based signInWithOAuth - which removes the button-rendering, init-once and nonce machinery that produced all five occurrences in this class. Mobile keeps the native ID-token flow, which was verified working on Android throughout.
 
+## branch-not-reverified-before-commit
+
+Created feature/marketing-site, then built the site over many tool calls while a concurrent session was demonstrably active in the same repo (two 'File has been modified since read' errors on build-log.md, and the branch's first open item changed twice under me). That session merged PR #15, created fix/google-oauth-redirect-to, and switched the working tree to it. I ran git add and git commit without re-checking the branch, so the marketing-site commit landed on the other session's OAuth branch instead of mine.
+
+### 2026-08-19 | 03_build | caught: self
+Created feature/marketing-site, then built the site over many tool calls while a concurrent session was demonstrably active in the same repo (two 'File has been modified since read' errors on build-log.md, and the branch's first open item changed twice under me). That session merged PR #15, created fix/google-oauth-redirect-to, and switched the working tree to it. I ran git add and git commit without re-checking the branch, so the marketing-site commit landed on the other session's OAuth branch instead of mine.
+**Standard:** Re-check the current branch immediately before staging or committing, especially with positive evidence of a concurrent session in the same working tree. git branch --show-current is one cheap command and the evidence of concurrency was already in hand.
+**Fix:** Commit is unpushed (ahead 1), so it is recoverable by moving feature/marketing-site to it and rewinding fix/google-oauth-redirect-to to 084d488. That command was blocked by the permission classifier and is awaiting Caelan's decision. Going forward: verify branch right before the commit, not only at branch-creation time.
+
 ## oauth-redirect-target-left-to-provider-fallback
 
 Relied on a hosted auth provider's single global fallback (Supabase's Site URL) for a post-OAuth redirect, in an app served from more than one origin.

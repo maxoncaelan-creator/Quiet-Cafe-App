@@ -2481,48 +2481,66 @@ Dashboard-only, no code change, same category as several other
 Google/Supabase setup steps throughout this project. Not yet re-tested
 after adding it.
 
-## Session — 2026-08-19 (yet another continuation): Site URL fallback to a dead apex domain
+## Session — 2026-08-19 (continued): marketing site built
 
-Caelan added the redirect URI in Google Cloud Console, then hit a new
-symptom testing on `quiet-restaurant-finder.pages.dev` specifically in
-an Incognito window (isolating a real cache-suspicion first — the
-`.pages.dev` sign-in screen rendered the new custom pill button
-correctly, confirming the earlier nonce error really had been a stale
-service-worker cache, not a code regression): the browser ended up at
-`cafequiet.com/?code=...` with `DNS_PROBE_FINISHED_NXDOMAIN`.
+Built `marketing-site/` — the public `cafequiet.com` page, distinct from
+the Flutter web app at `app.cafequiet.com`. Copy came from the
+`quiet-restaurant-finder-marketing` workspace's `05_finalize` output and
+was taken verbatim, including ten signup-form strings that workspace wrote
+specifically because this build needed them.
 
-**Real finding, distinct from the redirect URI fix**: the Google
-exchange itself succeeded (that `?code=` is Supabase's own auth code)
-— only the *final* redirect back into the app broke. Root cause:
-`signInWithGoogleOAuth()` passed no explicit `redirectTo`, so Supabase
-fell back to its configured **Site URL** —
-`https://cafequiet.com`, the bare apex, which has had no DNS records
-at all since the parking-page incident (`_config/decisions.md`
-"Domain"). The app is served from two different origins
-(`quiet-restaurant-finder.pages.dev` and `app.cafequiet.com`), so a
-single fixed Site URL can never be correct for both regardless of
-which one it points at — the redirect has to be computed from
-wherever the user actually is.
+**Plain static HTML, deliberately not Flutter web.** Flutter renders to a
+canvas, so crawlers get essentially nothing — and this page exists to be
+found by search and quoted by AI assistants (the marketing workspace ran a
+whole SEO/AEO stage on it). Consistency with the app would have cost the
+page its only job. It also means changing a line of copy needs no
+toolchain.
 
-**Fixed**: `oauth_service.dart` now has a `_webRedirectTo` getter
-(`Uri.base.origin`, read at call time) passed as `redirectTo` to
-`signInWithGoogleOAuth()`. Also fixed the identical latent bug in
-`signInWithFacebook()` (`redirectTo: kIsWeb ? null : oauthRedirectUrl`
-— same `null`-on-web problem, just never click-tested yet, so it was
-still latent). Documented in `PLATFORM_SETUP.md` step 6: both origins
-now need registering in Supabase's Redirect URLs allow-list, not just
-`app.cafequiet.com` as previously written — an unregistered
-`redirectTo` also silently falls back to the same broken Site URL, so
-the code fix alone isn't sufficient without this.
+Structure: `src/` (index.html, styles.css, signup.js, config.template.js),
+`build.js`, and a gitignored `dist/`. `build.js` is Node standard library
+only — copies `src/` to `dist/` and substitutes `SUPABASE_URL` /
+`SUPABASE_ANON_KEY`, mirroring the app's `--dart-define` approach rather
+than committing the key. It **exits 1 when either variable is missing**,
+since a build that silently produces a dead signup form is worse than a
+failed one.
 
-**Verification**: `flutter analyze` — 0 issues. `flutter test` — 4/4
-passed. `flutter build web --release` — succeeds. Not yet re-tested
-live — needs Caelan to add both Redirect URLs in Supabase first.
+Signups go to a new `early_access_signups` table
+(`0011_early_access_signups.sql`). RLS grants `anon` insert and nothing
+else — no select policy exists on purpose, so the public key on the page
+can't read the list back. The unique index on `lower(email)` is
+load-bearing rather than hygiene: the resulting 23505 is what lets the form
+tell "you're already on the list" apart from a real failure.
+
+**Verified locally** (served over `http.server`, driven in a real browser):
+the page renders with all copy correct and no console errors; `build.js`
+fails correctly with no env and succeeds with it; an invalid email shows
+the right error without disabling the button; a valid address is trimmed
+and lowercased, shows "Sending…" with the button disabled, and on failure
+shows the generic error and re-enables the button; no horizontal overflow
+at 375px with 18px body type intact.
+
+**Not verified**: the success path. Local testing pointed at a fake
+Supabase host, which exercises validation and failure but never a real
+insert, the duplicate 409, or the RLS policy itself. Carried as an open
+item below rather than assumed working.
+
+Accessibility was treated as a requirement rather than polish, since the
+audience explicitly includes people over 50 and neurodivergent people:
+18px base, high contrast in both themes, visible focus rings, skip link,
+`aria-live` on the form result, `prefers-reduced-motion` honoured.
+
+Branch `feature/marketing-site`, stacked on `fix/google-oauth-redirect-uri`
+rather than cut from `main` — that branch had uncommitted build-log edits
+and unmerged OAuth notes, so branching from `main` would have conflicted.
+Rebases cleanly once the OAuth PR merges.
 
 ## Open items carried into further build work
-- **Google sign-in/Facebook sign-in on web: Supabase Redirect URLs need both origins registered** — added 2026-08-19 (this session). Needs Caelan to add both `https://app.cafequiet.com` and `https://quiet-restaurant-finder.pages.dev` to Supabase's Authentication → URL Configuration → Redirect URLs (step 6, `PLATFORM_SETUP.md`), then retest. Without this, `redirectTo` gets ignored and Supabase falls back to Site URL (the dead apex) regardless of the code fix.
-- ~~Google sign-in on web: redirect_uri_mismatch, one more dashboard step needed~~ — resolved 2026-08-19: Caelan added the redirect URI; retesting surfaced a different, further-along issue (Site URL fallback, see session above), not a repeat of this one.
+- **Marketing site signup never tested against a real Supabase** — added 2026-08-19. Apply `0011_early_access_signups.sql`, then submit a real address and confirm three things the fake host couldn't exercise: the row actually lands, a second submission of the same address returns the duplicate message rather than the generic one, and the anon key genuinely cannot read the table back (attempt a `select` with it and confirm it's refused — that's the check that the signup list isn't publicly scrapable).
+- **Marketing site not deployed** — added 2026-08-19. Needs its own Cloudflare Pages project (settings in `marketing-site/README.md`), pointed at the apex `cafequiet.com` rather than `app.`. Caelan's, dashboard-only. Check the apex A/CNAME records while attaching it — this zone served a stale parking page from auto-imported records once already, 2026-08-19.
+- **Google sign-in on web: redirect_uri_mismatch, one more dashboard step needed** — added 2026-08-19 (this session). Needs Caelan to add the Supabase callback URL to the Google Web client's Authorized redirect URIs (step 4b, `PLATFORM_SETUP.md`), then retest. If this clears it, that's the flow complete end to end for the first time.
 - **Claude-in-Chrome browser connector won't connect in this environment** — added 2026-08-19. Reports "turned off" regardless of the extension's own Enabled state in Chrome; tabs it creates resolve to `edge://newtab/`, suggesting it's attached to Edge rather than Chrome on this machine. Setting Chrome as the Windows default browser didn't fix it. Not investigated further this session since it wasn't blocking the actual app work — spawned as a separate background task. Would be genuinely useful once working: this agent could click-test Flutter web itself instead of every fix needing a round trip through Caelan's screenshots.
+- **Referral-code gate for the closed beta — not built, and marketing copy already assumes it.** Added 2026-08-19, handed over from the `quiet-restaurant-finder-marketing` workspace. Today the app gates *mic-reading submission* behind Supabase auth; nothing gates access to the app itself. The beta needs the other thing: someone without a valid referral code should not reach the app at all. This blocks the marketing site going live — its homepage copy says "Closed beta. You'll need a referral code to get in", which is currently untrue. Design questions are open and Caelan's: single-use or reusable codes, whether each beta user gets codes to hand out (that is what makes it a *referral* rather than an invite list), expiry, and what someone sees when they arrive with a bad code or none. The point of the gate is to keep the group small while real mic-reading data accumulates before full launch, so whatever gets built should make it easy to see how many codes are outstanding and how many were redeemed.
+- ~~Marketing website doesn't exist~~ — built 2026-08-19, see the session above; still undeployed and untested against a real Supabase (both tracked as their own items above). **The rule it carried still stands: this workspace builds the site, `quiet-restaurant-finder-marketing` supplies what goes in it. Do not write the copy here.** Every headline, paragraph, button label and line of microcopy comes from the marketing workspace's output (`stages/05_finalize/output/final.md` once it exists; currently only `stages/03_draft/output/draft.md`). If a string is missing, ask for it rather than filling the gap — that workspace holds the positioning, the reading-level standard, and the constraints on what may be claimed about score accuracy. Same branch-and-PR rule as the rest of this repo.
 - ~~Google sign-in on web not click-tested end to end with the new signInWithOAuth flow~~ — superseded 2026-08-19: it was click-tested (see "redirect_uri_mismatch" session above), which is how that finding turned up.
 - ~~Google OAuth client missing the production origin~~ — resolved 2026-08-19: Caelan added both origins in Google Cloud Console; confirmed working past that step since the failure moved to the nonce handshake instead.
 - ~~Google sign-in nonce mismatch~~ — superseded 2026-08-19 by the architectural fix above: web no longer uses the ID-token flow the nonce fix was patching, so the mismatch can't occur there anymore. The nonce fix itself stays in place and correct for the untouched Android/iOS ID-token path.
