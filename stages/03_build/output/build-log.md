@@ -2613,8 +2613,66 @@ Branch: created `fix/desktop-nav-account-and-venue-coverage` off
 moved the changes off it rather than committing there). Pushed, PR open —
 same branch-then-PR rule as the rest of this repo, not merged.
 
+## Session — 2026-08-20 (continued again): pipeline re-run — a second real bug found (pagination), fixed, deployed, verified live
+
+Caelan asked for the pipeline to actually be run. First attempt (`npm start`)
+failed immediately: `Error: places-search request failed: 502 ... "Empty
+text_query. Request parameters for paging requests must match the initial
+SearchText request."` — thrown on the very first area.
+
+**Real finding, not deployment drift this time** — checked the live Edge
+Function against local source first, given the 2026-08-19 precedent
+(`edge-function-not-deployed`); they matched, version 5 on both. The actual
+bug: `places.js`'s page-token follow-up requests sent `{ pageToken }` alone,
+dropping `query` entirely, on the assumption (stated in a comment at the
+time) that Google resolves a pageToken to its original query server-side.
+Confirmed against Google's own Places API (New) Text Search docs: `textQuery`
+must be repeated identically on every paged request alongside `pageToken` —
+"All parameters other than maxResultCount, pageSize, and pageToken must be
+the same as the previous request. Otherwise, the API returns an
+INVALID_ARGUMENT error." This had never been exercised live before today:
+the 2026-08-19 run's Edge Function was still pre-`addressComponents`, so its
+responses never included `nextPageToken` and the pagination loop never
+actually fired a follow-up request — meaning this bug is exactly as old as
+pagination itself, just never hit until pagination started actually working.
+
+Fixed in both `places.js` (always sends `query`, `pageToken` only when
+present) and `supabase/functions/places-search/index.ts` (same, plus
+`query` is now unconditionally required). Deployed as version 6 via the
+Supabase MCP `deploy_edge_function` tool. `npm test` still 48/48 (no test
+exercised this path, expected — network-dependent).
+
+**Re-ran clean.** All 63 areas, budget spent down to 23/200 remaining
+(pagination now genuinely engaging, unlike 2026-08-19's every-area-stopped-
+after-1-page run). **2,890 scored restaurants written and upserted** to
+`restaurants`, versus 1,221 on the last successful run — roughly 2.4x,
+consistent with cafes/pubs/bars now being asked for at all.
+
+**Verified against both of Caelan's reported cases directly against the
+live table (`execute_sql` via Supabase MCP), not assumed from the run
+log:**
+- Pubs and bars: 394 `pub`, 278 `bar`, 3 `night_club` rows now exist
+  (were 0 before today). Confirmed present, not just requested.
+- Leaf Cafe & Co, Orange NSW: **still not in the table** after the full
+  re-run — genuinely checked, not assumed fixed. A one-off single-page
+  diagnostic query for `"Leaf Cafe Orange NSW"` specifically (1 extra
+  billed request, run directly through `places.js`) confirms it **does**
+  exist as its own listing in Google's data, with its own place ID,
+  distinct from "Venue Cafe Bar" — a different business already in the
+  table at the exact same address (190 Anson St). So this was never a
+  suburb-data or category-coverage bug for this specific case; it's that
+  Orange's area query hit exactly its 3-page/60-result cap (`suburb, count(*)
+  group by suburb` shows Orange at 60, alongside Marrickville 60, Newtown 60,
+  Manly 58, Dubbo 58, Wollongong 58, and others landing right at or near the
+  same ceiling) and Leaf Cafe ranked below the top 60 results for the broad
+  "restaurants, cafes, pubs and bars in Orange NSW" query specifically.
+  Not fixed by this session's changes — a real, separate, still-open gap.
+  Not patched by hand-inserting the one diagnostic result directly into
+  `restaurants`, since that would bypass scoring/mic-reading/vote wiring
+  that every other row goes through via the normal pipeline path.
+
 ## Open items carried into further build work
-- **Data pipeline needs a real re-run to pick up cafe/pub/bar coverage** — added 2026-08-20. `searchAreas.js` now queries restaurants, cafes, pubs and bars per area (see session above), but the live `restaurants` table still only reflects the old restaurants-only results until the pipeline is actually run again. Caelan's to run (needs `data-pipeline/.env` with the real Supabase credential, and spends real Google Places API budget). After running, specifically re-check Leaf Cafe & Co, Orange NSW — the reported missing case — and spot-check at least one known pub/bar per region now shows up.
+- **Area queries are capping at 3 pages (~60 results) in busier suburbs, missing lower-ranked real venues (e.g. Leaf Cafe & Co, Orange NSW)** — added 2026-08-20. Confirmed after the pipeline re-run: several suburbs (Orange, Marrickville, Newtown at 60; Manly, Dubbo, Wollongong at 58; more likely below that) landed right at or near `maxPages`'s ceiling in `places.js`, meaning real venues ranked outside the top ~60 for the area's query text are silently dropped. Raising `maxPages` (or splitting a capped area into more targeted sub-queries) would recover them, at proportionally higher real Google Places API cost across every area that's actually hitting the cap, not just Orange — Caelan's call on how much further budget to spend chasing full depth versus accepting the current representative-coverage design (the same tradeoff `searchAreas.js`'s own header comment already names for suburb selection, now showing up within a single suburb too).
 - **Marketing site signup never tested against a real Supabase** — added 2026-08-19. Apply `0011_early_access_signups.sql`, then submit a real address and confirm three things the fake host couldn't exercise: the row actually lands, a second submission of the same address returns the duplicate message rather than the generic one, and the anon key genuinely cannot read the table back (attempt a `select` with it and confirm it's refused — that's the check that the signup list isn't publicly scrapable).
 - **Marketing site not deployed** — added 2026-08-19. Needs its own Cloudflare Pages project (settings in `marketing-site/README.md`), pointed at the apex `cafequiet.com` rather than `app.`. Caelan's, dashboard-only. Check the apex A/CNAME records while attaching it — this zone served a stale parking page from auto-imported records once already, 2026-08-19.
 - ~~Google sign-in on web: redirect_uri_mismatch~~ — resolved 2026-08-20: Caelan added the callback URL to Authorized redirect URIs and click-tested live end to end (real account picker, real sign-in, no errors). See session above.

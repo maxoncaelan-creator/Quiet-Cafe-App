@@ -61,7 +61,13 @@ export async function searchRestaurants(
         apikey: supabaseAnonKey,
         'x-pipeline-secret': pipelineSharedSecret,
       },
-      body: JSON.stringify(pageToken ? { pageToken } : { query }),
+      // Google requires textQuery repeated identically on every page-token
+      // follow-up, not just the initial request — confirmed 2026-08-20 the
+      // hard way, first real live pagination run threw "Empty text_query...
+      // paging requests must match the initial SearchText request." `query`
+      // never changes across pages of the same area, so this is safe to
+      // always send.
+      body: JSON.stringify({ query, ...(pageToken ? { pageToken } : {}) }),
     });
 
     if (!res.ok) {
