@@ -271,3 +271,46 @@ The app's code is mirrored at
 (pushed 2026-08-16). This workspace remains the source of truth for *why*
 each decision was made and for the build log; the GitHub repo is where future
 code changes happen.
+
+## Repository visibility
+
+**Changed 2026-08-20**: Caelan manually changed
+[Quiet-Cafe-App](https://github.com/maxoncaelan-creator/Quiet-Cafe-App) from
+**Private to Public**, and the run of GitHub failures that had been blocking
+work stopped immediately — the repo became visible and interactive in the same
+moment.
+
+**Cause.** The authorised GitHub connector has **public-repo access only**.
+A private repository is not merely refused, it is invisible: it does not appear
+in `search_repositories`, and reads against it come back as *not found* rather
+than *not authorised*. That failure shape is what made this expensive to
+diagnose — it reads like a broken connector, a wrong owner, or a typo in the
+repo name, so the debugging goes looking for those instead. Check repository
+visibility **first** when GitHub calls fail against a repo that should exist.
+
+**This was misdiagnosed once already.** A `private: false` reading taken from
+the API *after* the change was cited as evidence that visibility had never been
+the problem. An observation taken after the state changed cannot testify about
+the state before it (`MISTAKES.md`,
+`verification-cannot-detect-the-fault`).
+
+**Consequence, still open.** The repo is public as a workaround, not as a
+decision anybody made on the merits. While public, the full source, the build
+log, `MISTAKES.md`, `AGENTS.md` and the whole PR history are world-readable.
+Anything committed while it was private on the assumption it stayed private —
+credentials, endpoints, internal notes — is exposed now, and flipping it back
+does not un-expose whatever has already been fetched or indexed. Worth an
+explicit pass over the history for secrets regardless of which way this lands.
+
+Two ways to close it, Caelan's call:
+
+- **Re-grant the connector private-repo access** (claude.ai connector settings)
+  and flip the repo back to Private. This is the durable fix; the current grant
+  appears to have been approved for public repositories only.
+- **Leave it public** if that was always the intent — it is a consumer app with
+  a marketing site in flight, so a public repo may be fine by design. Then this
+  stops being a workaround and becomes the decision.
+
+Note that `data-pipeline/.env` holds a real Supabase credential and is
+gitignored; that protection is unchanged by visibility, but it is the first
+thing to confirm still holds if the repo stays public.

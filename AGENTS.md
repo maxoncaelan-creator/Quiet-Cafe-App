@@ -99,6 +99,26 @@ quiet-restaurant-finder/
   gesture enables semantics), say so plainly rather than reporting a clean
   build as equivalent proof.
 
+- **Before reporting a check as conclusive, say what it would show if the
+  claim were false.** If the answer is *the same thing*, the check cannot
+  settle the question and must not be reported as if it had. Three occurrences
+  here came from checks that were structurally blind to what they were being
+  cited for (`MISTAKES.md`, `verification-cannot-detect-the-fault`): an
+  emulator run missing the `--dart-define` that would have made the tested
+  feature appear at all; a `private: false` reading taken *after* Caelan had
+  already flipped the repo to Public; a `merged: false` on every pull request
+  from a list endpoint that never populates that field. Each looked like
+  evidence and each was compatible with both answers.
+
+  Two specific forms worth naming, because both read as data:
+  - **A reading taken after the state changed** says nothing about the state
+    before it. When something started working after someone intervened, the
+    intervention is the leading explanation, not the thing to rule out.
+  - **A value identical across every record** is a signal the field is
+    unpopulated, not a finding. Confirm the endpoint actually populates a
+    field before drawing conclusions from it — list and single-item endpoints
+    of the same API often differ.
+
 ## Standards and mistakes
 
 `/_system/standards.md` applies here, as in every workspace: the rules that
@@ -115,3 +135,11 @@ bin/icm mistake quiet-restaurant-finder --class <slug> --stage <NN_stage> --caug
 A user changing direction is not a mistake; acting without checking something
 checkable is. `/_system/mistakes.md` has the test and the thresholds at which a
 repeated class has to become a rule in this file.
+
+**"As it happens" has one concrete trigger: being corrected.** When Caelan
+corrects something you asserted, record the mistake in the same turn, before
+moving on to whatever he asked for next. Writing the correction into a reply,
+or into session memory, is not recording it. This class has recurred three
+times (`MISTAKES.md`, `mistakes-not-logged-contemporaneously`), each time
+because the work continued and the entry was left for later — twice it took an
+explicit prompt from Caelan to write it at all.
