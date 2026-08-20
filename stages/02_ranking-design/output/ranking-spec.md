@@ -32,8 +32,25 @@ Each active signal is normalized to a 0–100 quietness sub-score (100 = quietes
 Per the research brief, iOS and Android microphone readings are not equally trustworthy:
 - iOS readings (uniform hardware, ~±2 dBA accuracy) are weighted at full confidence.
 - Android readings (device-dependent accuracy, no reliable cross-device calibration) are weighted at reduced confidence — proposed at half weight relative to an iOS reading, pending real-world calibration data once the app is live.
+- **Web readings (added 2026-08-19)** — real Web Audio API capture (`mic_service_web.dart`), not a plugin — are weighted lower still (0.35): browsers commonly apply their own automatic gain control/noise suppression on top of device-to-device variance, on top of no cross-device calibration either. Same starting-point, needs-real-data status as the Android weight.
 - Where a venue has multiple readings, average within each platform first, then apply the platform weighting, rather than pooling all raw readings together.
 - As an alternative or refinement once enough data exists: normalize each reading relative to that venue's own reading history (relative quietness over time) rather than trusting the absolute dBA figure, which softens the impact of Android's device variance.
+
+### Per-user mic calibration (added 2026-08-19)
+Independent of the platform weighting above, and applied *before* it: every
+signed-in user is walked through a one-off "say something normally" mic
+recording on their first sign-in and again roughly every 3 months
+(`mic_calibration_screen.dart`). An average human speaking voice measures
+~60 dBA — comparing that user's own recording against this reference gives
+a personal offset (their reading minus 60) reflecting how their specific
+device/browser mic runs relative to "true." That offset is subtracted from
+every subsequent ambient reading that same account submits, anywhere, before
+it's platform-weighted and combined (`calibrationOffset`/
+`applyCalibrationOffsets` in `data-pipeline/src/scoring.js`) — without this,
+a phone whose mic just runs loud or quiet would make every venue that
+person visits look systematically noisier or quieter than it actually is.
+A reading from an account with no calibration on file passes through
+uncorrected rather than being dropped.
 
 ## Combined quietness score
 The combined score is a weighted average of the active sub-scores (the formula still has a term for Popular Times, dormant, in case it's revived):
@@ -69,8 +86,15 @@ Shown in the UI as a confidence indicator wherever a restaurant's quietness scor
 
 ## Ranking and sorting
 - Default sort: combined quietness score, quietest first.
-- Filters: cuisine, price level, suburb, time of day/day of week (since noise varies by time — the microphone data is timestamped for this).
-- **Changed 2026-08-18, per Caelan:** the detail screen's per-signal "Score breakdown" (Microphone readings / Review mentions / Popular times, each with a raw 0–100 number) was removed entirely, replaced by the loudness-vote buttons and the mic-reading control — see `ui-design-decisions.md`. Users can still judge confidence via the confidence indicator (dots + label), just no longer via raw per-signal numbers.
+- **As actually built (updated 2026-08-19)** — a popout filter panel
+  (`widgets/filter_drawer.dart`, opened from the List screen, mirroring the
+  hamburger menu's slide-out behavior): Suburb, Cuisine Type, Loudness
+  (the same Silent…Earsplitting tiers shown on every tile), and a minimum
+  Rating threshold (3.0+ through 4.5+). Separately, a Sort By control:
+  Loudness Quietest/Loudest First, Rating Highest/Lowest. Price level and
+  time-of-day/day-of-week filtering were proposed here but never built —
+  removed from this list rather than left as aspirational.
+- **Changed 2026-08-18, per Caelan:** the detail screen's per-signal "Score breakdown" (Microphone readings / Review mentions / Popular times, each with a raw 0–100 number) was removed entirely, replaced by the loudness-vote buttons and the mic-reading control — see `ui-design-decisions.md`. Users can still judge confidence via the confidence indicator (dots + label), just no longer via raw per-signal numbers. **Note (2026-08-19):** this was decided and the backend built on 2026-08-18, but the UI itself only actually shipped to `main` on 2026-08-19 — see `_config/decisions.md`'s "Loudness votes" correction note for the full account of the gap.
 
 ## Open questions for stage 3
 - Exact numeric weights for combining the sub-scores — rebalanced 2026-08-18 to make room for the loudness-vote signal (see "Combined quietness score" above), still a starting point, not a final calibration.

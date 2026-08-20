@@ -15,6 +15,12 @@ Noise level is one of the hardest things to judge about a restaurant before you 
 Anyone choosing a restaurant in Sydney who wants to know the noise level before they book or walk in. Includes people with hearing loss or sensory sensitivity, people wanting a conversation-friendly date or work meeting, and anyone who has been burned by a restaurant too loud to talk in.
 
 ## Scope
+**This section is the original v1 decision, not current state — see
+[[quiet-restaurant-finder/_config/decisions.md|decisions.md]] "Scope" for
+what's actually shipped.** City and platform have both since expanded
+(Greater Sydney plus Newcastle/Dubbo/Moss Vale/the Illawarra, and Web
+alongside iOS/Android) — kept here unedited as a record of where this
+project started, not a live spec.
 - City: Sydney, NSW.
 - Platform: iOS and Android, built with Flutter (decided 2026-08-15).
 - Backend: Supabase (decided 2026-08-15) — stores restaurant/score data and crowdsourced mic readings.
