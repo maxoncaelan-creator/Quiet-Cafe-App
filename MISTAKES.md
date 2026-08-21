@@ -322,6 +322,16 @@ its hunks under that one operation or submit separate patches.
 **Fix:** Reissued the database and Edge Function changes as small, one-file
 patches before continuing.
 
+### 2026-08-22 | 03_build | caught: self
+Repeated the same multi-target patch mistake while extending the on-demand
+coverage guardrails: one patch named `ondemand-topup/index.ts` twice, so it was
+rejected before altering the source.
+**Standard:** After a patch-target rejection, verify that every later patch
+uses exactly one update block per file rather than relying on remembered tool
+syntax.
+**Fix:** Split the Edge Function edit into one source-file patch with all hunks
+grouped together before retrying.
+
 ## shared-endpoint-caller-impact-unreviewed
 
 ### 2026-08-22 | 03_build | caught: self

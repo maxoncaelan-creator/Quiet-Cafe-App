@@ -222,7 +222,9 @@ the implementation and how it was tested without spending the budget.
 
 Mic readings carry their own separate limit, decided the same day: a
 30-second cooldown between submissions from the same account, enforced via
-a Postgres trigger.
+a Postgres trigger. Loudness votes have a five-minute cooldown per account and
+venue, also enforced by a serializing Postgres trigger; this prevents repeated
+votes from dominating a venue’s fresh current-loudness state.
 
 ### List-search result recovery
 
@@ -237,10 +239,12 @@ choices:
   before any Assistant tokens are used or a coverage check can be initiated.
 - **Find more venues** asks for confirmation that the search text is a suburb,
   then calls the existing `ondemand-topup` backend. Beta access, the daily
-  paid-search cap, and the 24-hour area cooldown remain enforced exclusively
-  by that backend. The List View reloads after a response and explains whether
-  venues were added, the area was recently checked, or coverage was already
-  sufficient.
+  paid-search cap, a five-refresh per-account daily allowance, and the
+  24-hour area cooldown remain enforced exclusively by that backend. A
+  database reservation serializes each paid claim so concurrent calls cannot
+  overspend the shared 20-refresh daily budget. The List View reloads after a
+  response and explains whether venues were added, the area was recently
+  checked, or coverage was already sufficient.
 - **Check 1 km nearby** uses the current GPS fix after the person explicitly
   chooses it. The backend calls Google Nearby Search for that exact circle even
   when local venues already exist, then stores the completed result as a shared
@@ -249,7 +253,10 @@ choices:
   5 km thin-coverage refresh. These coordinate searches have no city or NSW
   restriction, deliberately enabling demand-led expansion wherever users are.
   The checkpoint has no account identifier and is not readable through the
-  client Data API. Beta access and the daily paid-search cap remain server-side.
+  client Data API. An atomic in-flight reservation prevents two simultaneous
+  requests in the same 250 m circle from both spending Google; beta access,
+  the shared daily cap, and the five-refresh per-account daily allowance remain
+  server-side.
 
 ## Password policy
 

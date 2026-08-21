@@ -162,11 +162,24 @@ billing or the full assistant response, so the device smoke test remains open.
   coverage outside the seeded region where users search. The new migration and
   Edge Function source are in this branch only and have not been applied or
   deployed to production.
+- **Rate-limit hardening in the same draft PR:** paid coverage refreshes now
+  reserve capacity atomically in Postgres before Google is called. The existing
+  20-refresh shared UTC-day budget remains, and each beta account may make five
+  paid refreshes per UTC day. The reservation also prevents simultaneous 1 km
+  checks in one 250 m circle from duplicating a Places call. Reservations are
+  conservatively completed once a Google request is attempted, even if a later
+  write fails. Loudness votes now have a server-enforced five-minute cooldown
+  per account and venue; microphone readings retain their 30-second account
+  cooldown.
 - `npx --yes deno check supabase/functions/ondemand-topup/index.ts
   supabase/functions/search-assistant/index.ts` passed. Flutter analysis and
   tests could not be rerun in this session because the local Dart runtime itself
   hung without output, including for `dart --version`; the process was stopped
   rather than treated as a passing check.
+- `npx --yes supabase db lint --local --fail-on error` could not run because
+  this machine has neither Docker nor a local Supabase database (`127.0.0.1:54322`
+  refused the connection). The new migration was not executed against production:
+  this is a draft PR and no database deployment was requested.
 
 ## Active work queue
 
@@ -192,6 +205,11 @@ billing or the full assistant response, so the device smoke test remains open.
   coordinate-based Assistant question, confirm it also performs the cached 1 km
   check while retaining its 5 km thin-coverage refresh. Also verify the
   unavailable-location message after turning location services off.
+- Rate limits: from one beta account, complete five paid coverage refreshes in
+  a UTC day and confirm the sixth returns the personal cap; exercise simultaneous
+  nearby refreshes from two accounts and confirm only one makes a Places call.
+  Submit a loudness vote, immediately submit another vote for that venue, and
+  confirm the database returns the five-minute wait message.
 - Web: validate responsive rail/drawer layout, download banner, max width,
   filter drawer and web mic permission/levels in a real browser.
 - Password recovery: click a real recovery-email link and land on

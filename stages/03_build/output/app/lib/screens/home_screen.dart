@@ -318,6 +318,10 @@ class _HomeScreenState extends State<HomeScreen> {
         '$area was checked recently. Please try again tomorrow.',
       'daily_cap_reached' =>
         'We have reached today’s venue-refresh limit. Please try again tomorrow.',
+      'user_daily_cap_reached' =>
+        'You have used your five venue refreshes for today. Please try again tomorrow.',
+      'topup_in_progress' =>
+        'A venue refresh for $area is already running. Please check back shortly.',
       _ => 'No additional venue refresh was needed for $area.',
     };
   }
@@ -337,6 +341,10 @@ class _HomeScreenState extends State<HomeScreen> {
         'There are already venues listed within 1 km of you.',
       'daily_cap_reached' =>
         'We have reached today’s venue-refresh limit. Please try again tomorrow.',
+      'user_daily_cap_reached' =>
+        'You have used your five venue refreshes for today. Please try again tomorrow.',
+      'nearby_check_in_progress' =>
+        'Someone nearby is already checking this area. Please check back shortly.',
       _ => 'No additional nearby venue refresh was needed.',
     };
   }
