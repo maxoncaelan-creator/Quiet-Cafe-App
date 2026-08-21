@@ -18,8 +18,9 @@ compaction.
 
 - **Product:** Quiet Restaurant Finder, a Flutter app ranking venues by how
   quiet they are.
-- **Scope:** Greater Sydney, Newcastle, Dubbo, Moss Vale and Kiama. The
-  search-area list is curated rather than exhaustive.
+- **Scope:** Seeded coverage is Greater Sydney, Newcastle, Dubbo, Moss Vale and
+  Kiama. The search-area list is curated rather than exhaustive; GPS-based
+  nearby checks deliberately allow demand-led expansion wherever users are.
 - **Platforms:** Android, iOS and Web. Web is live at
   `https://quiet-restaurant-finder.pages.dev`; its custom domain is not yet
   attached.
@@ -142,6 +143,44 @@ billing or the full assistant response, so the device smoke test remains open.
   --no-pub --reporter expanded` passed 11/11. A live configured-app check is
   still needed to observe the confirmation and real coverage-response states.
 
+## Latest implementation — GPS coverage checkpoints
+
+- The List View now offers **Check 1 km nearby** alongside the existing
+  area-search recovery actions. It uses the app's bounded GPS service and calls
+  `ondemand-topup` with coordinates, never a client-generated suburb name.
+- For this List View coordinate request, the backend counts restaurants within
+  1 km and calls Google Nearby Search whether or not that circle already has
+  local venues. After a successful Google search and additive restaurant upsert,
+  it records the coordinates, time, original result count, and Places result
+  count in the private, RLS-protected `venue_coverage_checkpoints` table.
+- The backend checks that table before the daily cap or Google call for this
+  mode. Any point within 250 m of a completed check in the previous seven days
+  receives a `nearby_recently_checked` result; it cannot spend another Google
+  request. For a coordinate-based Assistant question, it performs this cached
+  1 km check alongside its existing 5 km, thin-coverage path. Google receives
+  the actual coordinates without a city restriction, so this deliberately grows
+  coverage outside the seeded region where users search. The new migration and
+  Edge Function source are in this branch only and have not been applied or
+  deployed to production.
+- **Rate-limit hardening in the same draft PR:** paid coverage refreshes now
+  reserve capacity atomically in Postgres before Google is called. The existing
+  20-refresh shared UTC-day budget remains, and each beta account may make five
+  paid refreshes per UTC day. The reservation also prevents simultaneous 1 km
+  checks in one 250 m circle from duplicating a Places call. Reservations are
+  conservatively completed once a Google request is attempted, even if a later
+  write fails. Loudness votes now have a server-enforced five-minute cooldown
+  per account and venue; microphone readings retain their 30-second account
+  cooldown.
+- `npx --yes deno check supabase/functions/ondemand-topup/index.ts
+  supabase/functions/search-assistant/index.ts` passed. Flutter analysis and
+  tests could not be rerun in this session because the local Dart runtime itself
+  hung without output, including for `dart --version`; the process was stopped
+  rather than treated as a passing check.
+- `npx --yes supabase db lint --local --fail-on error` could not run because
+  this machine has neither Docker nor a local Supabase database (`127.0.0.1:54322`
+  refused the connection). The new migration was not executed against production:
+  this is a draft PR and no database deployment was requested.
+
 ## Active work queue
 
 ### Needs a real device or browser
@@ -160,6 +199,17 @@ billing or the full assistant response, so the device smoke test remains open.
   confirm Assistant hand-off stays unsent until the user submits it while the
   confirmed coverage refresh reports its real server-side outcome and reloads
   the List View.
+- GPS coverage checkpoints: with or without venues already within 1 km, choose
+  **Check 1 km nearby**, confirm Google adds any real nearby Places, then repeat
+  from within 250 m and confirm no Google request runs for seven days. For a
+  coordinate-based Assistant question, confirm it also performs the cached 1 km
+  check while retaining its 5 km thin-coverage refresh. Also verify the
+  unavailable-location message after turning location services off.
+- Rate limits: from one beta account, complete five paid coverage refreshes in
+  a UTC day and confirm the sixth returns the personal cap; exercise simultaneous
+  nearby refreshes from two accounts and confirm only one makes a Places call.
+  Submit a loudness vote, immediately submit another vote for that venue, and
+  confirm the database returns the five-minute wait message.
 - Web: validate responsive rail/drawer layout, download banner, max width,
   filter drawer and web mic permission/levels in a real browser.
 - Password recovery: click a real recovery-email link and land on

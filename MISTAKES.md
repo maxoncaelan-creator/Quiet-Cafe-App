@@ -1,5 +1,23 @@
 # Mistakes - quiet-restaurant-finder
 
+## user-coverage-constraint-underweighted
+
+Initially narrowed the new coordinate refresh to circles with zero local venues,
+treating a cost guard as more important than the requested organic-coverage
+effect. Caelan clarified that every requested coordinate check should verify
+Google regardless of current rows, and that Search Assistant should add this
+check alongside its 5 km thin-coverage refresh.
+
+### 2026-08-22 | 03_build | caught: user
+
+**Standard:** When a user states a desired coverage or network effect, do not
+silently replace it with a stricter cost-saving rule. Preserve the requested
+behavior and apply explicit, agreed safeguards instead.
+
+**Fix:** The 1 km path now always queries Google after its 250 m / seven-day
+completed-check cache, and coordinate-based Assistant requests run it alongside
+the existing 5 km path. The daily cap remains in effect.
+
 Record one the moment it is apparent, not at the end of the project - the small
 repeated ones are exactly what a retrospective loses, and the count is the
 signal. What counts as a mistake, and what does not, is in
@@ -292,3 +310,39 @@ existing conditional collection.
 widget tree before formatting or running the suite.
 **Fix:** Restored the conditional collection closure, reviewed the complete
 `ListView` children block, and reran static analysis before continuing.
+
+## patch-target-duplicated
+
+### 2026-08-22 | 03_build | caught: self
+Submitted a combined `apply_patch` change that named the same Edge Function
+file twice. The patch tool rejected it before any file changed, so the work had
+to be split and reissued.
+**Standard:** A single patch operation must target each file only once; combine
+its hunks under that one operation or submit separate patches.
+**Fix:** Reissued the database and Edge Function changes as small, one-file
+patches before continuing.
+
+### 2026-08-22 | 03_build | caught: self
+Repeated the same multi-target patch mistake while extending the on-demand
+coverage guardrails: one patch named `ondemand-topup/index.ts` twice, so it was
+rejected before altering the source.
+**Standard:** After a patch-target rejection, verify that every later patch
+uses exactly one update block per file rather than relying on remembered tool
+syntax.
+**Fix:** Split the Edge Function edit into one source-file patch with all hunks
+grouped together before retrying.
+
+## shared-endpoint-caller-impact-unreviewed
+
+### 2026-08-22 | 03_build | caught: self
+Initially changed `ondemand-topup`'s default coordinate radius while adding the
+List View's 1 km recovery check, before re-checking every caller. Search
+Assistant also uses that endpoint and intentionally scopes its nearby context
+to 5 km, so the change would have silently narrowed an existing feature.
+**Standard:** Before changing a shared endpoint's default behavior, enumerate
+and preserve every existing caller unless the product decision explicitly
+changes all of them.
+**Fix:** Added an explicit `nearby` coverage mode for the List View, preserving
+the Assistant's unchanged 5 km default coordinate path. Per Caelan's later
+product decision, coordinate-based Assistant requests now add the separate
+cached 1 km nearby mode alongside that default rather than replacing it.

@@ -15,11 +15,10 @@
 // New venues only; re-scoring an existing venue stays the batch pipeline's
 // job.
 //
-// Cost guardrails, in order, cheapest-first: a hard daily cap (checked
-// before anything else, no Haiku or Google call spent finding out the cap
-// is already hit), then Haiku's own judgement given real context (current
-// coverage, how recently this area was last checked), then a per-run
-// request ceiling once Haiku does say yes (2 pages base + up to 3
+// Cost guardrails: a database-backed reservation atomically enforces the
+// global and per-account daily Google allowance before a paid request starts;
+// Haiku then judges partial coverage from real context, and each accepted area
+// top-up has a per-run request ceiling (2 pages base + up to 3
 // single-page category follow-ups = 5 Places requests max, well under the
 // batch pipeline's per-area allowance, since this can fire far more often).
 
@@ -43,13 +42,13 @@ const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const supabaseAnon = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-const DAILY_CAP = 20;
 const BASE_MAX_PAGES = 2;
 const FOLLOWUP_CATEGORIES = ['cafes', 'pubs', 'bars'];
 const AREA_QUERY_MAX_LENGTH = 80;
 const MIN_COVERAGE = 15;
-const LOCATION_RADIUS_METERS = 5000;
-const RECHECK_AFTER_MS = 24 * 60 * 60 * 1000;
+const DEFAULT_LOCATION_RADIUS_METERS = 5000;
+const LIST_NEARBY_RADIUS_METERS = 1000;
+const AREA_RECHECK_AFTER_MS = 24 * 60 * 60 * 1000;
 
 type UserLocation = {
   latitude: number;
@@ -58,7 +57,13 @@ type UserLocation = {
 
 type TopupTarget =
   | { kind: 'area'; areaQuery: string; eventKey: string }
-  | { kind: 'location'; location: UserLocation; eventKey: string };
+  | {
+      kind: 'location';
+      location: UserLocation;
+      eventKey: string;
+      radiusMeters: number;
+      usesNearbyCheckpoint: boolean;
+    };
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -93,9 +98,9 @@ function parseLocation(value: unknown): UserLocation | null {
 }
 
 function locationEventKey({ latitude, longitude }: UserLocation) {
-  // Roughly 1 km cells in this app's Australian service area. A user moving
-  // a few metres must not spend another Places request for the same 5 km
-  // search circle, while a genuinely different part of a suburb can refresh.
+  // The existing assistant flow treats roughly 1 km coordinate cells as one
+  // 5 km search scope. The List View's stricter check uses its own exact-radius
+  // checkpoint table below rather than this approximate key.
   return `location:${latitude.toFixed(2)},${longitude.toFixed(2)}`;
 }
 
@@ -109,9 +114,9 @@ function haversineMeters(a: UserLocation, b: UserLocation) {
   return 2 * 6371000 * Math.asin(Math.sqrt(value));
 }
 
-async function countNearbyRestaurants(location: UserLocation) {
-  const latitudeDelta = LOCATION_RADIUS_METERS / 111000;
-  const longitudeDelta = LOCATION_RADIUS_METERS / (111000 * Math.max(Math.cos((location.latitude * Math.PI) / 180), 0.01));
+async function countNearbyRestaurants(location: UserLocation, radiusMeters: number) {
+  const latitudeDelta = radiusMeters / 111000;
+  const longitudeDelta = radiusMeters / (111000 * Math.max(Math.cos((location.latitude * Math.PI) / 180), 0.01));
   const { data, error } = await supabaseAnon
     .from('restaurants')
     .select('lat, lng')
@@ -123,8 +128,61 @@ async function countNearbyRestaurants(location: UserLocation) {
 
   return (data ?? []).filter((row) => {
     if (typeof row.lat !== 'number' || typeof row.lng !== 'number') return false;
-    return haversineMeters(location, { latitude: row.lat, longitude: row.lng }) <= LOCATION_RADIUS_METERS;
+    return haversineMeters(location, { latitude: row.lat, longitude: row.lng }) <= radiusMeters;
   }).length;
+}
+
+async function recordNearbyCheckpoint(
+  location: UserLocation,
+  resultCountBefore: number,
+  placesFound: number,
+) {
+  const { error } = await supabaseAdmin
+    .from('venue_coverage_checkpoints')
+    .insert({
+      latitude: location.latitude,
+      longitude: location.longitude,
+      result_count_before: resultCountBefore,
+      places_found: placesFound,
+    });
+  if (error) throw new Error(`Could not record nearby coverage check: ${error.message}`);
+}
+
+type TopupReservationClaim = {
+  reservation_id: string | null;
+  outcome: string;
+  checked_at: string | null;
+};
+
+async function claimTopupReservation(userId: string, target: TopupTarget): Promise<TopupReservationClaim> {
+  const nearbyLocation =
+    target.kind === 'location' && target.usesNearbyCheckpoint ? target.location : null;
+  const { data, error } = await supabaseAdmin
+    .rpc('claim_ondemand_topup_reservation', {
+      p_user_id: userId,
+      p_scope_key: target.eventKey,
+      p_latitude: nearbyLocation?.latitude ?? null,
+      p_longitude: nearbyLocation?.longitude ?? null,
+    })
+    .single();
+  if (error || !data) {
+    throw new Error(`Could not reserve paid coverage refresh: ${error?.message ?? 'No result returned'}`);
+  }
+  return data as TopupReservationClaim;
+}
+
+async function releaseTopupReservation(reservationId: string) {
+  const { error } = await supabaseAdmin.rpc('release_ondemand_topup_reservation', {
+    p_reservation_id: reservationId,
+  });
+  if (error) console.error('Could not release paid coverage reservation:', error.message);
+}
+
+async function completeTopupReservation(reservationId: string) {
+  const { error } = await supabaseAdmin.rpc('complete_ondemand_topup_reservation', {
+    p_reservation_id: reservationId,
+  });
+  if (error) console.error('Could not complete paid coverage reservation:', error.message);
 }
 
 // --- Places search, mirroring data-pipeline/src/places.js's approach ---
@@ -211,7 +269,7 @@ async function searchPlaces(query: string, maxPages: number) {
   return { places: places.map(normalizePlace), possiblyTruncated: places.length >= maxPages * 20 };
 }
 
-async function searchNearbyPlaces(location: UserLocation) {
+async function searchNearbyPlaces(location: UserLocation, radiusMeters: number) {
   const res = await fetchWithRetry(`${SUPABASE_URL}/functions/v1/places-search`, {
     method: 'POST',
     headers: {
@@ -224,7 +282,7 @@ async function searchNearbyPlaces(location: UserLocation) {
       nearby: {
         latitude: location.latitude,
         longitude: location.longitude,
-        radiusMeters: LOCATION_RADIUS_METERS,
+        radiusMeters,
       },
     }),
   });
@@ -370,7 +428,7 @@ Deno.serve(async (req) => {
   if (betaAccessError) return jsonResponse({ error: 'Could not check beta access', detail: betaAccessError.message }, 502);
   if (!betaAccess) return jsonResponse({ error: 'beta_access_required' }, 403);
 
-  let body: { areaQuery?: string; location?: unknown };
+  let body: { areaQuery?: string; location?: unknown; coverageMode?: unknown };
   try {
     body = await req.json();
   } catch {
@@ -379,33 +437,34 @@ Deno.serve(async (req) => {
 
   const areaQuery = body.areaQuery?.trim().replace(/\s+/g, ' ');
   const location = parseLocation(body.location);
+  const useNearbyRefresh = body.coverageMode === 'nearby';
+  if (body.coverageMode !== undefined && !useNearbyRefresh) {
+    return jsonResponse({ error: 'Unknown coverage mode' }, 400);
+  }
   if (areaQuery && areaQuery.length > AREA_QUERY_MAX_LENGTH) {
     return jsonResponse({ error: `"areaQuery" must be under ${AREA_QUERY_MAX_LENGTH} characters` }, 400);
   }
   if ((!areaQuery && !location) || (areaQuery && location)) {
     return jsonResponse({ error: 'Provide exactly one of "areaQuery" or "location"' }, 400);
   }
+  if (useNearbyRefresh && !location) {
+    return jsonResponse({ error: 'The nearby coverage mode requires a location' }, 400);
+  }
   const target: TopupTarget = areaQuery
     ? { kind: 'area', areaQuery, eventKey: `area:${areaQuery.toLowerCase()}` }
-    : { kind: 'location', location: location!, eventKey: locationEventKey(location!) };
+    : {
+        kind: 'location',
+        location: location!,
+        eventKey: locationEventKey(location!),
+        radiusMeters: useNearbyRefresh
+          ? LIST_NEARBY_RADIUS_METERS
+          : DEFAULT_LOCATION_RADIUS_METERS,
+        usesNearbyCheckpoint: useNearbyRefresh,
+      };
 
-  // 1. Daily cap — cheapest possible check, no Haiku or Google call spent
-  // finding out the answer is already no.
-  const todayStart = new Date();
-  todayStart.setUTCHours(0, 0, 0, 0);
-  const { count: todayCount, error: capError } = await supabaseAdmin
-    .from('ondemand_topup_events')
-    .select('id', { count: 'exact', head: true })
-    .eq('haiku_decision', 'yes')
-    .gte('triggered_at', todayStart.toISOString());
-  if (capError) return jsonResponse({ error: 'Could not check daily cap', detail: capError.message }, 502);
-  if ((todayCount ?? 0) >= DAILY_CAP) {
-    return jsonResponse({ triggered: false, reason: 'daily_cap_reached' });
-  }
-
-  // 2. Current coverage + recency. Explicit suburbs count their exact
-  // database scope; "around me" uses a true 5 km radius rather than treating
-  // the device's raw coordinates as a fake suburb string.
+  // 1. Current coverage + recency. Explicit suburbs count their exact
+  // database scope; coordinate requests use their own explicit radius rather
+  // than treating the device's raw coordinates as a fake suburb string.
   let currentResultCount: number;
   if (target.kind === 'area') {
     const { count, error } = await supabaseAnon
@@ -416,13 +475,20 @@ Deno.serve(async (req) => {
     currentResultCount = count ?? 0;
   } else {
     try {
-      currentResultCount = await countNearbyRestaurants(target.location);
+      currentResultCount = await countNearbyRestaurants(target.location, target.radiusMeters);
     } catch (err) {
       return jsonResponse({ error: 'Could not check venue coverage', detail: String(err) }, 502);
     }
   }
 
-  if (currentResultCount >= MIN_COVERAGE) {
+  // A deliberate 1 km coordinate refresh asks Google regardless of the rows
+  // already stored locally. Its separate seven-day checkpoint above controls
+  // repetition. The pre-existing assistant 5 km and area flows retain their
+  // broader minimum-coverage policy.
+  if (
+    (target.kind === 'location' && !target.usesNearbyCheckpoint && currentResultCount >= MIN_COVERAGE) ||
+    (target.kind === 'area' && currentResultCount >= MIN_COVERAGE)
+  ) {
     return jsonResponse({ triggered: false, reason: 'coverage_sufficient', resultCount: currentResultCount });
   }
 
@@ -434,17 +500,26 @@ Deno.serve(async (req) => {
     .limit(1)
     .maybeSingle();
 
-  if (lastEvent && Date.now() - new Date(lastEvent.triggered_at).getTime() < RECHECK_AFTER_MS) {
+  if (
+    !(target.kind === 'location' && target.usesNearbyCheckpoint) &&
+    lastEvent &&
+    Date.now() - new Date(lastEvent.triggered_at).getTime() < AREA_RECHECK_AFTER_MS
+  ) {
     return jsonResponse({ triggered: false, reason: 'recently_checked', resultCount: currentResultCount });
   }
 
-  // 3. There is no discretion when the database has zero candidates for the
-  // requested scope: fetch first, then let the assistant answer from real
-  // data. For partial coverage, retain Haiku's existing cost judgement.
-  const scopeLabel = target.kind === 'area' ? target.areaQuery : `within ${LOCATION_RADIUS_METERS / 1000} km of the user`;
+  // 2. The explicit 1 km mode always checks Google after an atomically claimed
+  // nearby-cache reservation. Zero-result scopes also always fetch; the
+  // existing broader flows retain Haiku's partial-coverage cost judgement.
+  const scopeLabel = target.kind === 'area'
+    ? target.areaQuery
+    : `within ${target.radiusMeters / 1000} km of the user`;
   let decision: 'yes' | 'no';
   let reason: string;
-  if (currentResultCount === 0) {
+  if (target.kind === 'location' && target.usesNearbyCheckpoint) {
+    decision = 'yes';
+    reason = 'A user requested a direct 1 km nearby venue check.';
+  } else if (currentResultCount === 0) {
     decision = 'yes';
     reason = 'No venues are currently listed for this search scope.';
   } else {
@@ -462,6 +537,7 @@ Deno.serve(async (req) => {
 
   if (decision === 'no') {
     await supabaseAdmin.from('ondemand_topup_events').insert({
+      user_id: userData.user.id,
       area_query: target.eventKey,
       haiku_decision: 'no',
       haiku_reason: reason,
@@ -470,15 +546,33 @@ Deno.serve(async (req) => {
     return jsonResponse({ triggered: false, reason });
   }
 
-  // 4. Yes — search, score, upsert additively. Wrapped: a genuine failure
-  // here (Google/Supabase down, retries exhausted) shouldn't crash with an
-  // unhandled trace, and deliberately isn't logged as a 'yes' event — a
-  // failed attempt didn't spend a real search, so it shouldn't burn one of
-  // the daily cap's 20 slots either.
+  // 3. Claim global, per-user, and (for 1 km mode) nearby capacity in one
+  // database transaction. This is deliberately after Haiku's no-cost decision
+  // but before any Google request, so concurrent yes decisions cannot overspend.
+  let reservation: TopupReservationClaim;
+  try {
+    reservation = await claimTopupReservation(userData.user.id, target);
+  } catch (err) {
+    console.error('Failed to reserve coverage refresh', err);
+    return jsonResponse({ error: 'Could not reserve coverage refresh' }, 502);
+  }
+  if (reservation.outcome !== 'granted' || !reservation.reservation_id) {
+    return jsonResponse({
+      triggered: false,
+      reason: reservation.outcome,
+      ...(reservation.checked_at ? { checkedAt: reservation.checked_at } : {}),
+    });
+  }
+
+  // 4. Yes — search, score, upsert additively. Once the Google request is
+  // attempted, complete the reservation even if a later response or write
+  // fails: that conservative accounting cannot understate paid API usage.
+  let paidGoogleRequestAttempted = false;
   try {
     const byPlaceId = new Map<string, ReturnType<typeof normalizePlace>>();
+    paidGoogleRequestAttempted = true;
     if (target.kind === 'location') {
-      for (const place of await searchNearbyPlaces(target.location)) byPlaceId.set(place.placeId, place);
+      for (const place of await searchNearbyPlaces(target.location, target.radiusMeters)) byPlaceId.set(place.placeId, place);
     } else {
       const baseQuery = `restaurants, cafes, pubs and bars in ${target.areaQuery} NSW`;
       const { places: baseResults, possiblyTruncated } = await searchPlaces(baseQuery, BASE_MAX_PAGES);
@@ -526,6 +620,8 @@ Deno.serve(async (req) => {
       .upsert(rows, { onConflict: 'place_id', ignoreDuplicates: true });
 
     await supabaseAdmin.from('ondemand_topup_events').insert({
+      user_id: userData.user.id,
+      reservation_id: reservation.reservation_id,
       area_query: target.eventKey,
       haiku_decision: 'yes',
       haiku_reason: reason,
@@ -536,9 +632,22 @@ Deno.serve(async (req) => {
     if (upsertError) {
       return jsonResponse({ triggered: true, placesFound: rows.length, upsertError: upsertError.message }, 207);
     }
+
+    // A failed request/upsert stays retryable. Record the location only once
+    // Google’s outcome has made it into the venue list, including a valid
+    // zero-place search result.
+    if (target.kind === 'location' && target.usesNearbyCheckpoint) {
+      await recordNearbyCheckpoint(target.location, currentResultCount, rows.length);
+    }
     return jsonResponse({ triggered: true, placesFound: rows.length, reason });
   } catch (err) {
     console.error('ondemand-topup: Search/upsert failed', err);
     return jsonResponse({ error: 'Search/upsert failed' }, 502);
+  } finally {
+    if (paidGoogleRequestAttempted) {
+      await completeTopupReservation(reservation.reservation_id);
+    } else {
+      await releaseTopupReservation(reservation.reservation_id);
+    }
   }
 });

@@ -323,9 +323,9 @@ class SupabaseService {
   }
 
   /// Requests more coverage for an explicitly named area from the guarded
-  /// on-demand-topup Edge Function. It enforces beta access, a daily Google
-  /// Places cap, and a 24-hour area cooldown server-side; the app must never
-  /// attempt to duplicate or bypass those cost controls.
+  /// on-demand-topup Edge Function. It enforces beta access, shared and
+  /// per-account daily Google Places allowances, and a 24-hour area cooldown
+  /// server-side; the app must never attempt to duplicate or bypass them.
   Future<VenueCoverageRefresh> refreshVenueCoverage(String areaQuery) async {
     if (!isConfigured) throw SupabaseNotConfigured();
     final response = await _client.functions.invoke(
@@ -334,6 +334,32 @@ class SupabaseService {
     );
     if (response.status < 200 || response.status >= 300) {
       throw Exception('Venue coverage refresh failed (${response.status})');
+    }
+    final data = response.data as Map<String, dynamic>;
+    return VenueCoverageRefresh.fromJson(data);
+  }
+
+  /// Requests a Google Nearby Search for the 1 km circle. The server records a
+  /// completed coordinate check and blocks another one within 250 m for seven
+  /// days, with an atomic in-flight reservation to prevent concurrent duplicate
+  /// calls; those rules are intentionally not reproduced in the client.
+  Future<VenueCoverageRefresh> refreshVenueCoverageNear(
+    double latitude,
+    double longitude,
+  ) async {
+    if (!isConfigured) throw SupabaseNotConfigured();
+    final response = await _client.functions.invoke(
+      'ondemand-topup',
+      body: {
+        'location': {
+          'latitude': latitude,
+          'longitude': longitude,
+        },
+        'coverageMode': 'nearby',
+      },
+    );
+    if (response.status < 200 || response.status >= 300) {
+      throw Exception('Nearby venue coverage refresh failed (${response.status})');
     }
     final data = response.data as Map<String, dynamic>;
     return VenueCoverageRefresh.fromJson(data);

@@ -15,9 +15,11 @@ research/design decisions and the build log — see
 
 ## Scope
 
-Greater Sydney, plus out to Dubbo, north to Newcastle, south to Moss Vale,
-and into the Illawarra as far as Kiama. Expanded from "Sydney only"
-2026-08-19 — confirmed with Caelan.
+Seeded coverage: Greater Sydney, plus out to Dubbo, north to Newcastle, south
+to Moss Vale, and into the Illawarra as far as Kiama. Expanded from "Sydney
+only" 2026-08-19 — confirmed with Caelan. GPS-based nearby checks may add
+venues around a beta user's current coordinates anywhere Google Places returns
+them; this demand-led expansion beyond the seeded region is intentional.
 Platform: iOS, Android, and Web (added 2026-08-18, live 2026-08-19 at
 `quiet-restaurant-finder.pages.dev`).
 

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../models/restaurant.dart';
+import '../services/location_service.dart';
 import '../services/restaurant_repository.dart';
 import '../services/supabase_service.dart';
 import '../widgets/app_drawer.dart';
@@ -21,6 +22,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final _repository = RestaurantRepository();
+  final _locationService = LocationService();
   final _supabaseService = SupabaseService();
   final _scaffoldKey = GlobalKey<ScaffoldState>();
 
@@ -256,6 +258,52 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Future<void> _checkNearbyVenues() async {
+    if (_refreshingCoverage) return;
+
+    if (!_supabaseService.isSignedIn) {
+      final signedIn = await context.push<bool>('/sign-in');
+      if (signedIn != true || !mounted) return;
+    }
+
+    setState(() => _refreshingCoverage = true);
+    try {
+      // The app requests GPS permission during onboarding. LocationService
+      // still safely handles an unavailable service or a later revoked grant.
+      final position = await _locationService.getCurrentPosition();
+      if (!mounted) return;
+      if (position == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Your location is unavailable. Turn on location services and try again.'),
+          ),
+        );
+        return;
+      }
+
+      final refresh = await _supabaseService.refreshVenueCoverageNear(
+        position.latitude,
+        position.longitude,
+      );
+      if (!mounted) return;
+      await _load();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(_nearbyCoverageRefreshMessage(refresh))),
+      );
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not check nearby venues — please try again later.'),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _refreshingCoverage = false);
+    }
+  }
+
   String _coverageRefreshMessage(VenueCoverageRefresh refresh, String area) {
     if (refresh.triggered) {
       final placesFound = refresh.placesFound ?? 0;
@@ -270,7 +318,34 @@ class _HomeScreenState extends State<HomeScreen> {
         '$area was checked recently. Please try again tomorrow.',
       'daily_cap_reached' =>
         'We have reached today’s venue-refresh limit. Please try again tomorrow.',
+      'user_daily_cap_reached' =>
+        'You have used your five venue refreshes for today. Please try again tomorrow.',
+      'topup_in_progress' =>
+        'A venue refresh for $area is already running. Please check back shortly.',
       _ => 'No additional venue refresh was needed for $area.',
+    };
+  }
+
+  String _nearbyCoverageRefreshMessage(VenueCoverageRefresh refresh) {
+    if (refresh.triggered) {
+      final placesFound = refresh.placesFound ?? 0;
+      if (placesFound == 0) {
+        return 'We checked within 1 km of you but did not find any new venues yet.';
+      }
+      return 'Added $placesFound new ${placesFound == 1 ? 'venue' : 'venues'} near you.';
+    }
+    return switch (refresh.reason) {
+      'nearby_recently_checked' =>
+        'We already checked within 250 m of you this week. Please try again next week.',
+      'coverage_sufficient' =>
+        'There are already venues listed within 1 km of you.',
+      'daily_cap_reached' =>
+        'We have reached today’s venue-refresh limit. Please try again tomorrow.',
+      'user_daily_cap_reached' =>
+        'You have used your five venue refreshes for today. Please try again tomorrow.',
+      'nearby_check_in_progress' =>
+        'Someone nearby is already checking this area. Please check back shortly.',
+      _ => 'No additional nearby venue refresh was needed.',
     };
   }
 
@@ -393,6 +468,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           onAskAssistant: () =>
                               _askAssistantAbout(coverageArea),
                           onFindMore: () => _findMoreVenues(coverageArea),
+                          onCheckNearby: _checkNearbyVenues,
                           noMatches: ranked.isEmpty && needsData.isEmpty,
                         ),
                       ],
@@ -411,6 +487,7 @@ class _SearchResultActions extends StatelessWidget {
   final bool noMatches;
   final VoidCallback onAskAssistant;
   final VoidCallback onFindMore;
+  final VoidCallback onCheckNearby;
 
   const _SearchResultActions({
     required this.area,
@@ -418,6 +495,7 @@ class _SearchResultActions extends StatelessWidget {
     required this.noMatches,
     required this.onAskAssistant,
     required this.onFindMore,
+    required this.onCheckNearby,
   });
 
   @override
@@ -437,19 +515,30 @@ class _SearchResultActions extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             const Text(
-              'Ask the Assistant to refine your search, or look for more venues in this area.',
+              'Check within 1 km of your location, ask the Assistant, or look for more venues in this area.',
             ),
             const SizedBox(height: 16),
             Wrap(
               spacing: 12,
               runSpacing: 12,
               children: [
+                FilledButton.icon(
+                  onPressed: refreshing ? null : onCheckNearby,
+                  icon: refreshing
+                      ? const SizedBox(
+                          height: 18,
+                          width: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.my_location),
+                  label: Text(refreshing ? 'Checking…' : 'Check 1 km nearby'),
+                ),
                 OutlinedButton.icon(
                   onPressed: onAskAssistant,
                   icon: const Icon(Icons.auto_awesome_outlined),
                   label: const Text('Ask Assistant'),
                 ),
-                FilledButton.icon(
+                OutlinedButton.icon(
                   onPressed: refreshing ? null : onFindMore,
                   icon: refreshing
                       ? const SizedBox(

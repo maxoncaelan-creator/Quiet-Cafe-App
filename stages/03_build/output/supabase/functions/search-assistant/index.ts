@@ -149,23 +149,31 @@ function findRequestedArea(message: string, history: ChatMessage[]) {
 }
 
 async function refreshThinCoverage(token: string, scope: Exclude<SearchScope, null>) {
-  const body = scope.kind === 'area' ? { areaQuery: scope.areaQuery } : { location: scope.location };
-  try {
-    const response = await fetch(`${SUPABASE_URL}/functions/v1/ondemand-topup`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-        apikey: SUPABASE_ANON_KEY,
-      },
-      body: JSON.stringify(body),
-    });
-    if (!response.ok) console.error(`ondemand-topup returned ${response.status}:`, await response.text());
-  } catch (error) {
-    // A coverage refresh must never turn a normal assistant question into a
-    // total outage. The following database read still answers from any local
-    // venues already available.
-    console.error('ondemand-topup request failed:', error);
+  const refreshBodies = scope.kind === 'area'
+    ? [{ areaQuery: scope.areaQuery }]
+    : [
+        { location: scope.location },
+        { location: scope.location, coverageMode: 'nearby' },
+      ];
+
+  for (const body of refreshBodies) {
+    try {
+      const response = await fetch(`${SUPABASE_URL}/functions/v1/ondemand-topup`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+          apikey: SUPABASE_ANON_KEY,
+        },
+        body: JSON.stringify(body),
+      });
+      if (!response.ok) console.error(`ondemand-topup returned ${response.status}:`, await response.text());
+    } catch (error) {
+      // A coverage refresh must never turn a normal assistant question into a
+      // total outage. The following database read still answers from any local
+      // venues already available.
+      console.error('ondemand-topup request failed:', error);
+    }
   }
 }
 
