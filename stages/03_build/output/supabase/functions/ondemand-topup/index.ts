@@ -553,7 +553,8 @@ Deno.serve(async (req) => {
   try {
     reservation = await claimTopupReservation(userData.user.id, target);
   } catch (err) {
-    return jsonResponse({ error: 'Could not reserve coverage refresh', detail: String(err) }, 502);
+    console.error('Failed to reserve coverage refresh', err);
+    return jsonResponse({ error: 'Could not reserve coverage refresh' }, 502);
   }
   if (reservation.outcome !== 'granted' || !reservation.reservation_id) {
     return jsonResponse({
