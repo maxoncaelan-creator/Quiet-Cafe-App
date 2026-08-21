@@ -20,10 +20,11 @@ const _supabaseAnonKey = String.fromEnvironment('SUPABASE_ANON_KEY');
 
 class SupabaseNotConfigured implements Exception {}
 
-/// Mirrors redeem_beta_code()'s text return values (0012_beta_access_gate.sql)
-/// — kept as distinct cases rather than a bool so BetaGateScreen can tell
-/// "wrong code" apart from "expired" apart from "someone else already used
-/// this one," per Caelan's "hard block with a message" call.
+/// Mirrors redeem_beta_code()'s text return values
+/// (0015_beta_code_account_binding.sql) — kept as distinct cases rather
+/// than a bool so BetaGateScreen can tell "wrong code" apart from "expired"
+/// apart from "someone else already used this one," per Caelan's "hard
+/// block with a message" call.
 enum BetaCodeResult { ok, invalid, expired, alreadyRedeemed, error }
 
 /// The signed-in user's current Search Assistant usage window — see
@@ -93,18 +94,18 @@ class SupabaseService {
 
   Future<void> signOut() => _client.auth.signOut();
 
-  /// Redeems a referral code via the security-definer redeem_beta_code()
-  /// RPC (0012_beta_access_gate.sql) — anon key, no sign-in needed, since
-  /// this gate runs before any account exists. [deviceId] lets the same
-  /// device re-enter its own already-redeemed code idempotently (e.g.
-  /// after a reinstall) without letting a *different* device reuse it.
-  Future<BetaCodeResult> redeemBetaCode(String code, String deviceId) async {
+  /// Redeems a referral code for the *signed-in account* via the
+  /// security-definer redeem_beta_code() RPC
+  /// (0015_beta_code_account_binding.sql) — requires a session, since the
+  /// gate now signs someone in before ever asking for a code (Caelan,
+  /// 2026-08-21: codes need to travel with the person, not whichever
+  /// device happened to redeem them first — see that migration's header
+  /// for the incident that prompted this). Re-entering a code already
+  /// redeemed by this same account is idempotent ('ok').
+  Future<BetaCodeResult> redeemBetaCode(String code) async {
     if (!isConfigured) return BetaCodeResult.error;
     try {
-      final result = await _client.rpc('redeem_beta_code', params: {
-        'p_code': code,
-        'p_device_id': deviceId,
-      });
+      final result = await _client.rpc('redeem_beta_code', params: {'p_code': code});
       return switch (result as String?) {
         'ok' => BetaCodeResult.ok,
         'expired' => BetaCodeResult.expired,
@@ -113,6 +114,21 @@ class SupabaseService {
       };
     } catch (_) {
       return BetaCodeResult.error;
+    }
+  }
+
+  /// Whether the signed-in account already has a redeemed beta code —
+  /// checked right after sign-in to decide whether to show the code-entry
+  /// screen at all. False (not thrown) for a signed-out caller or any
+  /// error, since the gate should fail toward asking for a code rather
+  /// than silently letting someone through.
+  Future<bool> hasBetaAccess() async {
+    if (!isConfigured || !isSignedIn) return false;
+    try {
+      final result = await _client.rpc('has_beta_access');
+      return result == true;
+    } catch (_) {
+      return false;
     }
   }
 

@@ -3127,7 +3127,95 @@ nearby venue. **Not yet click-tested end to end on a real device** — same
 closed either; this pass's RPC-level verification is new, but nobody has
 walked up to a real venue with this build and watched the prompt appear.
 
+## Session — 2026-08-21 (continued): beta codes rebound to accounts, not devices, after Caelan hit the exact failure this caused
+
+Caelan tried his real code (`W6YCWF8F`) on a second browser and got "That
+code has already been used" — the referral gate's own device-binding
+design (0012) doing exactly what it was built to do, just not what Caelan
+actually wanted. His correction: codes belong to *people*, not devices —
+sign-in should come first, and whether an account has cleared the gate
+should follow that account wherever it signs in.
+
+**`0015_beta_code_account_binding.sql`** replaces `redeemed_device_id` with
+`redeemed_by uuid references auth.users`. `redeem_beta_code(p_code)` (device
+param dropped) now requires an authenticated caller (`auth.uid()`) and
+attaches the code to that account; re-entering an already-redeemed code is
+idempotent for the *same* account, `already_redeemed` for a different one.
+New `has_beta_access()` lets the app check a signed-in account's status
+without any direct read access to `beta_codes` (still zero RLS policies on
+that table).
+
+**Migration backfill found something worth knowing rather than assuming:**
+checked `auth.users` for `maxon.caelan@gmail.com` before writing the reset
+logic and got zero rows — but that query's result was silently dropped
+because it ran alongside a second statement in the same call and only the
+last statement's output came back (the exact same multi-statement pitfall
+from the "loudness_votes id vs. user_id" mixup earlier this session — a
+class worth remembering, not just this one instance). Re-ran it alone:
+`maxon.caelan@gmail.com` already has a real account here
+(`3c92f627-...`, created 2026-08-16, from earlier Google Sign-In testing).
+The migration's backfill (match `beta_codes.email` to `auth.users.email`)
+found and attached it automatically — Caelan doesn't need to re-enter his
+code at all once signed into that same account.
+
+**Flutter side — sign-in is now the front door.** `router.dart`'s
+`GoRouter` gained a top-level `redirect` (driven by a new
+`BetaGateNotifier`/`refreshListenable`, so it re-evaluates automatically on
+sign-in/sign-out and after a code redeems, rather than any screen needing
+to navigate manually): signed out → `/sign-in`; signed in, access unknown →
+a `/checking-access` spinner; signed in, no access → `/beta-gate`; cleared
+→ wherever they were headed. This is a deliberate, beta-period override of
+this app's own "browsing never needs an account" principle (decisions.md) —
+flagged in the redirect's own doc comment as something to actually remove
+once the closed beta ends, not leave as permanent dead-letter behavior.
+
+Reusing `AuthScreen` as a real route (rather than building a second sign-in
+UI) surfaced one real thing to fix: its success handlers called
+`context.pop(true)` assuming a caller was always waiting to receive that
+pop — true for the existing point-of-need flow (_ensureSignedIn pushing
+`/sign-in`), false when reached via this new top-level redirect (nothing
+pushed it, nothing to pop to). Fixed with a `_completeSignIn()` helper
+(`context.canPop() ? pop(true) : go('/')`) so both paths work correctly;
+`go('/')` just hands off to the same redirect logic to decide where the
+account actually belongs.
+
+`BetaGateScreen` rewritten: no more device-id generation, shows which
+account is signed in, and adds a "Not you? Sign out" link — a real gap in
+the old screen, since without it an account that lands here with no
+recourse (e.g. signed in with the wrong Google account) had no way back to
+try another one.
+
+**Live-tested the account-binding logic end to end with real accounts, not
+just SQL** — `auth.uid()` inside a `security definer` function only means
+anything under a real PostgREST request with a real JWT, so this needed
+actual signed-in test users, not an `execute_sql` session pretending to be
+one: created two real test accounts (signup → email confirmed directly →
+password grant for a real access token), plus a fresh real code via the
+actual `beta-signup`/`beta-approve` flow. Confirmed: a brand-new account
+has no access (`false`) and a bogus code returns `invalid`; the valid code
+redeems (`ok`), `has_beta_access()` flips to `true`, and redeeming the
+*same* code again from the *same* account stays idempotent (`ok`); a
+*second* account trying that same already-redeemed code correctly gets
+`already_redeemed`. Also confirmed anon can no longer even reach either
+function at all (`42501 permission denied`, not just a safe `invalid`
+result) — `get_advisors` had flagged that `revoke ... from public` doesn't
+touch `anon`'s own schema-level default grant, so both functions needed an
+explicit `revoke ... from anon` on top, now in the migration. All test
+users, codes, and requests deleted afterward; confirmed Caelan's real row
+(`W6YCWF8F`, now correctly attached to his real account) untouched.
+
+`flutter analyze`: 0 issues. `flutter test`: 4/4 passed.
+
+**Not yet click-tested on a real device/build** — same standing limitation
+as everything else in this app; the RPC-level behavior above is fully
+verified, but nobody has driven the actual sign-in → beta-gate → unlock
+screen sequence by hand yet.
+
+Branch: `fix/beta-gate-account-binding`, off `origin/main`.
+
 ## Open items carried into further build work
+- **Beta-gate account-binding not click-tested on a real device** — added 2026-08-21. `redeem_beta_code`/`has_beta_access` were verified live with real test accounts via direct REST calls, and `flutter analyze`/`flutter test` are clean, but nobody has driven the actual sign-in → /beta-gate → unlock sequence through a real running build yet. Specifically worth checking: the /checking-access spinner doesn't flash annoyingly on a normal connection, AuthScreen's `_completeSignIn` correctly lands a redirect-triggered sign-in back at the right screen, and the mic-calibration push (main.dart) that fires on sign-in before the gate clears doesn't get lost permanently once it does clear.
+- **Referral gate's "one code per email" design predates account-binding** — added 2026-08-21. `beta_codes.email` is still unique per code, but nothing stops the *approving* email differing from whichever Google/email account eventually redeems it (the code travels by whoever has the string, not by matching emails) — this is intentional per Caelan (the "Sign out and try another account" link exists for exactly this), just worth naming explicitly so it isn't mistaken for an oversight later.
 - **GPS venue guess not click-tested live on a real device** — added 2026-08-20. Neither this pass nor the original 2026-08-18 one confirmed the actual "walked up to a venue, saw Are you at X?, tapped Yes, landed on the right restaurant" path against a real GPS fix — only the underlying pieces (RPC, permission flow, ANR fix) were verified independently. Needs a real device outdoors or near a loaded venue.
 - **Haiku suggestions and populate-near-user, from the same ask, not yet built** — added 2026-08-20. Caelan's original ask covered three uses for geolocation; this pass built the proximity-prompt piece (fully specified) and the LocationService/RPC infrastructure it needed. Feeding the user's position into the Search Assistant's Haiku context (so suggestions can favor nearby venues, not just by quietness_score) and connecting position to `ondemand-topup` (auto-triggering a top-up near the user rather than requiring a typed suburb) both need their own design calls — how much to weight distance vs. quietness, whether reverse-geocoding a coordinate into a suburb name is worth its own Google API cost — that weren't specified the way the proximity prompt was. The infrastructure (LocationService, position access) is now in place for both.
 - **`ondemand-topup` uses `SUPABASE_SERVICE_ROLE_KEY`, not a scoped role** — added 2026-08-20, see session above. Would be worth moving to a purpose-built role (mirroring `pipeline_service`, or a new one scoped to just `restaurants` insert + `ondemand_topup_events` read/write) once there's a way to set a new Supabase Function secret in-session — currently dashboard/CLI-only. Caelan's to decide if/when this is worth the extra setup versus the precedented service-role approach already used elsewhere in this codebase.

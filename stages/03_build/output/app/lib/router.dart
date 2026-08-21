@@ -6,9 +6,11 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import 'models/restaurant.dart';
+import 'services/beta_gate_notifier.dart';
 import 'services/supabase_service.dart';
 import 'screens/account_screen.dart';
 import 'screens/auth_screen.dart';
+import 'screens/beta_gate_screen.dart';
 import 'screens/change_password_screen.dart';
 import 'screens/create_account_email_screen.dart';
 import 'screens/create_account_password_screen.dart';
@@ -30,8 +32,58 @@ import 'screens/sign_in_email_screen.dart';
 import 'screens/take_reading_screen.dart';
 import 'widgets/app_shell.dart';
 
+// Single source of truth for router.dart's own gate redirect below —
+// also handed to BetaGateScreen so a successful redemption can trigger a
+// recheck. See beta_gate_notifier.dart.
+final betaGateNotifier = BetaGateNotifier();
+
+// Screens that manage their own sign-in/sign-up/recovery navigation on
+// completion (see auth_screen.dart's _completeSignIn) — the gate redirect
+// below never touches these, regardless of sign-in state, so a recovery
+// link's temporary session (which *is* "signed in") doesn't get bounced to
+// the beta gate mid-flow.
+const _authFlowPaths = {
+  '/sign-in',
+  '/sign-in/email',
+  '/sign-up',
+  '/sign-up/email',
+  '/sign-up/password',
+  '/forgot-password',
+  '/reset-password',
+};
+
+/// Closed-beta gate, added 2026-08-21 (Caelan): sign-in is required before
+/// anything else while the beta is closed, and a signed-in account without
+/// a redeemed code lands on /beta-gate instead. This is a beta-period
+/// override of this app's normal "browsing never needs an account" design
+/// (see decisions.md) — worth removing, not just leaving dormant, once the
+/// closed beta ends.
+String? _gateRedirect(BuildContext context, GoRouterState state) {
+  if (!SupabaseService.isConfigured) return null; // standalone/demo build — no gate
+
+  final loc = state.matchedLocation;
+  if (_authFlowPaths.contains(loc)) return null;
+
+  if (!SupabaseService().isSignedIn) return '/sign-in';
+
+  final hasAccess = betaGateNotifier.hasAccess;
+  if (hasAccess == null) {
+    return loc == '/checking-access' ? null : '/checking-access';
+  }
+  if (!hasAccess) {
+    return loc == '/beta-gate' ? null : '/beta-gate';
+  }
+
+  // Signed in and cleared the gate — don't leave them stranded on the
+  // gate/loading screens once there's nothing left to do there.
+  if (loc == '/beta-gate' || loc == '/checking-access') return '/';
+  return null;
+}
+
 final GoRouter appRouter = GoRouter(
   initialLocation: '/',
+  refreshListenable: betaGateNotifier,
+  redirect: _gateRedirect,
   routes: [
     ShellRoute(
       builder: (context, state, child) => AppShell(child: child),
@@ -49,6 +101,14 @@ final GoRouter appRouter = GoRouter(
         GoRoute(
           path: '/account/change-password',
           builder: (context, state) => const ChangePasswordScreen(),
+        ),
+        GoRoute(
+          path: '/beta-gate',
+          builder: (context, state) => BetaGateScreen(gateNotifier: betaGateNotifier),
+        ),
+        GoRoute(
+          path: '/checking-access',
+          builder: (context, state) => const Scaffold(body: Center(child: CircularProgressIndicator())),
         ),
         GoRoute(path: '/sign-in', builder: (context, state) => const AuthScreen()),
         GoRoute(path: '/sign-in/email', builder: (context, state) => const SignInEmailScreen()),
