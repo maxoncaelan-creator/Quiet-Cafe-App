@@ -56,15 +56,15 @@ compaction.
 
 | Area | Verified | Boundary still unverified |
 |---|---|---|
-| Flutter code | `flutter analyze` clean; `flutter test` 4/4 passed on 2026-08-21 | A clean build is not a device/UI test. |
+| Flutter code | Live-Supabase Android debug APK built on 2026-08-21; `flutter test` 4/4 passed | A clean build is not a device/UI test. |
 | Pipeline scoring and review mining | Unit-tested; sample pipeline run verified | Weights need real-usage tuning. |
 | Google Places pipeline | Live-loaded real venues; regional/cuisine follow-up coverage checked | Search areas are not exhaustive. |
-| Supabase roles and beta RPCs | RLS/roles smoke-tested; account-binding RPCs tested with real accounts and JWTs | A fresh email-confirmation return can present a beta gate before its usable session reaches the RPC; see the immediate blocker. |
-| Email referral flow | Resend domain/secrets and a real request → approval → code delivery verified | The app’s own email-confirmation → first code redemption path needs a fix and retest. |
-| Android core flow | 2026-08-21 live emulator pass: fresh email signup/confirmation, ordinary email sign-in, invalid code, valid UI code redemption, restart persistence, and calibration reachability. | GPS, calibration submission, score refresh and the confirmation-return bug still need focused passes. |
+| Supabase roles and beta RPCs | RLS/roles smoke-tested; account-binding RPCs tested with real accounts and JWTs | The confirmation-return session fix is implemented; a clean native callback retest is blocked only by the live email rate limit. |
+| Email referral flow | Resend domain/secrets and a real request → approval → code delivery verified | Retest the app's own confirmation link once Supabase permits another email; do not substitute a non-app redirect. |
+| Android core flow | 2026-08-21 live emulator pass: fresh email signup/confirmation, ordinary email sign-in, invalid code, valid UI code redemption, restart persistence, calibration reachability, and a rebuilt live-config APK after the session fix. | GPS, calibration submission, score refresh, and the clean confirmation-return rerun still need focused passes. |
 | Web | Deployed, direct routes work, Google OAuth was click-tested | Responsive layout, web mic capture and recent UI changes lack a focused visual pass. |
 
-## Immediate blocker — confirmation-return session hand-off
+## Immediate blocker — confirmation-return session retest
 
 The 2026-08-21 live Android emulator smoke test found a narrow but real
 beta-gate defect. A fresh disposable account followed the confirmation-email
@@ -80,10 +80,29 @@ permission appeared before mic calibration; after denying it, the calibration
 screen appeared, so the gate redirect did not lose that prompt.
 
 This points to the confirmation-return hand-off, not the code, schema or
-normal sign-in flow. Likely cause (to verify, not assume): the router treats
-`currentUser` as sufficient before a usable `currentSession`/access token is
-available, so `redeem_beta_code()` runs without `auth.uid()`. Fix the session
-readiness condition, then repeat the fresh-account confirmation → redeem test.
+normal sign-in flow. The RPC itself returns `invalid` when `auth.uid()` is
+null, exactly matching the failed app result. The repair is on
+`fix/confirmation-return-session`: account-gated paths now require
+`currentSession`, the beta gate stays on `/checking-access` while that session
+is checked, stale access checks cannot overwrite a newer auth event, and a
+confirmed ordinary sign-in can leave the auth routes while recovery remains
+exempt.
+
+The changed app compiled in a live-Supabase Android debug APK and its existing
+Flutter tests passed 4/4. A real account confirmation was also checked
+server-side, but that fallback did not specify the app's custom redirect and
+therefore cannot establish or disprove the native callback behaviour. The
+proper clean retry (app `signUp` with
+`quietrestaurantfinder://login-callback`, clear app data, confirmation link,
+then first valid-code UI redemption) is currently blocked by Supabase Auth's
+email send rate limit. The temporary beta-code row and reachable test session
+were removed afterward.
+
+Once the rate limit lifts, run that exact clean native callback path. A pass is
+only: confirmation returns through the custom scheme, `/checking-access` then
+`/beta-gate` appears with a usable session, the first valid code unlocks, and
+the database records it bound to that account. A direct server confirmation
+without the app redirect is not evidence either way.
 
 Still to smoke-test: a second account attempting an already-redeemed code,
 the no-Supabase standalone build, and whether `/checking-access` is visually
