@@ -63,20 +63,20 @@ class AppDrawer extends StatelessWidget {
                 selected: currentRoute == d.route,
                 onTap: () => _go(context, d.route, d.path),
               ),
-            // Login/Account stays at the bottom of the menu items (Caelan,
-            // 2026-08-19) but matches the same _DrawerItem style as the rest
-            // of the list rather than a chip (Caelan, 2026-08-20) — it had
-            // been visually inconsistent with Search Assistant/List/etc.
-            _DrawerItem(
-              icon: signedIn ? Icons.account_circle_outlined : Icons.login,
-              selectedIcon: signedIn ? Icons.account_circle : Icons.login,
-              label: signedIn ? 'Account' : 'Login / Signup',
-              selected: currentRoute == AppRoute.login,
-              onTap: () {
-                Navigator.of(context).pop();
-                context.push(signedIn ? '/account' : '/sign-in');
-              },
-            ),
+            // Account management now lives under Settings. Keep sign-in at
+            // the bottom for visitors, but don't duplicate Account as a
+            // top-level drawer destination for signed-in users.
+            if (!signedIn)
+              _DrawerItem(
+                icon: Icons.login,
+                selectedIcon: Icons.login,
+                label: 'Login / Signup',
+                selected: currentRoute == AppRoute.login,
+                onTap: () {
+                  Navigator.of(context).pop();
+                  context.push('/sign-in');
+                },
+              ),
             const Spacer(),
             const Divider(height: 1),
             ListTile(

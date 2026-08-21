@@ -125,13 +125,22 @@ final GoRouter appRouter = GoRouter(
             path: '/settings/legal',
             builder: (context, state) => const LegalScreen()),
         GoRoute(
-            path: '/donate', builder: (context, state) => const DonateScreen()),
-        GoRoute(
-            path: '/account',
+            path: '/settings/account',
             builder: (context, state) => const AccountScreen()),
         GoRoute(
-          path: '/account/change-password',
+          path: '/settings/change-password',
           builder: (context, state) => const ChangePasswordScreen(),
+        ),
+        GoRoute(
+            path: '/donate', builder: (context, state) => const DonateScreen()),
+        // Preserve existing bookmarks while keeping all new navigation under
+        // Settings.
+        GoRoute(
+            path: '/account',
+            redirect: (context, state) => '/settings/account'),
+        GoRoute(
+          path: '/account/change-password',
+          redirect: (context, state) => '/settings/change-password',
         ),
         GoRoute(
           path: '/beta-gate',

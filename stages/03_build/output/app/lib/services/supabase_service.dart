@@ -122,7 +122,7 @@ class SupabaseService {
   /// True only for accounts that actually have a password — i.e. they have
   /// an 'email' identity, from signing up directly rather than exclusively
   /// through Google/Facebook/Apple. An OAuth-only account has no password to
-  /// change, so the Account screen's "Change password" row should not show
+  /// change, so the Settings screen's "Change password" row should not show
   /// for it (Caelan, 2026-08-20).
   bool get currentUserHasPassword =>
       _client.auth.currentUser?.identities?.any((i) => i.provider == 'email') ??
