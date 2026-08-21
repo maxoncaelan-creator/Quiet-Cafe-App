@@ -222,6 +222,18 @@ Reported to Caelan as a finding worth chasing that all 16 closed PRs show merged
 **Standard:** A field read from a list endpoint is not evidence unless that endpoint populates it. A value identical across every record is a signal the field is unpopulated, not a finding.
 **Fix:** Verified against git log and the single-PR endpoint, corrected the claim to Caelan, and kept it out of the documentation.
 
+## formatter-run-beyond-feature-scope
+
+### 2026-08-21 | 03_build | caught: self
+Ran `dart format lib test` while the new feature had changed only a small
+set of files. The formatter rewrote 48 unrelated Dart files before stopping
+on a parse error in one changed model.
+**Standard:** Format only the explicit files changed by the feature unless a
+repository-wide formatting change has been requested and reviewed.
+**Fix:** Stopped before testing, will restore only formatter-only changes
+after verifying their exact paths, and will run the formatter on the changed
+files only.
+
 ## migration-cli-project-root-assumed
 
 ### 2026-08-21 | 03_build | caught: self

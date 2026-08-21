@@ -29,7 +29,6 @@ import 'screens/settings/location_settings_screen.dart';
 import 'screens/settings/permissions_settings_screen.dart';
 import 'screens/settings/settings_screen.dart';
 import 'screens/sign_in_email_screen.dart';
-import 'screens/take_reading_screen.dart';
 import 'widgets/app_shell.dart';
 
 // Single source of truth for router.dart's own gate redirect below —
@@ -158,15 +157,6 @@ final GoRouter appRouter = GoRouter(
             // just cosmetically present.
             return _RestaurantByIdLoader(placeId: state.pathParameters['placeId']!);
           },
-          routes: [
-            GoRoute(
-              path: 'reading',
-              builder: (context, state) => TakeReadingScreen(
-                placeId: state.pathParameters['placeId']!,
-                name: (state.extra as String?) ?? '',
-              ),
-            ),
-          ],
         ),
       ],
     ),

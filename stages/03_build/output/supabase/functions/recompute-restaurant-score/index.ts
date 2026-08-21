@@ -79,6 +79,7 @@ function tierPoints(count: number, tiers: number[]) {
 
 type MicReading = { decibel: number; platform: string; userId: string | null; submittedAt: string };
 type Vote = { vote: string; userId: string; submittedAt: string };
+type CurrentLoudnessObservation = { subscore: number; observedAt: string; source: 'mic' | 'vote' };
 
 function micSubscore(readings: MicReading[]): number | null {
   if (readings.length === 0) return null;
@@ -114,6 +115,68 @@ function filterVotesSupersededByMic(votes: Vote[], micReadings: MicReading[]): V
       return Math.abs(readingTime - voteTime) <= VOTE_PRECEDENCE_WINDOW_MS;
     });
   });
+}
+
+/// The newest report describes the venue *right now*. It is persisted apart
+/// from the historical aggregate so the client can show it at full weight and
+/// then decay it toward the long-term score. When a same-user mic reading and
+/// vote land within five minutes, retain the mic's more direct observation.
+function latestCurrentLoudness(readings: MicReading[], votes: Vote[]): CurrentLoudnessObservation | null {
+  const latestMic = readings.reduce<MicReading | null>((latest, reading) => {
+    if (
+      !latest ||
+      new Date(reading.submittedAt).getTime() >
+          new Date(latest.submittedAt).getTime()
+    ) {
+      return reading;
+    }
+    return latest;
+  }, null);
+  const latestVote = votes.reduce<Vote | null>((latest, vote) => {
+    if (
+      !latest ||
+      new Date(vote.submittedAt).getTime() >
+          new Date(latest.submittedAt).getTime()
+    ) {
+      return vote;
+    }
+    return latest;
+  }, null);
+
+  if (!latestMic && !latestVote) return null;
+
+  if (
+    latestVote &&
+    (!latestMic ||
+      new Date(latestVote.submittedAt).getTime() >
+          new Date(latestMic.submittedAt).getTime())
+  ) {
+    const supersedingMic = readings
+      .filter((reading) => {
+        if (reading.userId !== latestVote.userId) return false;
+        return Math.abs(new Date(reading.submittedAt).getTime() - new Date(latestVote.submittedAt).getTime()) <=
+          VOTE_PRECEDENCE_WINDOW_MS;
+      })
+      .sort((a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime())[0];
+    if (supersedingMic) {
+      return {
+        subscore: dbaToSubscore(supersedingMic.decibel),
+        observedAt: supersedingMic.submittedAt,
+        source: 'mic',
+      };
+    }
+    return {
+      subscore: VOTE_SUBSCORE[latestVote.vote],
+      observedAt: latestVote.submittedAt,
+      source: 'vote',
+    };
+  }
+
+  return {
+    subscore: dbaToSubscore(latestMic!.decibel),
+    observedAt: latestMic!.submittedAt,
+    source: 'mic',
+  };
 }
 
 Deno.serve(async (req) => {
@@ -193,6 +256,7 @@ Deno.serve(async (req) => {
     submittedAt: v.submitted_at as string,
   }));
   const countedVotes = filterVotesSupersededByMic(votes, readings);
+  const currentLoudness = latestCurrentLoudness(readings, votes);
 
   const mic = micSubscore(readings);
   const vote = voteSubscore(countedVotes);
@@ -236,6 +300,9 @@ Deno.serve(async (req) => {
       vote_count: countedVotes.length,
       vote_subscore: vote,
       vote_signal_updated_at: nowIso,
+      current_loudness_subscore: currentLoudness?.subscore ?? null,
+      current_loudness_observed_at: currentLoudness?.observedAt ?? null,
+      current_loudness_source: currentLoudness?.source ?? null,
       quietness_score: quietnessScore,
       confidence,
       score_updated_at: nowIso,

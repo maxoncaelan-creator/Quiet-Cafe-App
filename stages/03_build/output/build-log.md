@@ -110,6 +110,24 @@ reported no issues, and a debug Android APK built successfully. Those checks
 would catch compilation and unit regressions, not live GPS permission, Google
 billing or the full assistant response, so the device smoke test remains open.
 
+## Latest implementation — current loudness + fixed in-place mic capture
+
+- New on-site votes and completed microphone readings now immediately override
+  the displayed historical score, then linearly blend back to the venue
+  baseline over 21 days.
+- The venue-detail screen now contains the entire 10-second microphone flow:
+  “Listening” for the first five seconds, a Quiet/Normal/Loud assessment at
+  five seconds, then the single 10-second average. Capture cannot be stopped
+  or navigated away from while active.
+- Migration `0016_current_loudness_decay.sql` rejects every new mic insert
+  shorter than 10 seconds and writes fresh observations via database triggers.
+- Flutter analysis and tests passed before the runner later became unresponsive
+  in this worktree. The locked pipeline dependencies were installed and its
+  Node suite passed 48/48.
+- Do not apply the migration or deploy the recompute Edge Function until the
+  matching app release is live: the already-deployed client does not send
+  `capture_duration_ms` and would correctly be rejected by the new constraint.
+
 ## Active work queue
 
 ### Needs a real device or browser

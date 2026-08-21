@@ -58,6 +58,7 @@ Individual readings, stored separately (one-to-many with the restaurant record) 
 | `place_id` | string | Foreign key to restaurant record |
 | `user_id` | uuid, not null | Real Supabase Auth account (decided 2026-08-15). References `auth.users`, defaults to `auth.uid()`, and RLS requires it match the submitter's own session — a client cannot submit under someone else's identity. A user can read back their own readings, not anyone else's. |
 | `decibel_value` | float | From native metering API, not stored audio |
+| `capture_duration_ms` | integer, required for new rows | The completed capture duration. Postgres rejects every new venue reading below 10,000 ms, including attempts from a modified client. Historical rows predate this rule and remain null. |
 | `platform` | enum: `ios` \| `android` \| `web` | Drives confidence weighting per [[quiet-restaurant-finder/stages/02_ranking-design/output/ranking-spec|ranking spec]]. `web` added 2026-08-19 (`0009_mic_readings_allow_web.sql`) once real Web Audio API capture existed — previously the CHECK constraint only allowed `ios`/`android`. |
 | `device_model` | string, nullable | For future per-device calibration work |
 | `recorded_at` | timestamp | |
@@ -79,6 +80,9 @@ Aggregated onto the restaurant record for fast ranking lookups:
 | `quietness_score` | float 0–100, nullable | Weighted combination per [[quiet-restaurant-finder/stages/02_ranking-design/output/ranking-spec|ranking spec]] |
 | `confidence` | enum: `Very Low` \| `Low` \| `Moderate` \| `High` \| `Very High` \| `Certain` | **Changed 2026-08-17** (was `low`/`medium`/`high`, purely signal-count based) — six graduated levels based on how many of the active signals are present *and* their data volume. See [[quiet-restaurant-finder/stages/02_ranking-design/output/ranking-spec|ranking spec]] "Confidence levels." Migration: `0005_confidence_levels.sql`. |
 | `score_updated_at` | timestamp | |
+| `current_loudness_subscore` | float 0–100, nullable | Most recent on-site vote or completed mic observation; starts at full display weight. |
+| `current_loudness_observed_at` | timestamp, nullable | Server-set time of that current observation. The app uses it to decay the display weight over 21 days. |
+| `current_loudness_source` | enum: `mic` \| `vote`, nullable | Makes the overlay auditable without exposing the submitter. |
 
 ## Loudness votes
 
@@ -100,6 +104,12 @@ within 5 minutes either side of a vote, the pipeline excludes that vote
 from scoring — the decibel reading is the more trustworthy signal. The
 vote row itself is never deleted or modified; only this run's aggregation
 skips it. See [[quiet-restaurant-finder/stages/02_ranking-design/output/ranking-spec|ranking spec]] "Signals."
+
+**Current-condition rule (added 2026-08-21):** both an inserted vote and a
+completed mic reading update the restaurant's current-loudness fields through
+a tightly scoped database trigger. The raw row remains the historical record;
+the client uses the separate timestamped current observation to display what a
+person is experiencing now before it decays back to the venue baseline.
 
 Aggregated onto the restaurant record, mirroring the microphone signal's shape:
 

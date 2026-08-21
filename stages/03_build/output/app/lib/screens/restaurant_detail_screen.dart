@@ -7,6 +7,7 @@ import '../widgets/confidence_indicator.dart';
 import '../widgets/loudness_vote_buttons.dart';
 import '../widgets/max_width_content.dart';
 import '../widgets/noise_level_bar.dart';
+import '../widgets/venue_loudness_capture.dart';
 
 class RestaurantDetailScreen extends StatefulWidget {
   final Restaurant restaurant;
@@ -30,6 +31,7 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
 
   bool _isFavorite = false;
   bool _favoriteBusy = false;
+  bool _captureInProgress = false;
 
   @override
   void initState() {
@@ -38,11 +40,10 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
   }
 
   /// Re-fetches this restaurant and updates the displayed score/confidence.
-  /// Called after a vote (submitLoudnessVote already triggered the
-  /// server-side recompute by the time this runs) and after returning from
-  /// the mic-reading screen. Best-effort — a failure here just leaves the
-  /// screen showing what it already had, same as any other background
-  /// refresh in this app.
+  /// Called after a vote or the in-place 10-second mic reading has triggered
+  /// its server-side recompute. Best-effort — a failure here just leaves the
+  /// screen showing what it already had, same as any other background refresh
+  /// in this app.
   Future<void> _refreshRestaurant() async {
     try {
       final updated = await _supabaseService.fetchRestaurantByPlaceId(restaurant.placeId);
@@ -87,25 +88,7 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
     }
   }
 
-  Future<void> _startReading(BuildContext context) async {
-    // Browsing never requires an account — only submitting a reading does.
-    // Prompt for sign-in/sign-up right here, at the point of need, rather
-    // than gating the whole app behind auth.
-    if (!_supabaseService.isSignedIn) {
-      final signedIn = await context.push<bool>('/sign-in');
-      if (signedIn != true) return; // user backed out or sign-up needs email confirmation first
-    }
-
-    if (!context.mounted) return;
-    // Awaited regardless of how the reading screen was left (submitted,
-    // backed out, or errored) — refreshing on a plain "did we come back" is
-    // simpler and just as correct as threading a result value through the
-    // push, since a refetch when nothing actually changed is harmless.
-    await context.push('/restaurant/${restaurant.placeId}/reading', extra: restaurant.name);
-    await _refreshRestaurant();
-  }
-
-  /// Same point-of-need sign-in prompt as _startReading/favoriting, factored
+  /// Same point-of-need sign-in prompt as favoriting, factored
   /// out so LoudnessVoteButtons (which doesn't know about this screen's
   /// SupabaseService instance) can reuse it.
   Future<bool> _ensureSignedIn(BuildContext context) async {
@@ -116,40 +99,48 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(restaurant.name),
-        actions: [
-          if (SupabaseService.isConfigured)
-            IconButton(
-              icon: Icon(
-                _isFavorite ? Icons.star_rounded : Icons.star_border_rounded,
-                color: _isFavorite ? Colors.amber.shade700 : null,
+    // A 10-second sample has value only as a complete window. Blocking back
+    // navigation prevents an accidental partial capture; Postgres separately
+    // rejects any client that still tries to insert one.
+    return PopScope(
+      canPop: !_captureInProgress,
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(restaurant.name),
+          actions: [
+            if (SupabaseService.isConfigured)
+              IconButton(
+                icon: Icon(
+                  _isFavorite ? Icons.star_rounded : Icons.star_border_rounded,
+                  color: _isFavorite ? Colors.amber.shade700 : null,
+                ),
+                onPressed: _favoriteBusy || _captureInProgress ? null : _toggleFavorite,
               ),
-              onPressed: _favoriteBusy ? null : _toggleFavorite,
-            ),
-        ],
-      ),
-      body: MaxWidthContent(
-        child: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          if (restaurant.address != null) Text(restaurant.address!),
-          const SizedBox(height: 16),
-          _ScoreHeader(restaurant: restaurant),
-          const SizedBox(height: 24),
-          LoudnessVoteButtons(
-            placeId: restaurant.placeId,
-            ensureSignedIn: _ensureSignedIn,
-            onVoted: _refreshRestaurant,
+          ],
+        ),
+        body: MaxWidthContent(
+          child: ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              if (restaurant.address != null) Text(restaurant.address!),
+              const SizedBox(height: 16),
+              _ScoreHeader(restaurant: restaurant),
+              const SizedBox(height: 24),
+              LoudnessVoteButtons(
+                placeId: restaurant.placeId,
+                ensureSignedIn: _ensureSignedIn,
+                onVoted: _refreshRestaurant,
+                enabled: !_captureInProgress,
+              ),
+              const SizedBox(height: 24),
+              VenueLoudnessCapture(
+                placeId: restaurant.placeId,
+                ensureSignedIn: _ensureSignedIn,
+                onSubmitted: _refreshRestaurant,
+                onRecordingChanged: (recording) => setState(() => _captureInProgress = recording),
+              ),
+            ],
           ),
-          const SizedBox(height: 32),
-          FilledButton.icon(
-            icon: const Icon(Icons.mic),
-            label: const Text('Take a reading here'),
-            onPressed: () => _startReading(context),
-          ),
-        ],
         ),
       ),
     );
