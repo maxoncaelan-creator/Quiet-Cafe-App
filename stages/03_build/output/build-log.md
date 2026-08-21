@@ -59,29 +59,42 @@ compaction.
 | Flutter code | `flutter analyze` clean; `flutter test` 4/4 passed on 2026-08-21 | A clean build is not a device/UI test. |
 | Pipeline scoring and review mining | Unit-tested; sample pipeline run verified | Weights need real-usage tuning. |
 | Google Places pipeline | Live-loaded real venues; regional/cuisine follow-up coverage checked | Search areas are not exhaustive. |
-| Supabase roles and beta RPCs | RLS/roles smoke-tested; account-binding RPCs tested with real accounts and JWTs | App-side beta flow has not been driven by a human. |
-| Email referral flow | Resend domain/secrets and a real request → approval → code delivery verified | Device code-entry UI still needs testing. |
-| Android core flow | Account, Google sign-in, mic reading and rate-limit UX have earlier real-emulator verification | Recent gate, GPS, calibration and score-refresh changes need a fresh pass. |
+| Supabase roles and beta RPCs | RLS/roles smoke-tested; account-binding RPCs tested with real accounts and JWTs | A fresh email-confirmation return can present a beta gate before its usable session reaches the RPC; see the immediate blocker. |
+| Email referral flow | Resend domain/secrets and a real request → approval → code delivery verified | The app’s own email-confirmation → first code redemption path needs a fix and retest. |
+| Android core flow | 2026-08-21 live emulator pass: fresh email signup/confirmation, ordinary email sign-in, invalid code, valid UI code redemption, restart persistence, and calibration reachability. | GPS, calibration submission, score refresh and the confirmation-return bug still need focused passes. |
 | Web | Deployed, direct routes work, Google OAuth was click-tested | Responsive layout, web mic capture and recent UI changes lack a focused visual pass. |
 
-## Immediate blocker — real-device beta smoke test
+## Immediate blocker — confirmation-return session hand-off
 
-Run an installed/current build against the live backend and verify:
+The 2026-08-21 live Android emulator smoke test found a narrow but real
+beta-gate defect. A fresh disposable account followed the confirmation-email
+deep link back into the app and reached `/beta-gate`, but entering a known,
+unexpired and unredeemed code returned “That code isn't valid.” The exact code
+was in the field; the same account could redeem it through an authenticated
+direct RPC call (`ok`).
 
-1. Signed out → `/sign-in`; sign in with an account that has no code.
-2. `/checking-access` is brief and transitions to `/beta-gate`.
-3. Enter a valid code, reach the app, then restart/revisit with the same
-   account and confirm it remains unlocked.
-4. Confirm a code redeemed by another account reports the correct hard block.
-5. Confirm the no-Supabase standalone/demo build bypasses the gate.
-6. Ensure the post-sign-in mic-calibration prompt is not lost when the gate
-   first redirects the user.
+The normal path works: after a clean ordinary email/password sign-in, the same
+unbound account reached `/beta-gate`, redeemed the code through the actual UI,
+entered the app, and remained unlocked after restart. Android location
+permission appeared before mic calibration; after denying it, the calibration
+screen appeared, so the gate redirect did not lose that prompt.
+
+This points to the confirmation-return hand-off, not the code, schema or
+normal sign-in flow. Likely cause (to verify, not assume): the router treats
+`currentUser` as sufficient before a usable `currentSession`/access token is
+available, so `redeem_beta_code()` runs without `auth.uid()`. Fix the session
+readiness condition, then repeat the fresh-account confirmation → redeem test.
+
+Still to smoke-test: a second account attempting an already-redeemed code,
+the no-Supabase standalone build, and whether `/checking-access` is visually
+acceptable on a normal connection.
 
 ## Active work queue
 
 ### Needs a real device or browser
 
-- Beta gate smoke test above.
+- Retest the confirmation-return session hand-off after its fix; see the
+  immediate blocker above.
 - GPS venue guess: near a loaded venue, confirm “Are you at X?” and its
   Yes/No behaviours against a real location fix.
 - Mic calibration: fresh sign-in, cold launch, skip, submission and the
