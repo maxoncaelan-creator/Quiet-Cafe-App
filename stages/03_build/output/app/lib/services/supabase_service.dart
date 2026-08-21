@@ -241,12 +241,30 @@ class SupabaseService {
   /// table (yet). The function itself requires a signed-in caller and
   /// enforces the per-account token budget — this only surfaces what it
   /// says, it doesn't duplicate that logic.
-  Future<String> askSearchAssistant(String message, List<Map<String, String>> history) async {
+  Future<String> askSearchAssistant(
+    String message,
+    List<Map<String, String>> history, {
+    double? latitude,
+    double? longitude,
+    double? accuracyMeters,
+  }) async {
     if (!isConfigured) throw SupabaseNotConfigured();
+
+    final body = <String, dynamic>{'message': message, 'history': history};
+    if (latitude != null && longitude != null) {
+      // Raw coordinates travel only to the authenticated Search Assistant
+      // backend, which stores the account's latest fix and uses it to refresh
+      // nearby venue coverage. They never go into the chat history or prompt.
+      body['location'] = {
+        'latitude': latitude,
+        'longitude': longitude,
+        if (accuracyMeters != null) 'accuracyMeters': accuracyMeters,
+      };
+    }
 
     final response = await _client.functions.invoke(
       'search-assistant',
-      body: {'message': message, 'history': history},
+      body: body,
     );
 
     if (response.status == 429) {

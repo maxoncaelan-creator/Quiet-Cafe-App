@@ -221,3 +221,31 @@ Told Caelan that the private-repo theory does not hold, citing private:false fro
 Reported to Caelan as a finding worth chasing that all 16 closed PRs show merged:false, so nothing had ever landed on main through a pull request. The list_pull_requests endpoint does not populate the merged boolean - it carries merged_at instead - so every PR reads merged:false there regardless of the truth. git log shows the tip of main is a merge commit for PR 18, and the single-PR endpoint returns merged:true for both 16 and 18. Caught while verifying the claim before writing it into documentation, one turn after asserting it.
 **Standard:** A field read from a list endpoint is not evidence unless that endpoint populates it. A value identical across every record is a signal the field is unpopulated, not a finding.
 **Fix:** Verified against git log and the single-PR endpoint, corrected the claim to Caelan, and kept it out of the documentation.
+
+## migration-cli-project-root-assumed
+
+### 2026-08-21 | 03_build | caught: self
+Ran `supabase migration new` from the existing `output/supabase` directory
+without first checking the CLI's expected project root. It created an empty
+nested `supabase/supabase/migrations` path instead of the tracked migration
+directory.
+**Standard:** Before using a project tool that discovers files by convention,
+verify its working-directory contract rather than inferring it from a source
+directory name.
+**Fix:** Removed the empty generated directory after verifying its exact
+contents, then created the migration from `stages/03_build/output`, where the
+CLI correctly targeted `supabase/migrations`.
+
+## external-api-contract-assumed
+
+### 2026-08-21 | 03_build | caught: self
+Initially reused Text Search's `nextPageToken` field mask for the new Google
+Nearby Search path without confirming that endpoint's response schema. Nearby
+Search has no pagination token, so the deployed version could have failed
+field-mask validation despite passing TypeScript checks.
+**Standard:** A type check cannot validate a remote API's request and response
+contract; verify new endpoint-specific fields in the provider documentation
+before deploying the integration.
+**Fix:** Checked Google's Nearby Search reference, removed `nextPageToken`
+from that endpoint's field mask, and redeployed the corrected proxy before any
+user request used it.
