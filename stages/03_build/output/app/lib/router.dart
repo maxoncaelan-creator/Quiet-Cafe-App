@@ -62,7 +62,9 @@ const _passwordRecoveryPaths = {
 /// (see decisions.md) — worth removing, not just leaving dormant, once the
 /// closed beta ends.
 String? _gateRedirect(BuildContext context, GoRouterState state) {
-  if (!SupabaseService.isConfigured) return null; // standalone/demo build — no gate
+  if (!SupabaseService.isConfigured) {
+    return null; // standalone/demo build — no gate
+  }
 
   final loc = state.matchedLocation;
   final supabaseService = SupabaseService();
@@ -94,30 +96,58 @@ final GoRouter appRouter = GoRouter(
     ShellRoute(
       builder: (context, state, child) => AppShell(child: child),
       routes: [
-        GoRoute(path: '/', builder: (context, state) => const SearchAssistantScreen()),
+        GoRoute(
+          path: '/',
+          builder: (context, state) {
+            final initialQuery = state.extra;
+            return SearchAssistantScreen(
+              initialQuery: initialQuery is String ? initialQuery : null,
+            );
+          },
+        ),
         GoRoute(path: '/list', builder: (context, state) => const HomeScreen()),
-        GoRoute(path: '/favourites', builder: (context, state) => const FavouritesScreen()),
-        GoRoute(path: '/settings', builder: (context, state) => const SettingsScreen()),
-        GoRoute(path: '/settings/display', builder: (context, state) => const DisplaySettingsScreen()),
-        GoRoute(path: '/settings/location', builder: (context, state) => const LocationSettingsScreen()),
-        GoRoute(path: '/settings/permissions', builder: (context, state) => const PermissionsSettingsScreen()),
-        GoRoute(path: '/settings/legal', builder: (context, state) => const LegalScreen()),
-        GoRoute(path: '/donate', builder: (context, state) => const DonateScreen()),
-        GoRoute(path: '/account', builder: (context, state) => const AccountScreen()),
+        GoRoute(
+            path: '/favourites',
+            builder: (context, state) => const FavouritesScreen()),
+        GoRoute(
+            path: '/settings',
+            builder: (context, state) => const SettingsScreen()),
+        GoRoute(
+            path: '/settings/display',
+            builder: (context, state) => const DisplaySettingsScreen()),
+        GoRoute(
+            path: '/settings/location',
+            builder: (context, state) => const LocationSettingsScreen()),
+        GoRoute(
+            path: '/settings/permissions',
+            builder: (context, state) => const PermissionsSettingsScreen()),
+        GoRoute(
+            path: '/settings/legal',
+            builder: (context, state) => const LegalScreen()),
+        GoRoute(
+            path: '/donate', builder: (context, state) => const DonateScreen()),
+        GoRoute(
+            path: '/account',
+            builder: (context, state) => const AccountScreen()),
         GoRoute(
           path: '/account/change-password',
           builder: (context, state) => const ChangePasswordScreen(),
         ),
         GoRoute(
           path: '/beta-gate',
-          builder: (context, state) => BetaGateScreen(gateNotifier: betaGateNotifier),
+          builder: (context, state) =>
+              BetaGateScreen(gateNotifier: betaGateNotifier),
         ),
         GoRoute(
           path: '/checking-access',
-          builder: (context, state) => const Scaffold(body: Center(child: CircularProgressIndicator())),
+          builder: (context, state) =>
+              const Scaffold(body: Center(child: CircularProgressIndicator())),
         ),
-        GoRoute(path: '/sign-in', builder: (context, state) => const AuthScreen()),
-        GoRoute(path: '/sign-in/email', builder: (context, state) => const SignInEmailScreen()),
+        GoRoute(
+            path: '/sign-in', builder: (context, state) => const AuthScreen()),
+        GoRoute(
+            path: '/sign-in/email',
+            builder: (context, state) => const SignInEmailScreen()),
         GoRoute(
           path: '/sign-up',
           builder: (context, state) => CreateAccountScreen(
@@ -133,7 +163,10 @@ final GoRouter appRouter = GoRouter(
         GoRoute(
           path: '/sign-up/password',
           builder: (context, state) {
-            final extra = state.extra as ({String email, ValueChanged<String> onPendingConfirmation});
+            final extra = state.extra as ({
+              String email,
+              ValueChanged<String> onPendingConfirmation
+            });
             return CreateAccountPasswordScreen(
               email: extra.email,
               onPendingConfirmation: extra.onPendingConfirmation,
@@ -142,20 +175,28 @@ final GoRouter appRouter = GoRouter(
         ),
         GoRoute(
           path: '/forgot-password',
-          builder: (context, state) => ForgotPasswordScreen(initialEmail: (state.extra as String?) ?? ''),
+          builder: (context, state) => ForgotPasswordScreen(
+              initialEmail: (state.extra as String?) ?? ''),
         ),
-        GoRoute(path: '/reset-password', builder: (context, state) => const ResetPasswordScreen()),
-        GoRoute(path: '/mic-calibration', builder: (context, state) => const MicCalibrationScreen()),
+        GoRoute(
+            path: '/reset-password',
+            builder: (context, state) => const ResetPasswordScreen()),
+        GoRoute(
+            path: '/mic-calibration',
+            builder: (context, state) => const MicCalibrationScreen()),
         GoRoute(
           path: '/restaurant/:placeId',
           builder: (context, state) {
             final extra = state.extra;
-            if (extra is Restaurant) return RestaurantDetailScreen(restaurant: extra);
+            if (extra is Restaurant) {
+              return RestaurantDetailScreen(restaurant: extra);
+            }
             // Direct load / browser refresh — no in-memory Restaurant to
             // hand over, so fetch it by the id in the URL instead. This is
             // what makes this route genuinely bookmarkable/shareable, not
             // just cosmetically present.
-            return _RestaurantByIdLoader(placeId: state.pathParameters['placeId']!);
+            return _RestaurantByIdLoader(
+                placeId: state.pathParameters['placeId']!);
           },
         ),
       ],
@@ -186,12 +227,15 @@ class _RestaurantByIdLoader extends StatelessWidget {
       future: SupabaseService().fetchRestaurantByPlaceId(placeId),
       builder: (context, snapshot) {
         if (snapshot.connectionState != ConnectionState.done) {
-          return const Scaffold(body: Center(child: CircularProgressIndicator()));
+          return const Scaffold(
+              body: Center(child: CircularProgressIndicator()));
         }
         if (snapshot.hasError || !snapshot.hasData) {
           return Scaffold(
             appBar: AppBar(title: const Text('Restaurant not found')),
-            body: Center(child: Text('Could not load this restaurant: ${snapshot.error ?? 'not found'}')),
+            body: Center(
+                child: Text(
+                    'Could not load this restaurant: ${snapshot.error ?? 'not found'}')),
           );
         }
         return RestaurantDetailScreen(restaurant: snapshot.data!);

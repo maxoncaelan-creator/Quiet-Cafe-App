@@ -30,7 +30,12 @@ class _ChatMessage {
 }
 
 class SearchAssistantScreen extends StatefulWidget {
-  const SearchAssistantScreen({super.key});
+  /// A List View hand-off can prefill a complete area question. It is never
+  /// auto-sent: the user sees and controls the request before it spends any
+  /// Search Assistant tokens or prompts an on-demand venue refresh.
+  final String? initialQuery;
+
+  const SearchAssistantScreen({super.key, this.initialQuery});
 
   @override
   State<SearchAssistantScreen> createState() => _SearchAssistantScreenState();
@@ -57,6 +62,12 @@ class _SearchAssistantScreenState extends State<SearchAssistantScreen> {
   @override
   void initState() {
     super.initState();
+    final initialQuery = widget.initialQuery?.trim();
+    if (initialQuery != null && initialQuery.isNotEmpty) {
+      _controller.text = initialQuery;
+      _controller.selection =
+          TextSelection.collapsed(offset: initialQuery.length);
+    }
     if (SupabaseService.isConfigured) {
       _signedIn = _supabaseService.isSignedIn;
       if (_signedIn) {
