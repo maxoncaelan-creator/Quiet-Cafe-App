@@ -233,3 +233,31 @@ repository-wide formatting change has been requested and reviewed.
 **Fix:** Stopped before testing, will restore only formatter-only changes
 after verifying their exact paths, and will run the formatter on the changed
 files only.
+
+## migration-cli-project-root-assumed
+
+### 2026-08-21 | 03_build | caught: self
+Ran `supabase migration new` from the existing `output/supabase` directory
+without first checking the CLI's expected project root. It created an empty
+nested `supabase/supabase/migrations` path instead of the tracked migration
+directory.
+**Standard:** Before using a project tool that discovers files by convention,
+verify its working-directory contract rather than inferring it from a source
+directory name.
+**Fix:** Removed the empty generated directory after verifying its exact
+contents, then created the migration from `stages/03_build/output`, where the
+CLI correctly targeted `supabase/migrations`.
+
+## external-api-contract-assumed
+
+### 2026-08-21 | 03_build | caught: self
+Initially reused Text Search's `nextPageToken` field mask for the new Google
+Nearby Search path without confirming that endpoint's response schema. Nearby
+Search has no pagination token, so the deployed version could have failed
+field-mask validation despite passing TypeScript checks.
+**Standard:** A type check cannot validate a remote API's request and response
+contract; verify new endpoint-specific fields in the provider documentation
+before deploying the integration.
+**Fix:** Checked Google's Nearby Search reference, removed `nextPageToken`
+from that endpoint's field mask, and redeployed the corrected proxy before any
+user request used it.

@@ -47,6 +47,18 @@ const DAILY_CAP = 20;
 const BASE_MAX_PAGES = 2;
 const FOLLOWUP_CATEGORIES = ['cafes', 'pubs', 'bars'];
 const AREA_QUERY_MAX_LENGTH = 80;
+const MIN_COVERAGE = 15;
+const LOCATION_RADIUS_METERS = 5000;
+const RECHECK_AFTER_MS = 24 * 60 * 60 * 1000;
+
+type UserLocation = {
+  latitude: number;
+  longitude: number;
+};
+
+type TopupTarget =
+  | { kind: 'area'; areaQuery: string; eventKey: string }
+  | { kind: 'location'; location: UserLocation; eventKey: string };
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -58,6 +70,61 @@ function jsonResponse(body: unknown, status = 200) {
     status,
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   });
+}
+
+function parseLocation(value: unknown): UserLocation | null {
+  if (!value || typeof value !== 'object') return null;
+  const candidate = value as { latitude?: unknown; longitude?: unknown };
+  const latitude = candidate.latitude;
+  const longitude = candidate.longitude;
+  if (
+    typeof latitude !== 'number' ||
+    typeof longitude !== 'number' ||
+    !Number.isFinite(latitude) ||
+    !Number.isFinite(longitude) ||
+    latitude < -90 ||
+    latitude > 90 ||
+    longitude < -180 ||
+    longitude > 180
+  ) {
+    return null;
+  }
+  return { latitude, longitude };
+}
+
+function locationEventKey({ latitude, longitude }: UserLocation) {
+  // Roughly 1 km cells in this app's Australian service area. A user moving
+  // a few metres must not spend another Places request for the same 5 km
+  // search circle, while a genuinely different part of a suburb can refresh.
+  return `location:${latitude.toFixed(2)},${longitude.toFixed(2)}`;
+}
+
+function haversineMeters(a: UserLocation, b: UserLocation) {
+  const radians = Math.PI / 180;
+  const latDelta = (b.latitude - a.latitude) * radians;
+  const lngDelta = (b.longitude - a.longitude) * radians;
+  const value =
+    Math.sin(latDelta / 2) ** 2 +
+    Math.cos(a.latitude * radians) * Math.cos(b.latitude * radians) * Math.sin(lngDelta / 2) ** 2;
+  return 2 * 6371000 * Math.asin(Math.sqrt(value));
+}
+
+async function countNearbyRestaurants(location: UserLocation) {
+  const latitudeDelta = LOCATION_RADIUS_METERS / 111000;
+  const longitudeDelta = LOCATION_RADIUS_METERS / (111000 * Math.max(Math.cos((location.latitude * Math.PI) / 180), 0.01));
+  const { data, error } = await supabaseAnon
+    .from('restaurants')
+    .select('lat, lng')
+    .gte('lat', location.latitude - latitudeDelta)
+    .lte('lat', location.latitude + latitudeDelta)
+    .gte('lng', location.longitude - longitudeDelta)
+    .lte('lng', location.longitude + longitudeDelta);
+  if (error) throw new Error(`Could not count nearby venues: ${error.message}`);
+
+  return (data ?? []).filter((row) => {
+    if (typeof row.lat !== 'number' || typeof row.lng !== 'number') return false;
+    return haversineMeters(location, { latitude: row.lat, longitude: row.lng }) <= LOCATION_RADIUS_METERS;
+  }).length;
 }
 
 // --- Places search, mirroring data-pipeline/src/places.js's approach ---
@@ -144,6 +211,28 @@ async function searchPlaces(query: string, maxPages: number) {
   return { places: places.map(normalizePlace), possiblyTruncated: places.length >= maxPages * 20 };
 }
 
+async function searchNearbyPlaces(location: UserLocation) {
+  const res = await fetchWithRetry(`${SUPABASE_URL}/functions/v1/places-search`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      apikey: SUPABASE_ANON_KEY,
+      'x-pipeline-secret': PIPELINE_SHARED_SECRET ?? '',
+    },
+    body: JSON.stringify({
+      nearby: {
+        latitude: location.latitude,
+        longitude: location.longitude,
+        radiusMeters: LOCATION_RADIUS_METERS,
+      },
+    }),
+  });
+  if (!res.ok) throw new Error(`places-search nearby failed: ${res.status} ${await res.text()}`);
+  const data = await res.json();
+  return (data.places ?? []).map(normalizePlace);
+}
+
 // --- Scoring, ported from data-pipeline/src/reviewMining.js + scoring.js ---
 // Only the review-text path is needed here: a venue this function inserts
 // is by definition brand new to `restaurants`, so it has zero mic readings
@@ -198,7 +287,7 @@ function scoreFromReviews(positiveCount: number, negativeCount: number) {
 // --- Haiku decision ---
 
 async function askHaiku(input: {
-  areaQuery: string;
+  scopeLabel: string;
   currentResultCount: number;
   lastCheckedAt: string | null;
   lastDecision: string | null;
@@ -225,7 +314,7 @@ async function askHaiku(input: {
       messages: [
         {
           role: 'user',
-          content: `Area: ${input.areaQuery}\nCurrent venues in database for this area: ${input.currentResultCount}\n${recency}`,
+          content: `Search scope: ${input.scopeLabel}\nCurrent venues in database for this scope: ${input.currentResultCount}\n${recency}`,
         },
       ],
     }),
@@ -261,17 +350,44 @@ Deno.serve(async (req) => {
   if (!GOOGLE_PLACES_KEY_CONFIGURED) return jsonResponse({ error: 'GOOGLE_PLACES_KEY is not configured' }, 500);
   if (!PIPELINE_SHARED_SECRET) return jsonResponse({ error: 'PIPELINE_SHARED_SECRET is not configured' }, 500);
 
-  let body: { areaQuery?: string };
+  // verify_jwt is enabled for this function, but validate the token here as
+  // well because this endpoint can spend a billed Google request. A valid JWT
+  // alone is not enough: only accounts that have passed the beta gate may
+  // trigger a top-up, including callers that bypass the Flutter UI.
+  const authHeader = req.headers.get('Authorization') ?? '';
+  const token = authHeader.replace(/^Bearer\s+/i, '');
+  const { data: userData, error: userError } = await supabaseAnon.auth.getUser(token);
+  if (userError || !userData.user) {
+    return jsonResponse({ error: 'auth_required', message: 'Sign in to refresh venue coverage.' }, 401);
+  }
+  const { data: betaAccess, error: betaAccessError } = await supabaseAdmin
+    .from('beta_codes')
+    .select('id')
+    .eq('redeemed_by', userData.user.id)
+    .not('redeemed_at', 'is', null)
+    .limit(1)
+    .maybeSingle();
+  if (betaAccessError) return jsonResponse({ error: 'Could not check beta access', detail: betaAccessError.message }, 502);
+  if (!betaAccess) return jsonResponse({ error: 'beta_access_required' }, 403);
+
+  let body: { areaQuery?: string; location?: unknown };
   try {
     body = await req.json();
   } catch {
     return jsonResponse({ error: 'Invalid JSON body' }, 400);
   }
 
-  const areaQuery = body.areaQuery?.trim();
-  if (!areaQuery || areaQuery.length > AREA_QUERY_MAX_LENGTH) {
-    return jsonResponse({ error: `"areaQuery" is required and must be under ${AREA_QUERY_MAX_LENGTH} characters` }, 400);
+  const areaQuery = body.areaQuery?.trim().replace(/\s+/g, ' ');
+  const location = parseLocation(body.location);
+  if (areaQuery && areaQuery.length > AREA_QUERY_MAX_LENGTH) {
+    return jsonResponse({ error: `"areaQuery" must be under ${AREA_QUERY_MAX_LENGTH} characters` }, 400);
   }
+  if ((!areaQuery && !location) || (areaQuery && location)) {
+    return jsonResponse({ error: 'Provide exactly one of "areaQuery" or "location"' }, 400);
+  }
+  const target: TopupTarget = areaQuery
+    ? { kind: 'area', areaQuery, eventKey: `area:${areaQuery.toLowerCase()}` }
+    : { kind: 'location', location: location!, eventKey: locationEventKey(location!) };
 
   // 1. Daily cap — cheapest possible check, no Haiku or Google call spent
   // finding out the answer is already no.
@@ -287,34 +403,69 @@ Deno.serve(async (req) => {
     return jsonResponse({ triggered: false, reason: 'daily_cap_reached' });
   }
 
-  // 2. Current coverage + recency for this specific area.
-  const { count: currentResultCount } = await supabaseAnon
-    .from('restaurants')
-    .select('place_id', { count: 'exact', head: true })
-    .ilike('suburb', `%${areaQuery}%`);
+  // 2. Current coverage + recency. Explicit suburbs count their exact
+  // database scope; "around me" uses a true 5 km radius rather than treating
+  // the device's raw coordinates as a fake suburb string.
+  let currentResultCount: number;
+  if (target.kind === 'area') {
+    const { count, error } = await supabaseAnon
+      .from('restaurants')
+      .select('place_id', { count: 'exact', head: true })
+      .ilike('suburb', `%${target.areaQuery}%`);
+    if (error) return jsonResponse({ error: 'Could not check venue coverage', detail: error.message }, 502);
+    currentResultCount = count ?? 0;
+  } else {
+    try {
+      currentResultCount = await countNearbyRestaurants(target.location);
+    } catch (err) {
+      return jsonResponse({ error: 'Could not check venue coverage', detail: String(err) }, 502);
+    }
+  }
+
+  if (currentResultCount >= MIN_COVERAGE) {
+    return jsonResponse({ triggered: false, reason: 'coverage_sufficient', resultCount: currentResultCount });
+  }
 
   const { data: lastEvent } = await supabaseAdmin
     .from('ondemand_topup_events')
     .select('triggered_at, haiku_decision')
-    .eq('area_query', areaQuery)
+    .eq('area_query', target.eventKey)
     .order('triggered_at', { ascending: false })
     .limit(1)
     .maybeSingle();
 
-  // 3. Ask Haiku.
-  const { decision, reason } = await askHaiku({
-    areaQuery,
-    currentResultCount: currentResultCount ?? 0,
-    lastCheckedAt: lastEvent?.triggered_at ?? null,
-    lastDecision: lastEvent?.haiku_decision ?? null,
-  });
+  if (lastEvent && Date.now() - new Date(lastEvent.triggered_at).getTime() < RECHECK_AFTER_MS) {
+    return jsonResponse({ triggered: false, reason: 'recently_checked', resultCount: currentResultCount });
+  }
+
+  // 3. There is no discretion when the database has zero candidates for the
+  // requested scope: fetch first, then let the assistant answer from real
+  // data. For partial coverage, retain Haiku's existing cost judgement.
+  const scopeLabel = target.kind === 'area' ? target.areaQuery : `within ${LOCATION_RADIUS_METERS / 1000} km of the user`;
+  let decision: 'yes' | 'no';
+  let reason: string;
+  if (currentResultCount === 0) {
+    decision = 'yes';
+    reason = 'No venues are currently listed for this search scope.';
+  } else {
+    try {
+      ({ decision, reason } = await askHaiku({
+        scopeLabel,
+        currentResultCount,
+        lastCheckedAt: lastEvent?.triggered_at ?? null,
+        lastDecision: lastEvent?.haiku_decision ?? null,
+      }));
+    } catch (err) {
+      return jsonResponse({ triggered: false, reason: 'topup_decision_unavailable', detail: String(err) }, 502);
+    }
+  }
 
   if (decision === 'no') {
     await supabaseAdmin.from('ondemand_topup_events').insert({
-      area_query: areaQuery,
+      area_query: target.eventKey,
       haiku_decision: 'no',
       haiku_reason: reason,
-      result_count_before: currentResultCount ?? 0,
+      result_count_before: currentResultCount,
     });
     return jsonResponse({ triggered: false, reason });
   }
@@ -325,14 +476,18 @@ Deno.serve(async (req) => {
   // failed attempt didn't spend a real search, so it shouldn't burn one of
   // the daily cap's 20 slots either.
   try {
-    const baseQuery = `restaurants, cafes, pubs and bars in ${areaQuery} NSW`;
-    const { places: baseResults, possiblyTruncated } = await searchPlaces(baseQuery, BASE_MAX_PAGES);
-
-    const byPlaceId = new Map(baseResults.map((r) => [r.placeId, r]));
-    if (possiblyTruncated) {
-      for (const category of FOLLOWUP_CATEGORIES) {
-        const { places: followupResults } = await searchPlaces(`${category} in ${areaQuery} NSW`, 1);
-        for (const r of followupResults) byPlaceId.set(r.placeId, r);
+    const byPlaceId = new Map<string, ReturnType<typeof normalizePlace>>();
+    if (target.kind === 'location') {
+      for (const place of await searchNearbyPlaces(target.location)) byPlaceId.set(place.placeId, place);
+    } else {
+      const baseQuery = `restaurants, cafes, pubs and bars in ${target.areaQuery} NSW`;
+      const { places: baseResults, possiblyTruncated } = await searchPlaces(baseQuery, BASE_MAX_PAGES);
+      for (const place of baseResults) byPlaceId.set(place.placeId, place);
+      if (possiblyTruncated) {
+        for (const category of FOLLOWUP_CATEGORIES) {
+          const { places: followupResults } = await searchPlaces(`${category} in ${target.areaQuery} NSW`, 1);
+          for (const place of followupResults) byPlaceId.set(place.placeId, place);
+        }
       }
     }
 
@@ -371,10 +526,10 @@ Deno.serve(async (req) => {
       .upsert(rows, { onConflict: 'place_id', ignoreDuplicates: true });
 
     await supabaseAdmin.from('ondemand_topup_events').insert({
-      area_query: areaQuery,
+      area_query: target.eventKey,
       haiku_decision: 'yes',
       haiku_reason: reason,
-      result_count_before: currentResultCount ?? 0,
+      result_count_before: currentResultCount,
       places_found: rows.length,
     });
 

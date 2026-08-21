@@ -62,7 +62,11 @@ Deno.serve(async (req) => {
     return jsonResponse({ error: 'Unauthorized' }, 401);
   }
 
-  let body: { query?: string; pageToken?: string };
+  let body: {
+    query?: string;
+    pageToken?: string;
+    nearby?: { latitude?: number; longitude?: number; radiusMeters?: number };
+  };
   try {
     body = await req.json();
   } catch {
@@ -71,24 +75,74 @@ Deno.serve(async (req) => {
 
   const pageToken = body.pageToken?.trim();
   const query = body.query?.trim();
+  const nearby = body.nearby;
+
+  const latitude = nearby?.latitude;
+  const longitude = nearby?.longitude;
+  const radiusMeters = nearby?.radiusMeters;
+  const hasNearbySearch =
+    Number.isFinite(latitude) &&
+    Number.isFinite(longitude) &&
+    Number.isFinite(radiusMeters) &&
+    latitude! >= -90 &&
+    latitude! <= 90 &&
+    longitude! >= -180 &&
+    longitude! <= 180 &&
+    radiusMeters! > 0 &&
+    radiusMeters! <= 50000;
+
+  if (nearby && !hasNearbySearch) {
+    return jsonResponse({ error: '"nearby" must contain valid latitude, longitude and radiusMeters (1-50000)' }, 400);
+  }
   // Google requires textQuery repeated identically on a page-token
   // follow-up — "All parameters other than maxResultCount, pageSize, and
   // pageToken must be the same as the previous request. Otherwise, the API
   // returns an INVALID_ARGUMENT error." (confirmed against Google's own
   // docs 2026-08-20, after a live run hit exactly that error trying to
   // send pageToken alone). So query is always required, page 1 or not.
-  if (!query) {
+  if (!query && !hasNearbySearch) {
     return jsonResponse({ error: '"query" is required' }, 400);
   }
 
-  const placesRes = await fetch('https://places.googleapis.com/v1/places:searchText', {
+  if (hasNearbySearch && pageToken) {
+    // Nearby Search has no text-search page tokens. Rejecting this avoids a
+    // caller accidentally treating two incompatible Google endpoints alike.
+    return jsonResponse({ error: '"pageToken" is not supported for nearby searches' }, 400);
+  }
+
+  const requestUrl = hasNearbySearch
+    ? 'https://places.googleapis.com/v1/places:searchNearby'
+    : 'https://places.googleapis.com/v1/places:searchText';
+  // Nearby Search returns one page only; nextPageToken is a Text Search
+  // response field and would make a Nearby request fail its field-mask
+  // validation rather than quietly returning the same venue data.
+  const fieldMask = hasNearbySearch ? FIELD_MASK : `${FIELD_MASK},nextPageToken`;
+  const requestBody = hasNearbySearch
+    ? {
+        // These are Place types, not free-form user input. Nearby Search keeps
+        // the returned venues inside the requested circle and ranks them by
+        // distance, which is stronger than Text Search's optional location
+        // bias for the "around me" assistant path.
+        includedTypes: ['restaurant', 'cafe', 'bar', 'pub'],
+        maxResultCount: 20,
+        rankPreference: 'DISTANCE',
+        locationRestriction: {
+          circle: {
+            center: { latitude, longitude },
+            radius: radiusMeters,
+          },
+        },
+      }
+    : { textQuery: query, ...(pageToken ? { pageToken } : {}) };
+
+  const placesRes = await fetch(requestUrl, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'X-Goog-Api-Key': GOOGLE_PLACES_API_KEY,
-      'X-Goog-FieldMask': `${FIELD_MASK},nextPageToken`,
+      'X-Goog-FieldMask': fieldMask,
     },
-    body: JSON.stringify({ textQuery: query, ...(pageToken ? { pageToken } : {}) }),
+    body: JSON.stringify(requestBody),
   });
 
   if (!placesRes.ok) {
