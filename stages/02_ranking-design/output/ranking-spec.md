@@ -20,6 +20,31 @@ restaurants had `popular_times` data available — see
 and this spec's description of it are kept below, dormant, in case
 Outscraper restores the field or an alternative source gets pursued later.
 
+### Current on-site loudness (added 2026-08-21, per Caelan)
+
+The combined score below is a **historical venue baseline**. It must not make
+a person standing in a loud room see “Moderate” merely because the venue has
+usually been quiet. Every newly submitted Loudness vote or completed 10-second
+microphone reading is stored as a separate current observation:
+
+- At submission, its sub-score controls displayed loudness at 100% weight
+  (Quiet = 100, Normal = 50, Loud = 0; microphone values use the normal dBA
+  mapping).
+- Its freshness weight decays linearly from 1 to 0 over **21 days**. The
+  displayed score then smoothly returns to the historical baseline rather
+  than leaving a stale one-off report in control forever.
+- A microphone reading from the same account within the existing five-minute
+  precedence window remains the current observation in preference to a vote.
+
+```
+displayed_quietness = baseline_quietness
+  + freshness * (current_observation - baseline_quietness)
+freshness = clamp(1 - observation_age / 21 days, 0, 1)
+```
+
+The baseline still includes all raw readings and votes for long-term ranking;
+the overlay is what makes the app truthful about conditions right now.
+
 ## Sub-score normalization
 Each active signal is normalized to a 0–100 quietness sub-score (100 = quietest) before combining, since the sources arrive in different units and scales:
 
@@ -56,10 +81,10 @@ uncorrected rather than being dropped.
 The combined score is a weighted average of the active sub-scores (the formula still has a term for Popular Times, dormant, in case it's revived):
 
 ```
-quietness_score = (w_mic * mic_subscore) + (w_review * review_subscore) + (w_vote * vote_subscore) + (w_popular * popular_subscore)
+baseline_quietness_score = (w_mic * mic_subscore) + (w_review * review_subscore) + (w_vote * vote_subscore) + (w_popular * popular_subscore)
 ```
 
-Where weights are renormalized based on which signals actually have data for a given venue (cold start handling — see below). In practice today, `popular_subscore` is always absent, so this resolves to a renormalization across review, mic, and vote. Starting point (`DEFAULT_WEIGHTS` in `data-pipeline/src/scoring.js`), to be tuned against real data:
+Where weights are renormalized based on which signals actually have data for a given venue (cold start handling — see below). In practice today, `popular_subscore` is always absent, so this resolves to a renormalization across review, mic, and vote. The client applies the separate current-on-site overlay above when one is fresh. Starting point (`DEFAULT_WEIGHTS` in `data-pipeline/src/scoring.js`), to be tuned against real data:
 - Microphone signal (0.4): highest weight when present — most direct measurement, and the reason it overrides a same-user vote within 5 minutes rather than the other way around.
 - Review-text signal (0.25): second weight — asynchronous but broad coverage.
 - Loudness-vote signal (0.2): third weight — added 2026-08-18, a lighter-weight signal than a real decibel reading.

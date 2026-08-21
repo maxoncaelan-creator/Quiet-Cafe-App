@@ -33,11 +33,16 @@ class LoudnessVoteButtons extends StatefulWidget {
   /// score recompute has been kicked off) — see file header comment.
   final VoidCallback onVoted;
 
+  /// A fixed microphone capture is a single observation window, so votes
+  /// are disabled until that capture completes or fails.
+  final bool enabled;
+
   const LoudnessVoteButtons({
     super.key,
     required this.placeId,
     required this.ensureSignedIn,
     required this.onVoted,
+    this.enabled = true,
   });
 
   @override
@@ -83,19 +88,19 @@ class _LoudnessVoteButtonsState extends State<LoudnessVoteButtons> {
             _VoteButton(
               label: 'Quiet',
               icon: Icons.volume_down_rounded,
-              onPressed: _submitting ? null : () => _vote('quiet'),
+              onPressed: _submitting || !widget.enabled ? null : () => _vote('quiet'),
             ),
             const SizedBox(width: 8),
             _VoteButton(
               label: 'Normal',
               icon: Icons.volume_up_rounded,
-              onPressed: _submitting ? null : () => _vote('normal'),
+              onPressed: _submitting || !widget.enabled ? null : () => _vote('normal'),
             ),
             const SizedBox(width: 8),
             _VoteButton(
               label: 'Loud',
               icon: Icons.campaign_rounded,
-              onPressed: _submitting ? null : () => _vote('loud'),
+              onPressed: _submitting || !widget.enabled ? null : () => _vote('loud'),
             ),
           ],
         ),

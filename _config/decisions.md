@@ -68,6 +68,16 @@ Active for v1:
   UI was finally wired up (found while doing an unrelated detail-screen
   redesign). Worth checking decisions.md against what's actually merged
   before trusting a "decided/done" entry at face value.
+- **Current loudness uses fresh on-site reports first** — decided 2026-08-21.
+  A newly submitted Quiet/Normal/Loud vote or completed 10-second microphone
+  average is the best account of conditions right now, so it fully controls
+  the displayed loudness at first. Its influence then decays linearly over 21
+  days toward the venue’s historical aggregate. Mic capture stays on the
+  venue detail screen: the first five seconds show only “Listening,” the next
+  five show a Quiet/Normal/Loud assessment of the first five-second average,
+  and the final UI shows only the complete 10-second average. A user cannot
+  stop that capture early, and Postgres rejects every new venue mic row that
+  does not attest to at least 10,000 ms of capture.
 - **Mic calibration** — decided with Caelan 2026-08-19. An average human
   speaking voice measures ~60 dBA; every signed-in user is walked through a
   "say something" screen (`mic_calibration_screen.dart`) once on their

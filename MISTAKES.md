@@ -221,3 +221,15 @@ Told Caelan that the private-repo theory does not hold, citing private:false fro
 Reported to Caelan as a finding worth chasing that all 16 closed PRs show merged:false, so nothing had ever landed on main through a pull request. The list_pull_requests endpoint does not populate the merged boolean - it carries merged_at instead - so every PR reads merged:false there regardless of the truth. git log shows the tip of main is a merge commit for PR 18, and the single-PR endpoint returns merged:true for both 16 and 18. Caught while verifying the claim before writing it into documentation, one turn after asserting it.
 **Standard:** A field read from a list endpoint is not evidence unless that endpoint populates it. A value identical across every record is a signal the field is unpopulated, not a finding.
 **Fix:** Verified against git log and the single-PR endpoint, corrected the claim to Caelan, and kept it out of the documentation.
+
+## formatter-run-beyond-feature-scope
+
+### 2026-08-21 | 03_build | caught: self
+Ran `dart format lib test` while the new feature had changed only a small
+set of files. The formatter rewrote 48 unrelated Dart files before stopping
+on a parse error in one changed model.
+**Standard:** Format only the explicit files changed by the feature unless a
+repository-wide formatting change has been requested and reviewed.
+**Fix:** Stopped before testing, will restore only formatter-only changes
+after verifying their exact paths, and will run the formatter on the changed
+files only.

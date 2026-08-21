@@ -5,27 +5,40 @@
 import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform, TargetPlatform;
 
 class MicReading {
+  static const minimumCaptureDuration = Duration(seconds: 10);
+
   final String placeId;
   final double decibelValue;
   final String platform; // 'ios' | 'android' | 'web'
   final DateTime recordedAt;
+  final Duration captureDuration;
 
   const MicReading({
     required this.placeId,
     required this.decibelValue,
     required this.platform,
     required this.recordedAt,
-  });
+    required this.captureDuration,
+  }) : assert(captureDuration >= minimumCaptureDuration);
 
   factory MicReading.capture({
     required String placeId,
     required double decibelValue,
+    required Duration captureDuration,
   }) {
+    if (captureDuration < minimumCaptureDuration) {
+      throw ArgumentError.value(
+        captureDuration,
+        'captureDuration',
+        'A venue reading must contain at least 10 seconds of audio.',
+      );
+    }
     return MicReading(
       placeId: placeId,
       decibelValue: decibelValue,
       platform: capturePlatform(),
       recordedAt: DateTime.now(),
+      captureDuration: captureDuration,
     );
   }
 
@@ -45,6 +58,7 @@ class MicReading {
         'decibelValue': decibelValue,
         'platform': platform,
         'recordedAt': recordedAt.toIso8601String(),
+        'captureDurationMs': captureDuration.inMilliseconds,
       };
 }
 

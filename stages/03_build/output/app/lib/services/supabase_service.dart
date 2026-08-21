@@ -286,6 +286,7 @@ class SupabaseService {
       'decibel_value': reading.decibelValue,
       'platform': reading.platform,
       'recorded_at': reading.recordedAt.toIso8601String(),
+      'capture_duration_ms': reading.captureDuration.inMilliseconds,
     });
     await _recomputeScore(reading.placeId);
   }
@@ -377,6 +378,8 @@ class SupabaseService {
         },
       },
       'quietnessScore': row['quietness_score'],
+      'currentLoudnessSubscore': row['current_loudness_subscore'],
+      'currentLoudnessObservedAt': row['current_loudness_observed_at'],
       'confidence': row['confidence'],
       'signalCount': [
         row['review_subscore'],
