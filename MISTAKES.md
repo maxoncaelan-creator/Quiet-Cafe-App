@@ -1,5 +1,23 @@
 # Mistakes - quiet-restaurant-finder
 
+## user-coverage-constraint-underweighted
+
+Initially narrowed the new coordinate refresh to circles with zero local venues,
+treating a cost guard as more important than the requested organic-coverage
+effect. Caelan clarified that every requested coordinate check should verify
+Google regardless of current rows, and that Search Assistant should add this
+check alongside its 5 km thin-coverage refresh.
+
+### 2026-08-22 | 03_build | caught: user
+
+**Standard:** When a user states a desired coverage or network effect, do not
+silently replace it with a stricter cost-saving rule. Preserve the requested
+behavior and apply explicit, agreed safeguards instead.
+
+**Fix:** The 1 km path now always queries Google after its 250 m / seven-day
+completed-check cache, and coordinate-based Assistant requests run it alongside
+the existing 5 km path. The daily cap remains in effect.
+
 Record one the moment it is apparent, not at the end of the project - the small
 repeated ones are exactly what a retrospective loses, and the count is the
 signal. What counts as a mistake, and what does not, is in
@@ -314,5 +332,7 @@ to 5 km, so the change would have silently narrowed an existing feature.
 **Standard:** Before changing a shared endpoint's default behavior, enumerate
 and preserve every existing caller unless the product decision explicitly
 changes all of them.
-**Fix:** Added an explicit `empty_nearby` coverage mode for the List View;
-Search Assistant continues to use the unchanged default coordinate path.
+**Fix:** Added an explicit `nearby` coverage mode for the List View, preserving
+the Assistant's unchanged 5 km default coordinate path. Per Caelan's later
+product decision, coordinate-based Assistant requests now add the separate
+cached 1 km nearby mode alongside that default rather than replacing it.

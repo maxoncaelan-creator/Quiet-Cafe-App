@@ -355,7 +355,7 @@ class SupabaseService {
           'latitude': latitude,
           'longitude': longitude,
         },
-        'coverageMode': 'empty_nearby',
+        'coverageMode': 'nearby',
       },
     );
     if (response.status < 200 || response.status >= 300) {

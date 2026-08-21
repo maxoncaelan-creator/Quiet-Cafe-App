@@ -66,7 +66,7 @@ type TopupTarget =
       location: UserLocation;
       eventKey: string;
       radiusMeters: number;
-      requireEmptyCoverage: boolean;
+      usesNearbyCheckpoint: boolean;
     };
 
 const corsHeaders = {
@@ -435,8 +435,8 @@ Deno.serve(async (req) => {
 
   const areaQuery = body.areaQuery?.trim().replace(/\s+/g, ' ');
   const location = parseLocation(body.location);
-  const useListNearbyCheck = body.coverageMode === 'empty_nearby';
-  if (body.coverageMode !== undefined && !useListNearbyCheck) {
+  const useNearbyRefresh = body.coverageMode === 'nearby';
+  if (body.coverageMode !== undefined && !useNearbyRefresh) {
     return jsonResponse({ error: 'Unknown coverage mode' }, 400);
   }
   if (areaQuery && areaQuery.length > AREA_QUERY_MAX_LENGTH) {
@@ -445,7 +445,7 @@ Deno.serve(async (req) => {
   if ((!areaQuery && !location) || (areaQuery && location)) {
     return jsonResponse({ error: 'Provide exactly one of "areaQuery" or "location"' }, 400);
   }
-  if (useListNearbyCheck && !location) {
+  if (useNearbyRefresh && !location) {
     return jsonResponse({ error: 'The nearby coverage mode requires a location' }, 400);
   }
   const target: TopupTarget = areaQuery
@@ -454,16 +454,16 @@ Deno.serve(async (req) => {
         kind: 'location',
         location: location!,
         eventKey: locationEventKey(location!),
-        radiusMeters: useListNearbyCheck
+        radiusMeters: useNearbyRefresh
           ? LIST_NEARBY_RADIUS_METERS
           : DEFAULT_LOCATION_RADIUS_METERS,
-        requireEmptyCoverage: useListNearbyCheck,
+        usesNearbyCheckpoint: useNearbyRefresh,
       };
 
   // A location-based check is a short-lived shared coverage cache. Consult it
   // before any paid-call decision: another request within 250 m of a completed
   // Google check in the last week must reuse that outcome.
-  if (target.kind === 'location' && target.requireEmptyCoverage) {
+  if (target.kind === 'location' && target.usesNearbyCheckpoint) {
     try {
       const checkpoint = await findRecentNearbyCheckpoint(target.location);
       if (checkpoint) {
@@ -511,12 +511,12 @@ Deno.serve(async (req) => {
     }
   }
 
-  // The List View's GPS recovery asks Google only when there is nothing within
-  // its 1 km circle. The pre-existing assistant and area flows retain their
+  // A deliberate 1 km coordinate refresh asks Google regardless of the rows
+  // already stored locally. Its separate seven-day checkpoint above controls
+  // repetition. The pre-existing assistant 5 km and area flows retain their
   // broader minimum-coverage policy.
   if (
-    (target.kind === 'location' && target.requireEmptyCoverage && currentResultCount > 0) ||
-    (target.kind === 'location' && !target.requireEmptyCoverage && currentResultCount >= MIN_COVERAGE) ||
+    (target.kind === 'location' && !target.usesNearbyCheckpoint && currentResultCount >= MIN_COVERAGE) ||
     (target.kind === 'area' && currentResultCount >= MIN_COVERAGE)
   ) {
     return jsonResponse({ triggered: false, reason: 'coverage_sufficient', resultCount: currentResultCount });
@@ -530,19 +530,26 @@ Deno.serve(async (req) => {
     .limit(1)
     .maybeSingle();
 
-  if (lastEvent && Date.now() - new Date(lastEvent.triggered_at).getTime() < AREA_RECHECK_AFTER_MS) {
+  if (
+    !(target.kind === 'location' && target.usesNearbyCheckpoint) &&
+    lastEvent &&
+    Date.now() - new Date(lastEvent.triggered_at).getTime() < AREA_RECHECK_AFTER_MS
+  ) {
     return jsonResponse({ triggered: false, reason: 'recently_checked', resultCount: currentResultCount });
   }
 
-  // 3. There is no discretion when the database has zero candidates for the
-  // requested scope: fetch first, then let the assistant answer from real
-  // data. For partial coverage, retain Haiku's existing cost judgement.
+  // 3. The explicit 1 km mode always checks Google after its checkpoint.
+  // Zero-result scopes also always fetch; the existing broader flows retain
+  // Haiku's partial-coverage cost judgement.
   const scopeLabel = target.kind === 'area'
     ? target.areaQuery
     : `within ${target.radiusMeters / 1000} km of the user`;
   let decision: 'yes' | 'no';
   let reason: string;
-  if (currentResultCount === 0) {
+  if (target.kind === 'location' && target.usesNearbyCheckpoint) {
+    decision = 'yes';
+    reason = 'A user requested a direct 1 km nearby venue check.';
+  } else if (currentResultCount === 0) {
     decision = 'yes';
     reason = 'No venues are currently listed for this search scope.';
   } else {
@@ -638,7 +645,7 @@ Deno.serve(async (req) => {
     // A failed request/upsert stays retryable. Record the location only once
     // Google’s outcome has made it into the venue list, including a valid
     // zero-place search result.
-    if (target.kind === 'location' && target.requireEmptyCoverage) {
+    if (target.kind === 'location' && target.usesNearbyCheckpoint) {
       await recordNearbyCheckpoint(target.location, currentResultCount, rows.length);
     }
     return jsonResponse({ triggered: true, placesFound: rows.length, reason });

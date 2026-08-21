@@ -5,15 +5,17 @@ they change. Stage contracts read this rather than restating it.
 
 ## Scope
 
-**Greater Sydney, plus out to Dubbo, north to Newcastle, south to Moss Vale,
-and into the Illawarra as far as Kiama.** Expanded from the original
+**Seeded coverage is Greater Sydney, plus out to Dubbo, north to Newcastle,
+south to Moss Vale, and into the Illawarra as far as Kiama.** Expanded from the original
 "Sydney, NSW only" scope, confirmed with Caelan 2026-08-19, after the
 suburb filter turned out to only ever show "All suburbs" — see build log
 "Greater NSW scope expansion + cuisine display formatting." The pipeline's
 `data-pipeline/src/searchAreas.js` holds the 60+ area queries used to cover
 this footprint; it's a curated regional spread, not an exhaustive suburb
-list (Greater Sydney alone has 600+ gazetted suburbs) — extend it if
-real-world testing turns up a gap. The List screen's AppBar title changed
+list (Greater Sydney alone has 600+ gazetted suburbs). GPS-based nearby checks
+can also add Google Places around a beta user's current coordinates anywhere
+they are, deliberately allowing demand-led coverage to grow beyond the seeded
+region. The List screen's AppBar title changed
 from "Quietest in Sydney" to "List View" 2026-08-19 (per Caelan); the
 README/store copy still says "Sydney" only — **not changed yet, flagged
 for Caelan** since that's a separate branding pass.
@@ -240,12 +242,14 @@ choices:
   venues were added, the area was recently checked, or coverage was already
   sufficient.
 - **Check 1 km nearby** uses the current GPS fix after the person explicitly
-  chooses it. The backend first counts venues in that exact 1 km circle. Only
-  an empty circle can call Google Nearby Search; completed checks are stored as
-  shared coordinate checkpoints, so another request within 250 m reuses the
-  outcome for seven days. The checkpoint has no account identifier and is not
-  readable through the client Data API. Beta access and the daily paid-search
-  cap remain server-side.
+  chooses it. The backend calls Google Nearby Search for that exact circle even
+  when local venues already exist, then stores the completed result as a shared
+  coordinate checkpoint; another request within 250 m reuses it for seven days.
+  Search Assistant makes the same cached 1 km check alongside its existing
+  5 km thin-coverage refresh. These coordinate searches have no city or NSW
+  restriction, deliberately enabling demand-led expansion wherever users are.
+  The checkpoint has no account identifier and is not readable through the
+  client Data API. Beta access and the daily paid-search cap remain server-side.
 
 ## Password policy
 
