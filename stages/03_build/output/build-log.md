@@ -59,61 +59,37 @@ compaction.
 | Flutter code | Live-Supabase Android debug APK built on 2026-08-21; `flutter test` 4/4 passed | A clean build is not a device/UI test. |
 | Pipeline scoring and review mining | Unit-tested; sample pipeline run verified | Weights need real-usage tuning. |
 | Google Places pipeline | Live-loaded real venues; regional/cuisine follow-up coverage checked | Search areas are not exhaustive. |
-| Supabase roles and beta RPCs | RLS/roles smoke-tested; account-binding RPCs tested with real accounts and JWTs | The confirmation-return session fix is implemented; a clean native callback retest is blocked only by the live email rate limit. |
-| Email referral flow | Resend domain/secrets and a real request → approval → code delivery verified | Retest the app's own confirmation link once Supabase permits another email; do not substitute a non-app redirect. |
-| Android core flow | 2026-08-21 live emulator pass: fresh email signup/confirmation, ordinary email sign-in, invalid code, valid UI code redemption, restart persistence, calibration reachability, and a rebuilt live-config APK after the session fix. | GPS, calibration submission, score refresh, and the clean confirmation-return rerun still need focused passes. |
+| Supabase roles and beta RPCs | RLS/roles smoke-tested; account-binding RPCs tested with real accounts and JWTs; the repaired native confirmation return now passed end to end. | Second-account `already_redeemed` handling and the no-Supabase demo build remain to test. |
+| Email referral flow | Resend domain/secrets, a real request → approval → code delivery, and Supabase Auth custom SMTP confirmation delivery verified. | Password-recovery link click-through still needs its own focused pass. |
+| Android core flow | 2026-08-21 live emulator pass: fresh email signup/confirmation, ordinary email sign-in, invalid code, valid UI code redemption, restart persistence, calibration reachability, and a rebuilt live-config APK after the session fix. The clean confirmation-return path is now included. | GPS, calibration submission and score refresh still need focused passes. |
 | Web | Deployed, direct routes work, Google OAuth was click-tested | Responsive layout, web mic capture and recent UI changes lack a focused visual pass. |
 
-## Immediate blocker — confirmation-return session retest
+## Latest verification — confirmation-return session smoke test passed
 
-The 2026-08-21 live Android emulator smoke test found a narrow but real
-beta-gate defect. A fresh disposable account followed the confirmation-email
-deep link back into the app and reached `/beta-gate`, but entering a known,
-unexpired and unredeemed code returned “That code isn't valid.” The exact code
-was in the field; the same account could redeem it through an authenticated
-direct RPC call (`ok`).
+Resend is now configured as Supabase Auth's custom SMTP provider. On 2026-08-21
+the current `fix/confirmation-return-session` Android debug APK was rebuilt
+with live Supabase configuration, installed on a clean emulator, and driven
+through the app's own email sign-up flow. The confirmation email arrived,
+contained the expected `quietrestaurantfinder://login-callback` redirect, and
+returned the app to `/beta-gate` with a usable session.
 
-The normal path works: after a clean ordinary email/password sign-in, the same
-unbound account reached `/beta-gate`, redeemed the code through the actual UI,
-entered the app, and remained unlocked after restart. Android location
-permission appeared before mic calibration; after denying it, the calibration
-screen appeared, so the gate redirect did not lose that prompt.
+The first valid beta code was entered through the UI, redeemed for that newly
+confirmed account, and the database recorded the account binding. The app then
+opened its normal Search Assistant screen; Android immediately requested
+location permission, which was deliberately left unanswered. This proves the
+session-repair path without treating the later location feature as tested.
 
-This points to the confirmation-return hand-off, not the code, schema or
-normal sign-in flow. The RPC itself returns `invalid` when `auth.uid()` is
-null, exactly matching the failed app result. The repair is on
-`fix/confirmation-return-session`: account-gated paths now require
-`currentSession`, the beta gate stays on `/checking-access` while that session
-is checked, stale access checks cannot overwrite a newer auth event, and a
-confirmed ordinary sign-in can leave the auth routes while recovery remains
-exempt.
-
-The changed app compiled in a live-Supabase Android debug APK and its existing
-Flutter tests passed 4/4. A real account confirmation was also checked
-server-side, but that fallback did not specify the app's custom redirect and
-therefore cannot establish or disprove the native callback behaviour. The
-proper clean retry (app `signUp` with
-`quietrestaurantfinder://login-callback`, clear app data, confirmation link,
-then first valid-code UI redemption) is currently blocked by Supabase Auth's
-email send rate limit. The temporary beta-code row and reachable test session
-were removed afterward.
-
-Once the rate limit lifts, run that exact clean native callback path. A pass is
-only: confirmation returns through the custom scheme, `/checking-access` then
-`/beta-gate` appears with a usable session, the first valid code unlocks, and
-the database records it bound to that account. A direct server confirmation
-without the app redirect is not evidence either way.
-
-Still to smoke-test: a second account attempting an already-redeemed code,
-the no-Supabase standalone build, and whether `/checking-access` is visually
-acceptable on a normal connection.
+The temporary beta-code row was removed and the emulator app data was cleared.
+Synthetic Supabase Auth accounts were retained (their deletion requires an
+explicit decision); one disposable-mailbox endpoint rejected deletion, so that
+mailbox is left to its provider expiry. The remaining beta-gate checks are a
+second account using an already-redeemed code, the no-Supabase standalone
+build, and the visual quality of `/checking-access` on a normal connection.
 
 ## Active work queue
 
 ### Needs a real device or browser
 
-- Retest the confirmation-return session hand-off after its fix; see the
-  immediate blocker above.
 - GPS venue guess: near a loaded venue, confirm “Are you at X?” and its
   Yes/No behaviours against a real location fix.
 - Mic calibration: fresh sign-in, cold launch, skip, submission and the
