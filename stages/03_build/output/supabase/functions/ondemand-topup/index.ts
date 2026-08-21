@@ -48,8 +48,11 @@ const BASE_MAX_PAGES = 2;
 const FOLLOWUP_CATEGORIES = ['cafes', 'pubs', 'bars'];
 const AREA_QUERY_MAX_LENGTH = 80;
 const MIN_COVERAGE = 15;
-const LOCATION_RADIUS_METERS = 5000;
-const RECHECK_AFTER_MS = 24 * 60 * 60 * 1000;
+const DEFAULT_LOCATION_RADIUS_METERS = 5000;
+const LIST_NEARBY_RADIUS_METERS = 1000;
+const LOCATION_RECHECK_RADIUS_METERS = 250;
+const AREA_RECHECK_AFTER_MS = 24 * 60 * 60 * 1000;
+const LOCATION_RECHECK_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
 
 type UserLocation = {
   latitude: number;
@@ -58,7 +61,13 @@ type UserLocation = {
 
 type TopupTarget =
   | { kind: 'area'; areaQuery: string; eventKey: string }
-  | { kind: 'location'; location: UserLocation; eventKey: string };
+  | {
+      kind: 'location';
+      location: UserLocation;
+      eventKey: string;
+      radiusMeters: number;
+      requireEmptyCoverage: boolean;
+    };
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -93,9 +102,9 @@ function parseLocation(value: unknown): UserLocation | null {
 }
 
 function locationEventKey({ latitude, longitude }: UserLocation) {
-  // Roughly 1 km cells in this app's Australian service area. A user moving
-  // a few metres must not spend another Places request for the same 5 km
-  // search circle, while a genuinely different part of a suburb can refresh.
+  // The existing assistant flow treats roughly 1 km coordinate cells as one
+  // 5 km search scope. The List View's stricter check uses its own exact-radius
+  // checkpoint table below rather than this approximate key.
   return `location:${latitude.toFixed(2)},${longitude.toFixed(2)}`;
 }
 
@@ -109,9 +118,9 @@ function haversineMeters(a: UserLocation, b: UserLocation) {
   return 2 * 6371000 * Math.asin(Math.sqrt(value));
 }
 
-async function countNearbyRestaurants(location: UserLocation) {
-  const latitudeDelta = LOCATION_RADIUS_METERS / 111000;
-  const longitudeDelta = LOCATION_RADIUS_METERS / (111000 * Math.max(Math.cos((location.latitude * Math.PI) / 180), 0.01));
+async function countNearbyRestaurants(location: UserLocation, radiusMeters: number) {
+  const latitudeDelta = radiusMeters / 111000;
+  const longitudeDelta = radiusMeters / (111000 * Math.max(Math.cos((location.latitude * Math.PI) / 180), 0.01));
   const { data, error } = await supabaseAnon
     .from('restaurants')
     .select('lat, lng')
@@ -123,8 +132,55 @@ async function countNearbyRestaurants(location: UserLocation) {
 
   return (data ?? []).filter((row) => {
     if (typeof row.lat !== 'number' || typeof row.lng !== 'number') return false;
-    return haversineMeters(location, { latitude: row.lat, longitude: row.lng }) <= LOCATION_RADIUS_METERS;
+    return haversineMeters(location, { latitude: row.lat, longitude: row.lng }) <= radiusMeters;
   }).length;
+}
+
+type CoverageCheckpoint = {
+  checked_at: string;
+};
+
+async function findRecentNearbyCheckpoint(location: UserLocation): Promise<CoverageCheckpoint | null> {
+  const cutoff = new Date(Date.now() - LOCATION_RECHECK_AFTER_MS).toISOString();
+  const latitudeDelta = LOCATION_RECHECK_RADIUS_METERS / 111000;
+  const longitudeDelta =
+    LOCATION_RECHECK_RADIUS_METERS /
+    (111000 * Math.max(Math.cos((location.latitude * Math.PI) / 180), 0.01));
+  const { data, error } = await supabaseAdmin
+    .from('venue_coverage_checkpoints')
+    .select('latitude, longitude, checked_at')
+    .gte('checked_at', cutoff)
+    .gte('latitude', location.latitude - latitudeDelta)
+    .lte('latitude', location.latitude + latitudeDelta)
+    .gte('longitude', location.longitude - longitudeDelta)
+    .lte('longitude', location.longitude + longitudeDelta)
+    .order('checked_at', { ascending: false });
+  if (error) throw new Error(`Could not check nearby coverage history: ${error.message}`);
+
+  return (
+    (data ?? []).find((checkpoint) =>
+      haversineMeters(location, {
+        latitude: checkpoint.latitude,
+        longitude: checkpoint.longitude,
+      }) <= LOCATION_RECHECK_RADIUS_METERS,
+    ) ?? null
+  );
+}
+
+async function recordNearbyCheckpoint(
+  location: UserLocation,
+  resultCountBefore: number,
+  placesFound: number,
+) {
+  const { error } = await supabaseAdmin
+    .from('venue_coverage_checkpoints')
+    .insert({
+      latitude: location.latitude,
+      longitude: location.longitude,
+      result_count_before: resultCountBefore,
+      places_found: placesFound,
+    });
+  if (error) throw new Error(`Could not record nearby coverage check: ${error.message}`);
 }
 
 // --- Places search, mirroring data-pipeline/src/places.js's approach ---
@@ -211,7 +267,7 @@ async function searchPlaces(query: string, maxPages: number) {
   return { places: places.map(normalizePlace), possiblyTruncated: places.length >= maxPages * 20 };
 }
 
-async function searchNearbyPlaces(location: UserLocation) {
+async function searchNearbyPlaces(location: UserLocation, radiusMeters: number) {
   const res = await fetchWithRetry(`${SUPABASE_URL}/functions/v1/places-search`, {
     method: 'POST',
     headers: {
@@ -224,7 +280,7 @@ async function searchNearbyPlaces(location: UserLocation) {
       nearby: {
         latitude: location.latitude,
         longitude: location.longitude,
-        radiusMeters: LOCATION_RADIUS_METERS,
+        radiusMeters,
       },
     }),
   });
@@ -370,7 +426,7 @@ Deno.serve(async (req) => {
   if (betaAccessError) return jsonResponse({ error: 'Could not check beta access', detail: betaAccessError.message }, 502);
   if (!betaAccess) return jsonResponse({ error: 'beta_access_required' }, 403);
 
-  let body: { areaQuery?: string; location?: unknown };
+  let body: { areaQuery?: string; location?: unknown; coverageMode?: unknown };
   try {
     body = await req.json();
   } catch {
@@ -379,15 +435,48 @@ Deno.serve(async (req) => {
 
   const areaQuery = body.areaQuery?.trim().replace(/\s+/g, ' ');
   const location = parseLocation(body.location);
+  const useListNearbyCheck = body.coverageMode === 'empty_nearby';
+  if (body.coverageMode !== undefined && !useListNearbyCheck) {
+    return jsonResponse({ error: 'Unknown coverage mode' }, 400);
+  }
   if (areaQuery && areaQuery.length > AREA_QUERY_MAX_LENGTH) {
     return jsonResponse({ error: `"areaQuery" must be under ${AREA_QUERY_MAX_LENGTH} characters` }, 400);
   }
   if ((!areaQuery && !location) || (areaQuery && location)) {
     return jsonResponse({ error: 'Provide exactly one of "areaQuery" or "location"' }, 400);
   }
+  if (useListNearbyCheck && !location) {
+    return jsonResponse({ error: 'The nearby coverage mode requires a location' }, 400);
+  }
   const target: TopupTarget = areaQuery
     ? { kind: 'area', areaQuery, eventKey: `area:${areaQuery.toLowerCase()}` }
-    : { kind: 'location', location: location!, eventKey: locationEventKey(location!) };
+    : {
+        kind: 'location',
+        location: location!,
+        eventKey: locationEventKey(location!),
+        radiusMeters: useListNearbyCheck
+          ? LIST_NEARBY_RADIUS_METERS
+          : DEFAULT_LOCATION_RADIUS_METERS,
+        requireEmptyCoverage: useListNearbyCheck,
+      };
+
+  // A location-based check is a short-lived shared coverage cache. Consult it
+  // before any paid-call decision: another request within 250 m of a completed
+  // Google check in the last week must reuse that outcome.
+  if (target.kind === 'location' && target.requireEmptyCoverage) {
+    try {
+      const checkpoint = await findRecentNearbyCheckpoint(target.location);
+      if (checkpoint) {
+        return jsonResponse({
+          triggered: false,
+          reason: 'nearby_recently_checked',
+          checkedAt: checkpoint.checked_at,
+        });
+      }
+    } catch (err) {
+      return jsonResponse({ error: 'Could not check nearby coverage history', detail: String(err) }, 502);
+    }
+  }
 
   // 1. Daily cap — cheapest possible check, no Haiku or Google call spent
   // finding out the answer is already no.
@@ -404,8 +493,8 @@ Deno.serve(async (req) => {
   }
 
   // 2. Current coverage + recency. Explicit suburbs count their exact
-  // database scope; "around me" uses a true 5 km radius rather than treating
-  // the device's raw coordinates as a fake suburb string.
+  // database scope; coordinate requests use their own explicit radius rather
+  // than treating the device's raw coordinates as a fake suburb string.
   let currentResultCount: number;
   if (target.kind === 'area') {
     const { count, error } = await supabaseAnon
@@ -416,13 +505,20 @@ Deno.serve(async (req) => {
     currentResultCount = count ?? 0;
   } else {
     try {
-      currentResultCount = await countNearbyRestaurants(target.location);
+      currentResultCount = await countNearbyRestaurants(target.location, target.radiusMeters);
     } catch (err) {
       return jsonResponse({ error: 'Could not check venue coverage', detail: String(err) }, 502);
     }
   }
 
-  if (currentResultCount >= MIN_COVERAGE) {
+  // The List View's GPS recovery asks Google only when there is nothing within
+  // its 1 km circle. The pre-existing assistant and area flows retain their
+  // broader minimum-coverage policy.
+  if (
+    (target.kind === 'location' && target.requireEmptyCoverage && currentResultCount > 0) ||
+    (target.kind === 'location' && !target.requireEmptyCoverage && currentResultCount >= MIN_COVERAGE) ||
+    (target.kind === 'area' && currentResultCount >= MIN_COVERAGE)
+  ) {
     return jsonResponse({ triggered: false, reason: 'coverage_sufficient', resultCount: currentResultCount });
   }
 
@@ -434,14 +530,16 @@ Deno.serve(async (req) => {
     .limit(1)
     .maybeSingle();
 
-  if (lastEvent && Date.now() - new Date(lastEvent.triggered_at).getTime() < RECHECK_AFTER_MS) {
+  if (lastEvent && Date.now() - new Date(lastEvent.triggered_at).getTime() < AREA_RECHECK_AFTER_MS) {
     return jsonResponse({ triggered: false, reason: 'recently_checked', resultCount: currentResultCount });
   }
 
   // 3. There is no discretion when the database has zero candidates for the
   // requested scope: fetch first, then let the assistant answer from real
   // data. For partial coverage, retain Haiku's existing cost judgement.
-  const scopeLabel = target.kind === 'area' ? target.areaQuery : `within ${LOCATION_RADIUS_METERS / 1000} km of the user`;
+  const scopeLabel = target.kind === 'area'
+    ? target.areaQuery
+    : `within ${target.radiusMeters / 1000} km of the user`;
   let decision: 'yes' | 'no';
   let reason: string;
   if (currentResultCount === 0) {
@@ -478,7 +576,7 @@ Deno.serve(async (req) => {
   try {
     const byPlaceId = new Map<string, ReturnType<typeof normalizePlace>>();
     if (target.kind === 'location') {
-      for (const place of await searchNearbyPlaces(target.location)) byPlaceId.set(place.placeId, place);
+      for (const place of await searchNearbyPlaces(target.location, target.radiusMeters)) byPlaceId.set(place.placeId, place);
     } else {
       const baseQuery = `restaurants, cafes, pubs and bars in ${target.areaQuery} NSW`;
       const { places: baseResults, possiblyTruncated } = await searchPlaces(baseQuery, BASE_MAX_PAGES);
@@ -535,6 +633,13 @@ Deno.serve(async (req) => {
 
     if (upsertError) {
       return jsonResponse({ triggered: true, placesFound: rows.length, upsertError: upsertError.message }, 207);
+    }
+
+    // A failed request/upsert stays retryable. Record the location only once
+    // Google’s outcome has made it into the venue list, including a valid
+    // zero-place search result.
+    if (target.kind === 'location' && target.requireEmptyCoverage) {
+      await recordNearbyCheckpoint(target.location, currentResultCount, rows.length);
     }
     return jsonResponse({ triggered: true, placesFound: rows.length, reason });
   } catch (err) {

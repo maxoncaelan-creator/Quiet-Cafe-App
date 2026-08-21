@@ -26,4 +26,15 @@ void main() {
     expect(refresh.resultCount, 26);
     expect(refresh.reason, 'coverage_sufficient');
   });
+
+  test('maps a recent nearby coordinate-check response', () {
+    final refresh = VenueCoverageRefresh.fromJson({
+      'triggered': false,
+      'reason': 'nearby_recently_checked',
+      'checkedAt': '2026-08-22T00:00:00Z',
+    });
+
+    expect(refresh.triggered, isFalse);
+    expect(refresh.reason, 'nearby_recently_checked');
+  });
 }

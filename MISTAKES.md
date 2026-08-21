@@ -292,3 +292,27 @@ existing conditional collection.
 widget tree before formatting or running the suite.
 **Fix:** Restored the conditional collection closure, reviewed the complete
 `ListView` children block, and reran static analysis before continuing.
+
+## patch-target-duplicated
+
+### 2026-08-22 | 03_build | caught: self
+Submitted a combined `apply_patch` change that named the same Edge Function
+file twice. The patch tool rejected it before any file changed, so the work had
+to be split and reissued.
+**Standard:** A single patch operation must target each file only once; combine
+its hunks under that one operation or submit separate patches.
+**Fix:** Reissued the database and Edge Function changes as small, one-file
+patches before continuing.
+
+## shared-endpoint-caller-impact-unreviewed
+
+### 2026-08-22 | 03_build | caught: self
+Initially changed `ondemand-topup`'s default coordinate radius while adding the
+List View's 1 km recovery check, before re-checking every caller. Search
+Assistant also uses that endpoint and intentionally scopes its nearby context
+to 5 km, so the change would have silently narrowed an existing feature.
+**Standard:** Before changing a shared endpoint's default behavior, enumerate
+and preserve every existing caller unless the product decision explicitly
+changes all of them.
+**Fix:** Added an explicit `empty_nearby` coverage mode for the List View;
+Search Assistant continues to use the unchanged default coordinate path.

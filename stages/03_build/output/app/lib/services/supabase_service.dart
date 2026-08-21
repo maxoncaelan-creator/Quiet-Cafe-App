@@ -339,6 +339,32 @@ class SupabaseService {
     return VenueCoverageRefresh.fromJson(data);
   }
 
+  /// Requests a Google Nearby Search only when the server finds no local venue
+  /// within 1 km. The server records a completed coordinate check and blocks
+  /// another one within 250 m for seven days; those rules are intentionally not
+  /// reproduced in the client.
+  Future<VenueCoverageRefresh> refreshVenueCoverageNear(
+    double latitude,
+    double longitude,
+  ) async {
+    if (!isConfigured) throw SupabaseNotConfigured();
+    final response = await _client.functions.invoke(
+      'ondemand-topup',
+      body: {
+        'location': {
+          'latitude': latitude,
+          'longitude': longitude,
+        },
+        'coverageMode': 'empty_nearby',
+      },
+    );
+    if (response.status < 200 || response.status >= 300) {
+      throw Exception('Nearby venue coverage refresh failed (${response.status})');
+    }
+    final data = response.data as Map<String, dynamic>;
+    return VenueCoverageRefresh.fromJson(data);
+  }
+
   /// The signed-in user's current Search Assistant usage, or null if
   /// they haven't used it yet this window (equivalent to 0 tokens used).
   /// Scoped by RLS (search_assistant_usage's own-row SELECT policy from

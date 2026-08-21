@@ -227,7 +227,7 @@ a Postgres trigger.
 **Confirmed with Caelan 2026-08-22.** The List View remains a local filter of
 currently loaded venues; it never silently spends a Google Places request just
 because a person types a suburb. When a typed area or selected suburb has no
-matches, or its results are not suitable, the List View offers two explicit
+matches, or its results are not suitable, the List View offers three explicit
 choices:
 
 - **Ask Assistant** opens Search Assistant with “Find quiet venues in
@@ -239,6 +239,13 @@ choices:
   by that backend. The List View reloads after a response and explains whether
   venues were added, the area was recently checked, or coverage was already
   sufficient.
+- **Check 1 km nearby** uses the current GPS fix after the person explicitly
+  chooses it. The backend first counts venues in that exact 1 km circle. Only
+  an empty circle can call Google Nearby Search; completed checks are stored as
+  shared coordinate checkpoints, so another request within 250 m reuses the
+  outcome for seven days. The checkpoint has no account identifier and is not
+  readable through the client Data API. Beta access and the daily paid-search
+  cap remain server-side.
 
 ## Password policy
 

@@ -142,6 +142,27 @@ billing or the full assistant response, so the device smoke test remains open.
   --no-pub --reporter expanded` passed 11/11. A live configured-app check is
   still needed to observe the confirmation and real coverage-response states.
 
+## Latest implementation — GPS coverage checkpoints
+
+- The List View now offers **Check 1 km nearby** alongside the existing
+  area-search recovery actions. It uses the app's bounded GPS service and calls
+  `ondemand-topup` with coordinates, never a client-generated suburb name.
+- For this List View coordinate request, the backend counts restaurants within
+  1 km and calls Google Nearby Search only when that circle is empty. After a
+  successful Google search and additive restaurant upsert, it records the
+  coordinates, time, original result count, and Places result count in the
+  private, RLS-protected `venue_coverage_checkpoints` table.
+- The backend checks that table before the daily cap or Google call for this
+  mode. Any point within 250 m of a completed check in the previous seven days
+  receives a `nearby_recently_checked` result; it cannot spend another Google
+  request. The Search Assistant retains its existing 5 km, thin-coverage path.
+  The new migration and Edge Function source are in this branch only and have
+  not been applied or deployed to production.
+- `npx deno check supabase/functions/ondemand-topup/index.ts` passed. Flutter
+  analysis and tests could not be rerun in this session because the local Dart
+  runtime itself hung without output, including for `dart --version`; the
+  process was stopped rather than treated as a passing check.
+
 ## Active work queue
 
 ### Needs a real device or browser
@@ -160,6 +181,10 @@ billing or the full assistant response, so the device smoke test remains open.
   confirm Assistant hand-off stays unsent until the user submits it while the
   confirmed coverage refresh reports its real server-side outcome and reloads
   the List View.
+- GPS coverage checkpoints: with no venues within 1 km, choose **Check 1 km
+  nearby**, confirm Google adds any real nearby Places, then repeat from within
+  250 m and confirm no Google request runs for seven days. Also verify the
+  unavailable-location message after turning location services off.
 - Web: validate responsive rail/drawer layout, download banner, max width,
   filter drawer and web mic permission/levels in a real browser.
 - Password recovery: click a real recovery-email link and land on
