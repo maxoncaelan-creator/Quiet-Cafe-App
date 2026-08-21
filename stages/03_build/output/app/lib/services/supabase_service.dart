@@ -76,7 +76,12 @@ class SupabaseService {
 
   SupabaseClient get _client => Supabase.instance.client;
 
-  bool get isSignedIn => isConfigured && _client.auth.currentUser != null;
+  /// Account-gated calls require a session with an access token, not merely a
+  /// cached [User]. During an email-confirmation callback Supabase can expose
+  /// the user before it has finished installing the callback session; using
+  /// `currentUser` in that window would send an anonymous RPC and make a
+  /// valid beta code look invalid.
+  bool get isSignedIn => isConfigured && _client.auth.currentSession != null;
 
   String? get currentUserEmail => _client.auth.currentUser?.email;
 
@@ -103,7 +108,7 @@ class SupabaseService {
   /// for the incident that prompted this). Re-entering a code already
   /// redeemed by this same account is idempotent ('ok').
   Future<BetaCodeResult> redeemBetaCode(String code) async {
-    if (!isConfigured) return BetaCodeResult.error;
+    if (!isConfigured || !isSignedIn) return BetaCodeResult.error;
     try {
       final result = await _client.rpc('redeem_beta_code', params: {'p_code': code});
       return switch (result as String?) {

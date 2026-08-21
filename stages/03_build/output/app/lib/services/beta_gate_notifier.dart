@@ -15,6 +15,7 @@ import 'supabase_service.dart';
 class BetaGateNotifier extends ChangeNotifier {
   final _supabaseService = SupabaseService();
   StreamSubscription<AuthState>? _authSubscription;
+  int _refreshGeneration = 0;
 
   /// null = still checking (or nothing to check yet — signed out);
   /// true/false once resolved for whoever is currently signed in.
@@ -22,13 +23,36 @@ class BetaGateNotifier extends ChangeNotifier {
 
   BetaGateNotifier() {
     if (SupabaseService.isConfigured) {
-      _authSubscription = _supabaseService.authStateChanges.listen((_) => refresh());
-      refresh();
+      _authSubscription = _supabaseService.authStateChanges.listen(
+        (_) => unawaited(refresh()),
+        // Supabase emits network and token-refresh failures on this stream.
+        // Handling them here prevents an unhandled async error from crashing
+        // the app; the next auth event or app launch will retry the check.
+        onError: (_, __) {},
+      );
+      unawaited(refresh());
     }
   }
 
   Future<void> refresh() async {
-    hasAccess = _supabaseService.isSignedIn ? await _supabaseService.hasBetaAccess() : false;
+    final refreshGeneration = ++_refreshGeneration;
+    if (!_supabaseService.isSignedIn) {
+      hasAccess = false;
+      notifyListeners();
+      return;
+    }
+
+    // Keep the router on the short checking screen while a newly installed
+    // session is being verified. This avoids presenting beta-code entry until
+    // the authenticated RPC is actually ready to run.
+    hasAccess = null;
+    notifyListeners();
+    final hasAccessForCurrentSession = await _supabaseService.hasBetaAccess();
+
+    // An earlier RPC must not overwrite the state of a newer sign-in/out.
+    if (refreshGeneration != _refreshGeneration || !_supabaseService.isSignedIn) return;
+
+    hasAccess = hasAccessForCurrentSession;
     notifyListeners();
   }
 

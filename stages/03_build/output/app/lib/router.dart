@@ -37,17 +37,21 @@ import 'widgets/app_shell.dart';
 // recheck. See beta_gate_notifier.dart.
 final betaGateNotifier = BetaGateNotifier();
 
-// Screens that manage their own sign-in/sign-up/recovery navigation on
-// completion (see auth_screen.dart's _completeSignIn) — the gate redirect
-// below never touches these, regardless of sign-in state, so a recovery
-// link's temporary session (which *is* "signed in") doesn't get bounced to
-// the beta gate mid-flow.
+// Auth routes remain available while signed out. Once an ordinary sign-in or
+// email-confirmation callback installs a session, the gate owns navigation so
+// a callback cannot remain stranded on the sign-in screen. Recovery stays
+// exempt because its temporary session must reach ResetPasswordScreen.
 const _authFlowPaths = {
   '/sign-in',
   '/sign-in/email',
   '/sign-up',
   '/sign-up/email',
   '/sign-up/password',
+  '/forgot-password',
+  '/reset-password',
+};
+
+const _passwordRecoveryPaths = {
   '/forgot-password',
   '/reset-password',
 };
@@ -62,9 +66,12 @@ String? _gateRedirect(BuildContext context, GoRouterState state) {
   if (!SupabaseService.isConfigured) return null; // standalone/demo build — no gate
 
   final loc = state.matchedLocation;
-  if (_authFlowPaths.contains(loc)) return null;
+  final supabaseService = SupabaseService();
+  if (!supabaseService.isSignedIn) {
+    return _authFlowPaths.contains(loc) ? null : '/sign-in';
+  }
 
-  if (!SupabaseService().isSignedIn) return '/sign-in';
+  if (_passwordRecoveryPaths.contains(loc)) return null;
 
   final hasAccess = betaGateNotifier.hasAccess;
   if (hasAccess == null) {
