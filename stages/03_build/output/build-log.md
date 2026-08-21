@@ -25,7 +25,7 @@ compaction.
   attached.
 - **Backend:** live Supabase project `quiet-restaurant-finder`
   (`aesorixtfasfuvcqrvem`, `ap-southeast-2`). Migrations through
-  `0015_beta_code_account_binding.sql` are applied.
+  `20260821084522_add_user_location_state.sql` are applied.
 - **Repository:** [Quiet-Cafe-App](https://github.com/maxoncaelan-creator/Quiet-Cafe-App).
   The account-bound beta gate merged as [PR #26](https://github.com/maxoncaelan-creator/Quiet-Cafe-App/pull/26)
   on 2026-08-21 (`main` merge commit `07fa080`).
@@ -62,6 +62,7 @@ compaction.
 | Supabase roles and beta RPCs | RLS/roles smoke-tested; account-binding RPCs tested with real accounts and JWTs; the repaired native confirmation return now passed end to end. | Second-account `already_redeemed` handling and the no-Supabase demo build remain to test. |
 | Email referral flow | Resend domain/secrets, a real request → approval → code delivery, and Supabase Auth custom SMTP confirmation delivery verified. | Password-recovery link click-through still needs its own focused pass. |
 | Android core flow | 2026-08-21 live emulator pass: fresh email signup/confirmation, ordinary email sign-in, invalid code, valid UI code redemption, restart persistence, calibration reachability, and a rebuilt live-config APK after the session fix. The clean confirmation-return path is now included. | GPS, calibration submission and score refresh still need focused passes. |
+| Location-aware Search Assistant | Latest-only backend location state, Google Nearby Search proxy, on-demand top-up and scoped Haiku context are deployed; Edge Functions type-check and Flutter tests pass. | A live Android/Google Places request has not yet established the complete GPS-to-answer path. |
 | Web | Deployed, direct routes work, Google OAuth was click-tested | Responsive layout, web mic capture and recent UI changes lack a focused visual pass. |
 
 ## Latest verification — confirmation-return session smoke test passed
@@ -86,12 +87,39 @@ mailbox is left to its provider expiry. The remaining beta-gate checks are a
 second account using an already-redeemed code, the no-Supabase standalone
 build, and the visual quality of `/checking-access` on a normal connection.
 
+## Latest build — location-aware assistant and venue top-up
+
+GPS now has a real hand-off to Search Assistant rather than feeding only the
+empty-state “Are you at X?” prompt. The app sends its bounded current fix with
+an assistant message; the authenticated Edge Function stores only that
+account's latest fix in `user_location_state`, uses a recent fix for follow-up
+turns, and never exposes raw coordinates through the client Data API.
+
+For an explicit place phrase such as “restaurants in Leppington”, the function
+refreshes thin coverage before building Haiku's restaurant context. Zero local
+venues force a Google Places refresh; partial coverage keeps the existing
+Haiku cost decision. “Around me” searches a strict 5 km circle through Google
+Nearby Search and scopes the final assistant context to the same radius.
+Refreshes are beta-account-only, capped at 20 paid Google searches per day,
+and cooldowned for 24 hours per suburb or nearby cell. New venues are still
+insert-only, so no user votes or microphone readings are overwritten.
+
+The migration and all three affected Edge Functions are deployed live. Deno
+type-checked the functions; `flutter test` passed 4/4, `flutter analyze`
+reported no issues, and a debug Android APK built successfully. Those checks
+would catch compilation and unit regressions, not live GPS permission, Google
+billing or the full assistant response, so the device smoke test remains open.
+
 ## Active work queue
 
 ### Needs a real device or browser
 
 - GPS venue guess: near a loaded venue, confirm “Are you at X?” and its
   Yes/No behaviours against a real location fix.
+- Location-aware assistant: allow location, ask a nearby question, and confirm
+  the current fix is stored and the reply is scoped to nearby venues. Then ask
+  for Leppington with thin/no local coverage and confirm Google Places adds
+  rows before Haiku replies; check the 24-hour cooldown does not re-spend.
 - Mic calibration: fresh sign-in, cold launch, skip, submission and the
   calibration offset’s later effect on readings.
 - Score refresh: submit a loudness vote and a mic reading, then confirm the
@@ -116,11 +144,8 @@ build, and the visual quality of `/checking-access` on a normal connection.
 
 ### Needs product or technical design before implementation
 
-- Geolocation: define how distance should affect Search Assistant suggestions
-  and whether auto-top-up should reverse-geocode / trigger near the user.
-- On-demand top-up: wire it from thin search results and/or Search Assistant
-  candidate exhaustion; add automated tests; consider replacing its
-  service-role secret with a scoped role.
+- Consider replacing the on-demand top-up service-role credential with a
+  narrower internal capability.
 - Decide whether score breakdown values should be categorical throughout,
   and whether web-specific mic-reading counts are needed.
 - Tune score constants (`DEFAULT_WEIGHTS`, platform weights and confidence
@@ -162,6 +187,8 @@ build, and the visual quality of `/checking-access` on a normal connection.
   infrastructure completed.
 - **2026-08-21:** Resend delivery verified; beta codes rebound from devices to
   signed-in accounts and merged as PR #26.
+- **2026-08-21:** Search Assistant learned the latest account location and
+  on-demand Google Places refresh path for nearby and explicit-suburb searches.
 
 For the full reasoning, incident record and command history, use the dated
 archive above rather than re-expanding this active handoff log.

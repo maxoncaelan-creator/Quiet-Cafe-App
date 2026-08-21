@@ -15,6 +15,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 
@@ -48,6 +49,10 @@ class _SearchAssistantScreenState extends State<SearchAssistantScreen> {
   DateTime? _rateLimitedUntil;
   Timer? _rateLimitRefreshTimer;
   NearbyRestaurant? _guessedRestaurant;
+  Position? _currentPosition;
+  DateTime? _locationCapturedAt;
+
+  static const _locationRefreshAge = Duration(minutes: 5);
 
   @override
   void initState() {
@@ -56,7 +61,7 @@ class _SearchAssistantScreenState extends State<SearchAssistantScreen> {
       _signedIn = _supabaseService.isSignedIn;
       if (_signedIn) {
         _checkRateLimitStatus();
-        _maybeGuessVenue();
+        _captureLocationAndMaybeGuessVenue();
       }
       _authSubscription = _supabaseService.authStateChanges.listen((_) {
         if (!mounted) return;
@@ -64,40 +69,69 @@ class _SearchAssistantScreenState extends State<SearchAssistantScreen> {
         setState(() => _signedIn = signedIn);
         if (signedIn) {
           _checkRateLimitStatus();
-          _maybeGuessVenue();
+          _captureLocationAndMaybeGuessVenue();
         } else {
           _rateLimitRefreshTimer?.cancel();
           setState(() {
             _rateLimitedUntil = null;
             _guessedRestaurant = null;
+            _currentPosition = null;
+            _locationCapturedAt = null;
           });
         }
       });
     }
   }
 
-  /// Replaces the empty-state splash with "Are you at X?" when a GPS fix
-  /// lands within 100m of exactly one restaurant (find_nearest_restaurant,
-  /// 0014_find_nearest_restaurant.sql — server-side, not a full-table
-  /// fetch). Silently gives up at any step (no permission, location
-  /// services off, no fix, nothing nearby, still in the post-"No"
-  /// cooldown) — this is a convenience on top of the normal splash, never
-  /// something to show an error for.
-  Future<void> _maybeGuessVenue() async {
-    if (!await LocationService.canGuessAgain()) return;
-
+  /// Captures one bounded GPS fix for two deliberately separate uses: the
+  /// assistant receives it with the next question so the backend can refresh
+  /// nearby venues, while the empty state may also ask "Are you at X?". A
+  /// previous No suppresses only that prompt; it must not stop location-aware
+  /// search. As before, unavailable location stays silent rather than blocking
+  /// the normal assistant flow.
+  Future<void> _captureLocationAndMaybeGuessVenue() async {
     final position = await _locationService.getCurrentPosition();
     if (position == null || !mounted) return;
+    setState(() {
+      _currentPosition = position;
+      _locationCapturedAt = DateTime.now();
+    });
+
+    if (!await LocationService.canGuessAgain()) return;
 
     NearbyRestaurant? nearest;
     try {
-      nearest = await _supabaseService.findNearestRestaurant(position.latitude, position.longitude);
+      nearest = await _supabaseService.findNearestRestaurant(
+          position.latitude, position.longitude);
     } catch (_) {
       return;
     }
     if (nearest != null && mounted) {
       setState(() => _guessedRestaurant = nearest);
     }
+  }
+
+  /// A screen can sit open for a long time before the user asks something. Do
+  /// not keep re-storing that original fix as if it were current: refresh it
+  /// after five minutes and, when a fresh fix is unavailable, let the backend
+  /// use only its bounded recent-location fallback instead.
+  Future<Position?> _positionForAssistant() async {
+    final capturedAt = _locationCapturedAt;
+    if (_currentPosition != null &&
+        capturedAt != null &&
+        DateTime.now().difference(capturedAt) < _locationRefreshAge) {
+      return _currentPosition;
+    }
+
+    final position = await _locationService.getCurrentPosition();
+    if (position == null) return null;
+    if (mounted) {
+      setState(() {
+        _currentPosition = position;
+        _locationCapturedAt = DateTime.now();
+      });
+    }
+    return position;
   }
 
   void _confirmGuess() {
@@ -152,7 +186,8 @@ class _SearchAssistantScreenState extends State<SearchAssistantScreen> {
     // Reachable only once the composer itself is showing (see build()'s
     // gate above), which already requires isConfigured/_signedIn/not rate
     // limited — no need to re-check any of that here.
-    final history = _messages.map((m) => {'role': m.role, 'content': m.content}).toList();
+    final history =
+        _messages.map((m) => {'role': m.role, 'content': m.content}).toList();
 
     setState(() {
       _messages.add(_ChatMessage(role: 'user', content: text));
@@ -162,9 +197,17 @@ class _SearchAssistantScreenState extends State<SearchAssistantScreen> {
     _scrollToBottom();
 
     try {
-      final reply = await _supabaseService.askSearchAssistant(text, history);
+      final position = await _positionForAssistant();
+      final reply = await _supabaseService.askSearchAssistant(
+        text,
+        history,
+        latitude: position?.latitude,
+        longitude: position?.longitude,
+        accuracyMeters: position?.accuracy,
+      );
       if (!mounted) return;
-      setState(() => _messages.add(_ChatMessage(role: 'assistant', content: reply)));
+      setState(
+          () => _messages.add(_ChatMessage(role: 'assistant', content: reply)));
     } on SearchAssistantRateLimited catch (e) {
       if (!mounted) return;
       setState(() => _rateLimitedUntil = e.resetAt);
@@ -173,7 +216,8 @@ class _SearchAssistantScreenState extends State<SearchAssistantScreen> {
       if (!mounted) return;
       setState(() => _messages.add(const _ChatMessage(
             role: 'assistant',
-            content: "Sorry, I couldn't reach the search assistant just now. Try again in a moment.",
+            content:
+                "Sorry, I couldn't reach the search assistant just now. Try again in a moment.",
           )));
     } finally {
       if (mounted) setState(() => _sending = false);
@@ -209,31 +253,36 @@ class _SearchAssistantScreenState extends State<SearchAssistantScreen> {
       drawer: const AppDrawer(currentRoute: AppRoute.searchAssistant),
       body: SafeArea(
         child: !SupabaseService.isConfigured
-            ? const Center(child: Text('Search Assistant needs a configured backend to work.'))
+            ? const Center(
+                child: Text(
+                    'Search Assistant needs a configured backend to work.'))
             : !_signedIn
-            ? const _SignInRequiredMessage()
-            : rateLimitedUntil != null
-                ? _RateLimitedMessage(resetAt: rateLimitedUntil)
-                : Column(
-                    children: [
-                      Expanded(
-                        child: _messages.isEmpty
-                            ? (_guessedRestaurant != null
-                                ? _VenueGuessPrompt(
-                                    restaurant: _guessedRestaurant!,
-                                    onYes: _confirmGuess,
-                                    onNo: _dismissGuess,
-                                  )
-                                : const _EmptyState())
-                            : _MessageList(
-                                messages: _messages,
-                                sending: _sending,
-                                scrollController: _scrollController,
-                              ),
+                ? const _SignInRequiredMessage()
+                : rateLimitedUntil != null
+                    ? _RateLimitedMessage(resetAt: rateLimitedUntil)
+                    : Column(
+                        children: [
+                          Expanded(
+                            child: _messages.isEmpty
+                                ? (_guessedRestaurant != null
+                                    ? _VenueGuessPrompt(
+                                        restaurant: _guessedRestaurant!,
+                                        onYes: _confirmGuess,
+                                        onNo: _dismissGuess,
+                                      )
+                                    : const _EmptyState())
+                                : _MessageList(
+                                    messages: _messages,
+                                    sending: _sending,
+                                    scrollController: _scrollController,
+                                  ),
+                          ),
+                          _Composer(
+                              controller: _controller,
+                              sending: _sending,
+                              onSend: _send),
+                        ],
                       ),
-                      _Composer(controller: _controller, sending: _sending, onSend: _send),
-                    ],
-                  ),
       ),
     );
   }
@@ -254,7 +303,8 @@ class _SignInRequiredMessage extends StatelessWidget {
             CircleAvatar(
               radius: 40,
               backgroundColor: scheme.primaryContainer,
-              child: Icon(Icons.lock_outline, color: scheme.onPrimaryContainer, size: 36),
+              child: Icon(Icons.lock_outline,
+                  color: scheme.onPrimaryContainer, size: 36),
             ),
             const SizedBox(height: 24),
             Text(
@@ -284,7 +334,8 @@ class _RateLimitedMessage extends StatelessWidget {
   /// "0 minutes" (or nothing) in the last seconds before the window
   /// actually resets — see the 30s refresh timer that re-renders this.
   static String _message(Duration remaining) {
-    final totalMinutes = remaining.inSeconds <= 0 ? 0 : (remaining.inSeconds / 60).ceil();
+    final totalMinutes =
+        remaining.inSeconds <= 0 ? 0 : (remaining.inSeconds / 60).ceil();
     final hours = totalMinutes ~/ 60;
     final minutes = totalMinutes % 60;
     String plural(int n, String unit) => '$n $unit${n == 1 ? '' : 's'}';
@@ -311,7 +362,8 @@ class _RateLimitedMessage extends StatelessWidget {
             CircleAvatar(
               radius: 40,
               backgroundColor: scheme.primaryContainer,
-              child: Icon(Icons.hourglass_bottom, color: scheme.onPrimaryContainer, size: 36),
+              child: Icon(Icons.hourglass_bottom,
+                  color: scheme.onPrimaryContainer, size: 36),
             ),
             const SizedBox(height: 24),
             Text(
@@ -341,7 +393,8 @@ class _EmptyState extends StatelessWidget {
             CircleAvatar(
               radius: 40,
               backgroundColor: scheme.primaryContainer,
-              child: Icon(Icons.local_cafe_outlined, color: scheme.onPrimaryContainer, size: 36),
+              child: Icon(Icons.local_cafe_outlined,
+                  color: scheme.onPrimaryContainer, size: 36),
             ),
             const SizedBox(height: 24),
             Text(
@@ -366,7 +419,8 @@ class _VenueGuessPrompt extends StatelessWidget {
   final VoidCallback onYes;
   final VoidCallback onNo;
 
-  const _VenueGuessPrompt({required this.restaurant, required this.onYes, required this.onNo});
+  const _VenueGuessPrompt(
+      {required this.restaurant, required this.onYes, required this.onNo});
 
   @override
   Widget build(BuildContext context) {
@@ -380,7 +434,8 @@ class _VenueGuessPrompt extends StatelessWidget {
             CircleAvatar(
               radius: 40,
               backgroundColor: scheme.primaryContainer,
-              child: Icon(Icons.place_outlined, color: scheme.onPrimaryContainer, size: 36),
+              child: Icon(Icons.place_outlined,
+                  color: scheme.onPrimaryContainer, size: 36),
             ),
             const SizedBox(height: 24),
             Text(
@@ -409,7 +464,10 @@ class _MessageList extends StatelessWidget {
   final bool sending;
   final ScrollController scrollController;
 
-  const _MessageList({required this.messages, required this.sending, required this.scrollController});
+  const _MessageList(
+      {required this.messages,
+      required this.sending,
+      required this.scrollController});
 
   @override
   Widget build(BuildContext context) {
@@ -421,7 +479,9 @@ class _MessageList extends StatelessWidget {
       itemBuilder: (context, index) {
         if (index >= messages.length) return const _TypingIndicator();
         final message = messages[index];
-        return message.role == 'user' ? _UserBubble(text: message.content) : _AssistantMessage(text: message.content);
+        return message.role == 'user'
+            ? _UserBubble(text: message.content)
+            : _AssistantMessage(text: message.content);
       },
     );
   }
@@ -443,7 +503,8 @@ class _AssistantMessage extends StatelessWidget {
           child: Icon(Icons.auto_awesome, size: 14, color: scheme.onPrimary),
         ),
         const SizedBox(width: 10),
-        Expanded(child: Text(text, style: Theme.of(context).textTheme.bodyLarge)),
+        Expanded(
+            child: Text(text, style: Theme.of(context).textTheme.bodyLarge)),
       ],
     );
   }
@@ -496,7 +557,8 @@ class _TypingIndicator extends StatelessWidget {
         SizedBox(
           width: 16,
           height: 16,
-          child: CircularProgressIndicator(strokeWidth: 2, color: scheme.primary),
+          child:
+              CircularProgressIndicator(strokeWidth: 2, color: scheme.primary),
         ),
       ],
     );
@@ -508,7 +570,8 @@ class _Composer extends StatefulWidget {
   final bool sending;
   final VoidCallback onSend;
 
-  const _Composer({required this.controller, required this.sending, required this.onSend});
+  const _Composer(
+      {required this.controller, required this.sending, required this.onSend});
 
   @override
   State<_Composer> createState() => _ComposerState();
@@ -546,7 +609,9 @@ class _ComposerState extends State<_Composer> {
     if (!_speechAvailable) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Speech recognition isn't available on this device.")),
+          const SnackBar(
+              content:
+                  Text("Speech recognition isn't available on this device.")),
         );
       }
       return;
@@ -560,7 +625,8 @@ class _ComposerState extends State<_Composer> {
     await _speech.listen(
       onResult: (result) {
         widget.controller.text = result.recognizedWords;
-        widget.controller.selection = TextSelection.collapsed(offset: widget.controller.text.length);
+        widget.controller.selection =
+            TextSelection.collapsed(offset: widget.controller.text.length);
       },
     );
   }
