@@ -181,6 +181,28 @@ billing or the full assistant response, so the device smoke test remains open.
   refused the connection). The new migration was not executed against production:
   this is a draft PR and no database deployment was requested.
 
+## Latest draft fix — Assistant Google suburb refresh
+
+- A real Assistant conversation for Austral exposed a production failure that
+  source inspection had missed: every assistant-triggered `ondemand-topup`
+  request returned 502 before Google Places ran. Postgres logs identified the
+  cause as an ambiguous unqualified `reservation_id` reference in
+  `claim_ondemand_topup_reservation()`.
+- Draft PR #33 now adds a forward migration that qualifies the reservation
+  ledger columns while preserving the atomic 20-per-day global and 5-per-user
+  limits. An explicit-suburb request can therefore reserve capacity, call
+  Google Places, insert newly found venues additively, and load those rows in
+  the same Assistant response.
+- The Assistant now tracks the refresh result. If a named suburb has no local
+  rows and the coverage request fails, it says that Google could not be checked
+  right now rather than quietly asking Haiku to claim it cannot use Google.
+  Its prompt also requires two or three real named options whenever refreshed
+  suburb context contains venues.
+- This is source-only in the draft PR: the corrective migration and updated
+  Edge Function still need deployment after merge, followed by a live signed-in
+  Austral request that proves the Google call, inserted rows, and returned
+  options together.
+
 ## Active work queue
 
 ### Needs a real device or browser

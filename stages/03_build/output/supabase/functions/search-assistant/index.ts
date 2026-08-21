@@ -148,7 +148,12 @@ function findRequestedArea(message: string, history: ChatMessage[]) {
     .find((area): area is string => area != null);
 }
 
-async function refreshThinCoverage(token: string, scope: Exclude<SearchScope, null>) {
+type CoverageRefresh = {
+  succeeded: boolean;
+  status?: number;
+};
+
+async function refreshThinCoverage(token: string, scope: Exclude<SearchScope, null>): Promise<CoverageRefresh[]> {
   const refreshBodies = scope.kind === 'area'
     ? [{ areaQuery: scope.areaQuery }]
     : [
@@ -156,6 +161,7 @@ async function refreshThinCoverage(token: string, scope: Exclude<SearchScope, nu
         { location: scope.location, coverageMode: 'nearby' },
       ];
 
+  const results: CoverageRefresh[] = [];
   for (const body of refreshBodies) {
     try {
       const response = await fetch(`${SUPABASE_URL}/functions/v1/ondemand-topup`, {
@@ -167,14 +173,24 @@ async function refreshThinCoverage(token: string, scope: Exclude<SearchScope, nu
         },
         body: JSON.stringify(body),
       });
-      if (!response.ok) console.error(`ondemand-topup returned ${response.status}:`, await response.text());
+      if (!response.ok) {
+        // The later database read can still answer from existing rows. Keep a
+        // structured failure as well, so an empty requested suburb is never
+        // misrepresented as a completed Google search.
+        console.error(`ondemand-topup returned ${response.status}:`, await response.text());
+        results.push({ succeeded: false, status: response.status });
+      } else {
+        results.push({ succeeded: true, status: response.status });
+      }
     } catch (error) {
       // A coverage refresh must never turn a normal assistant question into a
-      // total outage. The following database read still answers from any local
-      // venues already available.
+      // total outage when local venues exist. An empty named suburb is handled
+      // explicitly below rather than letting the model invent a reason.
       console.error('ondemand-topup request failed:', error);
+      results.push({ succeeded: false });
     }
   }
+  return results;
 }
 
 function haversineMeters(a: UserLocation, latitude: number, longitude: number) {
@@ -297,13 +313,26 @@ Deno.serve(async (req) => {
   // This must happen before loading the assistant context. A named suburb
   // with zero stored venues therefore asks Google Places, inserts safe new
   // rows, then gives Haiku the refreshed rows in this same answer.
-  if (scope) await refreshThinCoverage(token, scope);
+  const coverageRefreshes = scope ? await refreshThinCoverage(token, scope) : [];
 
   let restaurants: Awaited<ReturnType<typeof loadRestaurantContext>>;
   try {
     restaurants = await loadRestaurantContext(scope);
   } catch (error) {
     return jsonResponse({ error: 'Could not load restaurant data', detail: String(error) }, 502);
+  }
+
+  // If a Google-backed refresh actually failed and there are no local options,
+  // be precise with the user. The old flow swallowed the 502 and left Haiku to
+  // claim that it had no ability to call Google at all.
+  if (
+    scope?.kind === 'area' &&
+    restaurants.length === 0 &&
+    coverageRefreshes.some((refresh) => !refresh.succeeded)
+  ) {
+    return jsonResponse({
+      reply: `I couldn't check Google for cafes in ${scope.areaQuery} just now. Please try again in a moment.`,
+    });
   }
 
   const restaurantContext = (restaurants ?? [])
@@ -318,7 +347,7 @@ Deno.serve(async (req) => {
 
   const systemPrompt = `You are the Search Assistant inside Quiet Restaurant Finder, an app that ranks Sydney restaurants by how quiet they are. Higher quietness_score means quieter/better.
 
-Help the user find a restaurant that matches what they're asking for — cuisine, suburb, how quiet they need it, price, whatever they mention. Use ONLY the restaurant data below. Never invent a restaurant that isn't listed here. If the requested area still has no listed venues after a refresh, say that the app could not find a venue there yet and invite the user to try a nearby area; never tell them to Google it. Keep replies short and conversational, like a helpful local, not a formal report.
+Help the user find a restaurant that matches what they're asking for — cuisine, suburb, how quiet they need it, price, whatever they mention. Use ONLY the restaurant data below. Never invent a restaurant that isn't listed here. The backend has already made any appropriate Google Places coverage check before you answer, so never say that you cannot search Google or external sources. For a named suburb with listed venues, name two or three real options from the context. If the requested area still has no listed venues after a completed refresh, say that the app could not find a venue there yet and invite the user to try a nearby area. Keep replies short and conversational, like a helpful local, not a formal report.
 
 Reply in plain conversational text only — no markdown (no **bold**, no bullet/numbered lists, no headers). This is shown in a plain-text chat bubble that doesn't render markdown, so formatting characters would show up literally to the user. Use plain sentences or a simple dash-prefixed line if you need to list a couple of things.
 
