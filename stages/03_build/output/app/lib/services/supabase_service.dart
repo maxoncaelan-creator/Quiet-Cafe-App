@@ -39,10 +39,13 @@ const searchAssistantWindow = Duration(hours: 5);
 class SearchAssistantUsage {
   final DateTime windowStart;
   final int tokensUsed;
-  const SearchAssistantUsage({required this.windowStart, required this.tokensUsed});
+  const SearchAssistantUsage(
+      {required this.windowStart, required this.tokensUsed});
 
   DateTime get resetAt => windowStart.add(searchAssistantWindow);
-  bool get isRateLimited => tokensUsed >= searchAssistantTokenLimit && resetAt.isAfter(DateTime.now());
+  bool get isRateLimited =>
+      tokensUsed >= searchAssistantTokenLimit &&
+      resetAt.isAfter(DateTime.now());
 }
 
 /// Thrown by [SupabaseService.askSearchAssistant] when the Edge Function
@@ -50,6 +53,32 @@ class SearchAssistantUsage {
 class SearchAssistantRateLimited implements Exception {
   final DateTime resetAt;
   const SearchAssistantRateLimited(this.resetAt);
+}
+
+/// The outcome of a user-requested venue-coverage refresh. The backend is the
+/// authority for whether a paid Google Places lookup may run; this only gives
+/// the List View enough information to explain the resulting state.
+class VenueCoverageRefresh {
+  final bool triggered;
+  final int? placesFound;
+  final int? resultCount;
+  final String? reason;
+
+  const VenueCoverageRefresh({
+    required this.triggered,
+    this.placesFound,
+    this.resultCount,
+    this.reason,
+  });
+
+  factory VenueCoverageRefresh.fromJson(Map<String, dynamic> json) {
+    return VenueCoverageRefresh(
+      triggered: json['triggered'] == true,
+      placesFound: (json['placesFound'] as num?)?.toInt(),
+      resultCount: (json['resultCount'] as num?)?.toInt(),
+      reason: json['reason'] as String?,
+    );
+  }
 }
 
 /// A restaurant near the user's current position — see
@@ -60,18 +89,23 @@ class NearbyRestaurant {
   final String placeId;
   final String name;
   final double distanceMeters;
-  const NearbyRestaurant({required this.placeId, required this.name, required this.distanceMeters});
+  const NearbyRestaurant(
+      {required this.placeId,
+      required this.name,
+      required this.distanceMeters});
 }
 
 class SupabaseService {
-  static bool get isConfigured => _supabaseUrl.isNotEmpty && _supabaseAnonKey.isNotEmpty;
+  static bool get isConfigured =>
+      _supabaseUrl.isNotEmpty && _supabaseAnonKey.isNotEmpty;
 
   static Future<void> initialize() async {
     if (!isConfigured) return;
     // supabase_flutter renamed this param from anonKey to publishableKey —
     // still accepts the legacy JWT-format anon key we're passing, not just
     // the newer sb_publishable_... format.
-    await Supabase.initialize(url: _supabaseUrl, publishableKey: _supabaseAnonKey);
+    await Supabase.initialize(
+        url: _supabaseUrl, publishableKey: _supabaseAnonKey);
   }
 
   SupabaseClient get _client => Supabase.instance.client;
@@ -91,7 +125,8 @@ class SupabaseService {
   /// change, so the Account screen's "Change password" row should not show
   /// for it (Caelan, 2026-08-20).
   bool get currentUserHasPassword =>
-      _client.auth.currentUser?.identities?.any((i) => i.provider == 'email') ?? false;
+      _client.auth.currentUser?.identities?.any((i) => i.provider == 'email') ??
+      false;
 
   /// Fires on sign-in, sign-out, and token refresh — lets the UI show
   /// current auth state live instead of only checking it once at build time.
@@ -110,7 +145,8 @@ class SupabaseService {
   Future<BetaCodeResult> redeemBetaCode(String code) async {
     if (!isConfigured || !isSignedIn) return BetaCodeResult.error;
     try {
-      final result = await _client.rpc('redeem_beta_code', params: {'p_code': code});
+      final result =
+          await _client.rpc('redeem_beta_code', params: {'p_code': code});
       return switch (result as String?) {
         'ok' => BetaCodeResult.ok,
         'expired' => BetaCodeResult.expired,
@@ -150,7 +186,8 @@ class SupabaseService {
     if (!isConfigured || !isSignedIn) return [];
     final rows = await _client
         .from('mic_readings')
-        .select('place_id, decibel_value, platform, recorded_at, restaurants(name)')
+        .select(
+            'place_id, decibel_value, platform, recorded_at, restaurants(name)')
         .order('recorded_at', ascending: false);
 
     return (rows as List).map((row) {
@@ -173,7 +210,9 @@ class SupabaseService {
         .select()
         .order('quietness_score', ascending: false, nullsFirst: false);
 
-    return (rows as List).map((row) => _restaurantFromRow(row as Map<String, dynamic>)).toList();
+    return (rows as List)
+        .map((row) => _restaurantFromRow(row as Map<String, dynamic>))
+        .toList();
   }
 
   /// Used to load `/restaurant/:placeId` directly (a URL open or browser
@@ -182,7 +221,11 @@ class SupabaseService {
   Future<Restaurant> fetchRestaurantByPlaceId(String placeId) async {
     if (!isConfigured) throw SupabaseNotConfigured();
 
-    final row = await _client.from('restaurants').select().eq('place_id', placeId).single();
+    final row = await _client
+        .from('restaurants')
+        .select()
+        .eq('place_id', placeId)
+        .single();
     return _restaurantFromRow(row);
   }
 
@@ -269,13 +312,31 @@ class SupabaseService {
 
     if (response.status == 429) {
       final data = response.data as Map<String, dynamic>;
-      throw SearchAssistantRateLimited(DateTime.parse(data['resetAt'] as String));
+      throw SearchAssistantRateLimited(
+          DateTime.parse(data['resetAt'] as String));
     }
     if (response.status != 200) {
       throw Exception('Search Assistant request failed (${response.status})');
     }
     final data = response.data as Map<String, dynamic>;
     return data['reply'] as String? ?? '';
+  }
+
+  /// Requests more coverage for an explicitly named area from the guarded
+  /// on-demand-topup Edge Function. It enforces beta access, a daily Google
+  /// Places cap, and a 24-hour area cooldown server-side; the app must never
+  /// attempt to duplicate or bypass those cost controls.
+  Future<VenueCoverageRefresh> refreshVenueCoverage(String areaQuery) async {
+    if (!isConfigured) throw SupabaseNotConfigured();
+    final response = await _client.functions.invoke(
+      'ondemand-topup',
+      body: {'areaQuery': areaQuery},
+    );
+    if (response.status < 200 || response.status >= 300) {
+      throw Exception('Venue coverage refresh failed (${response.status})');
+    }
+    final data = response.data as Map<String, dynamic>;
+    return VenueCoverageRefresh.fromJson(data);
   }
 
   /// The signed-in user's current Search Assistant usage, or null if
@@ -286,7 +347,10 @@ class SupabaseService {
   /// any tokens or going through the assistant itself.
   Future<SearchAssistantUsage?> fetchSearchAssistantUsage() async {
     if (!isConfigured || !isSignedIn) return null;
-    final rows = await _client.from('search_assistant_usage').select('window_start, tokens_used').limit(1);
+    final rows = await _client
+        .from('search_assistant_usage')
+        .select('window_start, tokens_used')
+        .limit(1);
     final list = rows as List;
     if (list.isEmpty) return null;
     final row = list.first as Map<String, dynamic>;
@@ -319,7 +383,8 @@ class SupabaseService {
   /// pipeline run would still pick it up eventually.
   Future<void> _recomputeScore(String placeId) async {
     try {
-      await _client.functions.invoke('recompute-restaurant-score', body: {'placeId': placeId});
+      await _client.functions
+          .invoke('recompute-restaurant-score', body: {'placeId': placeId});
     } catch (_) {
       // Non-fatal — see doc comment above.
     }
@@ -338,13 +403,15 @@ class SupabaseService {
         .limit(1);
     final list = rows as List;
     if (list.isEmpty) return null;
-    return DateTime.parse((list.first as Map<String, dynamic>)['recorded_at'] as String);
+    return DateTime.parse(
+        (list.first as Map<String, dynamic>)['recorded_at'] as String);
   }
 
   /// user_id is filled server-side (defaults to auth.uid()), same pattern
   /// as favorites/loudness_votes — a client can't submit under someone
   /// else's identity even by mistake.
-  Future<void> submitMicCalibration(double decibelValue, String platform) async {
+  Future<void> submitMicCalibration(
+      double decibelValue, String platform) async {
     if (!isConfigured) throw SupabaseNotConfigured();
     await _client.from('mic_calibrations').insert({
       'decibel_value': decibelValue,
@@ -359,7 +426,9 @@ class SupabaseService {
   /// this is just what the UI is expected to send.
   Future<void> submitLoudnessVote(String placeId, String vote) async {
     if (!isConfigured) throw SupabaseNotConfigured();
-    await _client.from('loudness_votes').insert({'place_id': placeId, 'vote': vote});
+    await _client
+        .from('loudness_votes')
+        .insert({'place_id': placeId, 'vote': vote});
     await _recomputeScore(placeId);
   }
 

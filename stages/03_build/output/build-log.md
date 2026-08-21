@@ -128,6 +128,20 @@ billing or the full assistant response, so the device smoke test remains open.
   matching app release is live: the already-deployed client does not send
   `capture_duration_ms` and would correctly be rejected by the new constraint.
 
+## Latest implementation — list-search result recovery
+
+- A List View search such as “Austral” now ends with useful recovery actions,
+  whether it returns no rows or simply unsuitable rows: hand the area to a
+  prefilled, user-submitted Search Assistant question, or deliberately ask
+  the existing on-demand coverage backend for more venues.
+- The refresh action asks the user to confirm that the typed text is a suburb,
+  then reloads the list and reports the backend outcome. It does not create a
+  client-side bypass of beta access, the daily Google Places cap, or the
+  24-hour area cooldown.
+- `flutter analyze --no-pub` completed with no issues and `flutter test
+  --no-pub --reporter expanded` passed 11/11. A live configured-app check is
+  still needed to observe the confirmation and real coverage-response states.
+
 ## Active work queue
 
 ### Needs a real device or browser
@@ -142,6 +156,10 @@ billing or the full assistant response, so the device smoke test remains open.
   calibration offset’s later effect on readings.
 - Score refresh: submit a loudness vote and a mic reading, then confirm the
   detail view refreshes its noise bar and confidence indicators.
+- List-search recovery: search for Austral, choose both recovery actions, and
+  confirm Assistant hand-off stays unsent until the user submits it while the
+  confirmed coverage refresh reports its real server-side outcome and reloads
+  the List View.
 - Web: validate responsive rail/drawer layout, download banner, max width,
   filter drawer and web mic permission/levels in a real browser.
 - Password recovery: click a real recovery-email link and land on

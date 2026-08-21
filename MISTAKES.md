@@ -261,3 +261,34 @@ before deploying the integration.
 **Fix:** Checked Google's Nearby Search reference, removed `nextPageToken`
 from that endpoint's field mask, and redeployed the corrected proxy before any
 user request used it.
+
+## source-path-assumed-from-context
+
+### 2026-08-22 | 03_build | caught: self
+Read the system standards using a workspace-relative `_system` path rather than
+checking where the shared system directory lived. The first read therefore
+failed before the source was corrected. A second UI-widget read made the same
+mistake by assuming a widget was directly under `lib/` rather than resolving
+its `lib/widgets/` path first. A third attempt mixed the workspace root and
+app-source roots while reading decisions and widgets, producing the same class
+of failed paths. A fourth test read used the repository root instead of the
+Flutter app root.
+**Standard:** Resolve a referenced path from the document that names it before
+opening it; do not infer that a shared directory is nested in the workspace.
+**Fix:** Read the system standards from the ICM root, used the stage input
+table to load the required build context, and used `rg --files` to resolve the
+widget location. Future reads will use one working-directory root per command
+and explicit `rg --files` output for paths below it.
+
+## structural-edit-not-reviewed
+
+### 2026-08-22 | 03_build | caught: self
+Added the List View result-action block with an extra list terminator. The
+source review caught it before analysis or commit, but the first formatting
+attempt was wasted on syntactically invalid code. The first repair removed the
+wrong terminator; static analysis then identified the missing closure for the
+existing conditional collection.
+**Standard:** After a structural UI edit, inspect the enclosing collection or
+widget tree before formatting or running the suite.
+**Fix:** Restored the conditional collection closure, reviewed the complete
+`ListView` children block, and reran static analysis before continuing.

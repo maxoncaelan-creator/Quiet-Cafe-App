@@ -222,6 +222,24 @@ Mic readings carry their own separate limit, decided the same day: a
 30-second cooldown between submissions from the same account, enforced via
 a Postgres trigger.
 
+### List-search result recovery
+
+**Confirmed with Caelan 2026-08-22.** The List View remains a local filter of
+currently loaded venues; it never silently spends a Google Places request just
+because a person types a suburb. When a typed area or selected suburb has no
+matches, or its results are not suitable, the List View offers two explicit
+choices:
+
+- **Ask Assistant** opens Search Assistant with “Find quiet venues in
+  [area]” prefilled, but does not auto-send it. The person remains in control
+  before any Assistant tokens are used or a coverage check can be initiated.
+- **Find more venues** asks for confirmation that the search text is a suburb,
+  then calls the existing `ondemand-topup` backend. Beta access, the daily
+  paid-search cap, and the 24-hour area cooldown remain enforced exclusively
+  by that backend. The List View reloads after a response and explains whether
+  venues were added, the area was recently checked, or coverage was already
+  sufficient.
+
 ## Password policy
 
 Supabase Auth's password policy requires at least one uppercase letter, one
