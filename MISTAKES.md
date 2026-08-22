@@ -167,6 +167,24 @@ only.
 `ondemand-topup` v9 manually. Enabled the Supabase GitHub integration for
 future `main` changes and documented the required production verification.
 
+### 2026-08-22 | 03_build | caught: self
+
+Later release evidence found that production still did not record three source
+migrations already present in `main`:
+`20260822140000_fix_ondemand_topup_reservation_ambiguity`,
+`20260822153000_atomic_assistant_budget`, and
+`20260822154500_server_owned_contribution_scores`. The deployed Assistant
+already calls the atomic-budget RPC from the missing migration. Enabling the
+integration was treated as a guarantee that it would reconcile earlier manual
+deployment history, without verifying the exact source migration IDs.
+**Standard:** An enabled integration is not release evidence. For every backend
+release, compare production's migration IDs and active function source with
+the merged commit before declaring it live.
+**Fix:** Added `BACKEND_RELEASE_RUNBOOK.md` and the PR backend-evidence
+checklist. Recovery is blocked on the linked deployment path or authenticated
+`supabase db push --linked` from clean `main`; migration history must not be
+edited or re-recorded under substitute timestamps.
+
 ## backend-rate-limit-classified-as-connectivity
 
 The Search Assistant UI showed a generic connectivity message for a real HTTP
@@ -181,8 +199,11 @@ response before that branch runs.
 **Standard:** User-visible handling must classify documented backend outcomes
 at the SDK boundary. A rate limit is an expected state with a reset time, not a
 connectivity failure.
-**Fix:** Recorded as an open P2 follow-up in the delivery retrospective. Add
-exception mapping and regression coverage before changing speech-to-text work.
+**Fix:** `SearchAssistantRateLimited` now maps the SDK's thrown
+`FunctionsHttpException` 429 payload and retains its reset time; a regression
+test covers 429, non-429 and malformed payloads. `flutter analyze --no-pub`
+and 17 unit tests passed. A live rate-limit response remains to verify after
+the production migration-sync blocker below is resolved.
 
 ## deploy-workflow-missing-dart-define
 

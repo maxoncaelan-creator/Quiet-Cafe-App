@@ -158,7 +158,7 @@ The review did find release and test gaps:
 | Priority | Finding | Required follow-up |
 | --- | --- | --- |
 | P1, resolved | PR source was merged while production still had the old functions and no migration. | Migration and both functions were deployed manually; GitHub integration is now enabled for future `main` changes. |
-| P2, open | A real HTTP 429 is displayed as “couldn't reach the search assistant.” Supabase documents 4xx/5xx function outcomes as HTTP-function errors that need explicit client handling. | Catch and map the SDK's HTTP-function exception, then add a regression test for 429 and a non-429 backend error. |
+| P2, source fixed / live check blocked | A real HTTP 429 was displayed as “couldn't reach the search assistant.” Supabase documents 4xx/5xx function outcomes as HTTP-function errors that need explicit client handling. | PR #38 catches and maps the SDK HTTP-function exception, with regression cases for 429, non-429 and malformed payloads. Verify a live 429 only after production migrations are synchronised. |
 | P2, open | Database tests validate schema/privileges only. They do not exercise the venue parser, confirmation state machine, Google preview or cancellation behaviour. | Add Edge Function behavioural tests with mocked Supabase/Google boundaries, plus a signed-in staging smoke test. |
 | P3, open | A preview lookup records no inserted rows by design, so its event count is not a measure of Google candidates found. | Decide whether operational reporting needs separate `candidates_found` data before using the event table for discovery quality metrics. |
 
@@ -179,12 +179,14 @@ first pass must:
 
 ## Owner-facing next actions
 
-- Merge a small UI-only follow-up for Search Assistant 429/error
-  classification before relying on the current generic message.
-- On the next backend PR, confirm both the Supabase GitHub deployment and the
-  production migration/function versions before marking the release complete.
-- Resolve Podman's Windows port-forwarding issue or use a CI runner for local
-  database testing; do not record a failed `supabase start` as a test pass.
+- Merge PR #38's Search Assistant 429/error classification after its checks
+  pass; then verify the reset-time message with a live rate-limit response.
+- Synchronise the missing source migrations through the linked Supabase
+  deployment or `supabase db push --linked` from clean `main`, then confirm
+  migration IDs and function versions using `BACKEND_RELEASE_RUNBOOK.md`.
+- Complete the native Podman CLI installation, then establish whether local
+  `supabase start` works before investigating any Windows port-forwarding
+  issue; do not record a failed startup as a test pass.
 - Then start the speech-to-text investigation under the gate above.
 
 The canonical actionable list is the `Immediate defects` section of

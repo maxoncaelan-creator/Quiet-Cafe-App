@@ -256,21 +256,27 @@ device behaviour.
   `flutter test --no-pub --reporter expanded` passed 14 tests after the source
   repair. These checks verify Dart integration only; they do not exercise an
   OS/browser recognition service or microphone permission prompt.
-- **Search Assistant renders a 429 as a connectivity failure.** Production
-  logs showed a real per-account rate-limit response while the app displayed
-  “couldn't reach the search assistant.” Catch the Supabase HTTP-function
-  error at the Flutter SDK boundary, surface the reset time, and add a
-  regression test for 429 and for a non-429 function error.
-- **Production backend release evidence must be part of every backend PR.**
-  The Supabase GitHub integration is now enabled, but it was enabled after PR
-  #37 merged and did not backfill it. For the next schema/function merge,
-  confirm the production migration list and deployed function versions match
-  the merged change before declaring release complete.
-- **Local Supabase database test is blocked by Podman/WSL port forwarding.**
-  Podman can start Postgres, but Windows cannot reach the published local
-  port, so `supabase start` is not a valid local test yet. Resolve the host
-  forwarding issue or deliberately use hosted CI as the database-test
-  boundary; do not report the failed local startup as passing verification.
+- **Search Assistant 429 classification is fixed in source.** The Flutter
+  service now catches Supabase's thrown HTTP-function error, maps the 429
+  `resetAt` payload to the existing countdown UI, and leaves other failures as
+  the generic fallback. Regression coverage includes 429, non-429 and malformed
+  payloads; `flutter analyze --no-pub` and 17 tests passed. A live 429 check is
+  blocked until the production migrations below are synchronised.
+- **Production migrations are out of sync with `main` (blocked).** Evidence on
+  2026-08-22 found production missing `20260822140000`, `20260822153000` and
+  `20260822154500`, although the deployed Assistant calls the atomic-budget
+  function from `20260822153000`. Do not patch migration history manually.
+  Complete the linked Supabase deployment or run authenticated `supabase db
+  push --linked` from clean `main`, then follow
+  [`BACKEND_RELEASE_RUNBOOK.md`](supabase/BACKEND_RELEASE_RUNBOOK.md) and attach
+  the resulting migration/function evidence to the PR.
+- **Local Supabase database test is blocked by Podman tooling.** Podman Desktop
+  has a running WSL machine, but its native `podman` CLI was not installed or
+  on `PATH`; the official CLI installer completed without creating a native
+  CLI. Repair or reinstall the Podman CLI, then open a fresh terminal. Until
+  `podman info` and `supabase start` work, do not claim a local database test.
+  If Windows host-port forwarding then fails, record that separately and use
+  hosted CI as the test boundary.
 
 ### Needs a real device or browser
 
@@ -422,8 +428,11 @@ checking the production migration list and function versions, even with the
 GitHub integration enabled.
 
 The reported “couldn't reach the search assistant” screen was an HTTP 429
-rate-limit response rendered as a generic connectivity failure. Correctly
-mapping that SDK error remains a P2 UI follow-up. The complete record,
-including the PR #37 review, production evidence, local-Podman limitation and
-speech-to-text entry gate, is in
+rate-limit response rendered as a generic connectivity failure. PR #38 now
+maps that documented SDK error to its reset-time UI and has regression tests;
+a real 429 still needs verification after production migration synchronisation.
+Production is also missing three later source migrations despite the enabled
+integration, so the backend release runbook is mandatory before another live
+release claim. The complete record, including the PR #37 review, production
+evidence, local-Podman limitation and speech-to-text entry gate, is in
 [`delivery-retrospective-2026-08-22.md`](delivery-retrospective-2026-08-22.md).

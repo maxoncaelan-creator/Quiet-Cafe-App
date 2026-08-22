@@ -55,6 +55,21 @@ class SearchAssistantRateLimited implements Exception {
   const SearchAssistantRateLimited(this.resetAt);
 }
 
+/// Returns the assistant rate-limit state only for the backend's documented
+/// 429 payload. `functions_client` throws [FunctionsHttpException] for a
+/// non-2xx response, so callers must inspect its [FunctionException.details]
+/// instead of expecting an ordinary response object.
+SearchAssistantRateLimited? searchAssistantRateLimitFromResponse(
+  int status,
+  dynamic details,
+) {
+  if (status != 429 || details is! Map) return null;
+  final resetAtValue = details['resetAt'];
+  if (resetAtValue is! String) return null;
+  final resetAt = DateTime.tryParse(resetAtValue);
+  return resetAt == null ? null : SearchAssistantRateLimited(resetAt);
+}
+
 /// The outcome of a user-requested venue-coverage refresh. The backend is the
 /// authority for whether a paid Google Places lookup may run; this only gives
 /// the List View enough information to explain the resulting state.
@@ -305,16 +320,22 @@ class SupabaseService {
       };
     }
 
-    final response = await _client.functions.invoke(
-      'search-assistant',
-      body: body,
-    );
-
-    if (response.status == 429) {
-      final data = response.data as Map<String, dynamic>;
-      throw SearchAssistantRateLimited(
-          DateTime.parse(data['resetAt'] as String));
+    FunctionResponse response;
+    try {
+      response = await _client.functions.invoke(
+        'search-assistant',
+        body: body,
+      );
+    } on FunctionException catch (error) {
+      final rateLimit =
+          searchAssistantRateLimitFromResponse(error.status, error.details);
+      if (rateLimit != null) throw rateLimit;
+      rethrow;
     }
+
+    final rateLimit =
+        searchAssistantRateLimitFromResponse(response.status, response.data);
+    if (rateLimit != null) throw rateLimit;
     if (response.status != 200) {
       throw Exception('Search Assistant request failed (${response.status})');
     }
