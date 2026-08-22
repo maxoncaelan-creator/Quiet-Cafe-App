@@ -43,6 +43,7 @@ const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 const BASE_MAX_PAGES = 2;
 const FOLLOWUP_CATEGORIES = ['cafes', 'pubs', 'bars'];
 const AREA_QUERY_MAX_LENGTH = 80;
+const VENUE_NAME_MAX_LENGTH = 120;
 const MIN_COVERAGE = 15;
 const DEFAULT_LOCATION_RADIUS_METERS = 5000;
 const LIST_NEARBY_RADIUS_METERS = 1000;
@@ -54,7 +55,7 @@ type UserLocation = {
 };
 
 type TopupTarget =
-  | { kind: 'area'; areaQuery: string; eventKey: string }
+  | { kind: 'area'; areaQuery: string; venueName?: string; eventKey: string }
   | {
       kind: 'location';
       location: UserLocation;
@@ -341,6 +342,9 @@ function scoreFromReviews(positiveCount: number, negativeCount: number) {
 }
 
 function coverageReason(target: TopupTarget, currentResultCount: number) {
+  if (target.kind === 'area' && target.venueName) {
+    return 'A user asked the Search Assistant to look for one named venue.';
+  }
   if (target.kind === 'location' && target.usesNearbyCheckpoint) {
     return 'A user requested a direct 1 km nearby venue check.';
   }
@@ -381,7 +385,7 @@ Deno.serve(async (req) => {
   }
   if (!betaAccess) return jsonResponse({ error: 'beta_access_required' }, 403);
 
-  let body: { areaQuery?: string; location?: unknown; coverageMode?: unknown };
+  let body: { areaQuery?: string; venueName?: string; location?: unknown; coverageMode?: unknown };
   try {
     body = await req.json();
   } catch {
@@ -391,6 +395,9 @@ Deno.serve(async (req) => {
   const areaQuery = typeof body.areaQuery === 'string'
     ? body.areaQuery.trim().replace(/\s+/g, ' ')
     : undefined;
+  const venueName = typeof body.venueName === 'string'
+    ? body.venueName.trim().replace(/\s+/g, ' ')
+    : undefined;
   const location = parseLocation(body.location);
   const useNearbyRefresh = body.coverageMode === 'nearby';
   if (body.coverageMode !== undefined && !useNearbyRefresh) {
@@ -399,6 +406,12 @@ Deno.serve(async (req) => {
   if (areaQuery && areaQuery.length > AREA_QUERY_MAX_LENGTH) {
     return jsonResponse({ error: `"areaQuery" must be under ${AREA_QUERY_MAX_LENGTH} characters` }, 400);
   }
+  if (venueName && venueName.length > VENUE_NAME_MAX_LENGTH) {
+    return jsonResponse({ error: `"venueName" must be under ${VENUE_NAME_MAX_LENGTH} characters` }, 400);
+  }
+  if (venueName && !areaQuery) {
+    return jsonResponse({ error: '"venueName" requires "areaQuery"' }, 400);
+  }
   if ((!areaQuery && !location) || (areaQuery && location)) {
     return jsonResponse({ error: 'Provide exactly one of "areaQuery" or "location"' }, 400);
   }
@@ -406,7 +419,14 @@ Deno.serve(async (req) => {
     return jsonResponse({ error: 'The nearby coverage mode requires a location' }, 400);
   }
   const target: TopupTarget = areaQuery
-    ? { kind: 'area', areaQuery, eventKey: `area:${areaQuery.toLowerCase()}` }
+    ? {
+        kind: 'area',
+        areaQuery,
+        ...(venueName ? { venueName } : {}),
+        eventKey: venueName
+          ? `venue:${venueName.toLowerCase()}|${areaQuery.toLowerCase()}`
+          : `area:${areaQuery.toLowerCase()}`,
+      }
     : {
         kind: 'location',
         location: location!,
@@ -446,7 +466,7 @@ Deno.serve(async (req) => {
   // broader minimum-coverage policy.
   if (
     (target.kind === 'location' && !target.usesNearbyCheckpoint && currentResultCount >= MIN_COVERAGE) ||
-    (target.kind === 'area' && currentResultCount >= MIN_COVERAGE)
+    (target.kind === 'area' && !target.venueName && currentResultCount >= MIN_COVERAGE)
   ) {
     return jsonResponse({ triggered: false, reason: 'coverage_sufficient', resultCount: currentResultCount });
   }
@@ -500,10 +520,15 @@ Deno.serve(async (req) => {
     if (target.kind === 'location') {
       for (const place of await searchNearbyPlaces(target.location, target.radiusMeters)) byPlaceId.set(place.placeId, place);
     } else {
-      const baseQuery = `restaurants, cafes, pubs and bars in ${target.areaQuery} NSW`;
-      const { places: baseResults, possiblyTruncated } = await searchPlaces(baseQuery, BASE_MAX_PAGES);
+      const baseQuery = target.venueName
+        ? `${target.venueName} in ${target.areaQuery} NSW`
+        : `restaurants, cafes, pubs and bars in ${target.areaQuery} NSW`;
+      const { places: baseResults, possiblyTruncated } = await searchPlaces(
+        baseQuery,
+        target.venueName ? 1 : BASE_MAX_PAGES,
+      );
       for (const place of baseResults) byPlaceId.set(place.placeId, place);
-      if (possiblyTruncated) {
+      if (!target.venueName && possiblyTruncated) {
         for (const category of FOLLOWUP_CATEGORIES) {
           const { places: followupResults } = await searchPlaces(`${category} in ${target.areaQuery} NSW`, 1);
           for (const place of followupResults) byPlaceId.set(place.placeId, place);
