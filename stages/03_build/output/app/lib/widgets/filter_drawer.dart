@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 
 import '../utils/text_format.dart';
 import 'noise_level_bar.dart';
+import 'searchable_suburb_picker.dart';
 
 enum SortOption {
   quietestFirst,
@@ -78,7 +79,8 @@ class FilterDrawer extends StatelessWidget {
               child: Row(
                 children: [
                   Expanded(
-                    child: Text('Filters', style: Theme.of(context).textTheme.titleMedium),
+                    child: Text('Filters',
+                        style: Theme.of(context).textTheme.titleMedium),
                   ),
                   IconButton(
                     tooltip: 'Close',
@@ -94,15 +96,9 @@ class FilterDrawer extends StatelessWidget {
                 children: [
                   _FilterSection(
                     label: 'Suburb',
-                    child: DropdownButtonFormField<String>(
-                      initialValue: selectedSuburb,
-                      isExpanded: true,
-                      decoration: const InputDecoration(border: OutlineInputBorder(), isDense: true),
-                      items: [
-                        const DropdownMenuItem(value: null, child: Text('All suburbs')),
-                        for (final s in suburbs)
-                          DropdownMenuItem(value: s, child: Text(s, overflow: TextOverflow.ellipsis)),
-                      ],
+                    child: SearchableSuburbPicker(
+                      suburbs: suburbs,
+                      selectedSuburb: selectedSuburb,
                       onChanged: onSuburbChanged,
                     ),
                   ),
@@ -112,13 +108,16 @@ class FilterDrawer extends StatelessWidget {
                     child: DropdownButtonFormField<String>(
                       initialValue: selectedCuisine,
                       isExpanded: true,
-                      decoration: const InputDecoration(border: OutlineInputBorder(), isDense: true),
+                      decoration: const InputDecoration(
+                          border: OutlineInputBorder(), isDense: true),
                       items: [
-                        const DropdownMenuItem(value: null, child: Text('All cuisines')),
+                        const DropdownMenuItem(
+                            value: null, child: Text('All cuisines')),
                         for (final c in cuisines)
                           DropdownMenuItem(
                             value: c,
-                            child: Text(humanizeSnakeCase(c), overflow: TextOverflow.ellipsis),
+                            child: Text(humanizeSnakeCase(c),
+                                overflow: TextOverflow.ellipsis),
                           ),
                       ],
                       onChanged: onCuisineChanged,
@@ -130,11 +129,17 @@ class FilterDrawer extends StatelessWidget {
                     child: DropdownButtonFormField<int>(
                       initialValue: selectedLoudnessIndex,
                       isExpanded: true,
-                      decoration: const InputDecoration(border: OutlineInputBorder(), isDense: true),
+                      decoration: const InputDecoration(
+                          border: OutlineInputBorder(), isDense: true),
                       items: [
-                        const DropdownMenuItem(value: null, child: Text('Any loudness')),
-                        for (var i = 0; i < NoiseLevelBar.categories.length; i++)
-                          DropdownMenuItem(value: i, child: Text(NoiseLevelBar.categories[i])),
+                        const DropdownMenuItem(
+                            value: null, child: Text('Any loudness')),
+                        for (var i = 0;
+                            i < NoiseLevelBar.categories.length;
+                            i++)
+                          DropdownMenuItem(
+                              value: i,
+                              child: Text(NoiseLevelBar.categories[i])),
                       ],
                       onChanged: onLoudnessChanged,
                     ),
@@ -145,11 +150,15 @@ class FilterDrawer extends StatelessWidget {
                     child: DropdownButtonFormField<double>(
                       initialValue: selectedMinRating,
                       isExpanded: true,
-                      decoration: const InputDecoration(border: OutlineInputBorder(), isDense: true),
+                      decoration: const InputDecoration(
+                          border: OutlineInputBorder(), isDense: true),
                       items: [
-                        const DropdownMenuItem(value: null, child: Text('Any rating')),
+                        const DropdownMenuItem(
+                            value: null, child: Text('Any rating')),
                         for (final t in ratingThresholds)
-                          DropdownMenuItem(value: t, child: Text('${t.toStringAsFixed(1)}+ stars')),
+                          DropdownMenuItem(
+                              value: t,
+                              child: Text('${t.toStringAsFixed(1)}+ stars')),
                       ],
                       onChanged: onRatingChanged,
                     ),
@@ -160,10 +169,14 @@ class FilterDrawer extends StatelessWidget {
                     child: DropdownButtonFormField<SortOption>(
                       initialValue: sortBy,
                       isExpanded: true,
-                      decoration: const InputDecoration(border: OutlineInputBorder(), isDense: true),
+                      decoration: const InputDecoration(
+                          border: OutlineInputBorder(), isDense: true),
                       items: [
                         for (final option in SortOption.values)
-                          DropdownMenuItem(value: option, child: Text(option.label, overflow: TextOverflow.ellipsis)),
+                          DropdownMenuItem(
+                              value: option,
+                              child: Text(option.label,
+                                  overflow: TextOverflow.ellipsis)),
                       ],
                       onChanged: (v) {
                         if (v != null) onSortByChanged(v);
