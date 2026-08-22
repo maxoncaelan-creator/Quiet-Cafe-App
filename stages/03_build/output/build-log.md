@@ -250,7 +250,8 @@ device behaviour.
   (permission, unavailable, network and timeout), and the Android release
   manifest declares the recognition service. It still requires successful live
   microphone transcription on web, Android and iOS before the defect is closed;
-  do not log transcript content during that check.
+  do not log transcript content during that check. This validation is tracked
+  in [GitHub issue #41](https://github.com/maxoncaelan-creator/Quiet-Cafe-App/issues/41).
 
   On 2026-08-22, `flutter analyze --no-pub` reported no issues and
   `flutter test --no-pub --reporter expanded` passed 14 tests after the source
@@ -269,14 +270,16 @@ device behaviour.
   Complete the linked Supabase deployment or run authenticated `supabase db
   push --linked` from clean `main`, then follow
   [`BACKEND_RELEASE_RUNBOOK.md`](supabase/BACKEND_RELEASE_RUNBOOK.md) and attach
-  the resulting migration/function evidence to the PR.
+  the resulting migration/function evidence to the PR. This is tracked in
+  [GitHub issue #39](https://github.com/maxoncaelan-creator/Quiet-Cafe-App/issues/39).
 - **Local Supabase database test is blocked by Podman tooling.** Podman Desktop
   has a running WSL machine, but its native `podman` CLI was not installed or
   on `PATH`; the official CLI installer completed without creating a native
   CLI. Repair or reinstall the Podman CLI, then open a fresh terminal. Until
   `podman info` and `supabase start` work, do not claim a local database test.
   If Windows host-port forwarding then fails, record that separately and use
-  hosted CI as the test boundary.
+  hosted CI as the test boundary. This is tracked in
+  [GitHub issue #40](https://github.com/maxoncaelan-creator/Quiet-Cafe-App/issues/40).
 
 ### Needs a real device or browser
 
