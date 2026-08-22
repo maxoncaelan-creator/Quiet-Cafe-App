@@ -1,9 +1,10 @@
 // Real account management — added 2026-08-18. Replaces a real bug found
 // live: the drawer's "Account" item (shown once signed in) still navigated
 // to AuthScreen, the sign-in form, instead of anywhere a signed-in user
-// could actually manage anything. Scoped to what the app genuinely stores
-// about a user — Supabase Auth's email/password, and their own submitted
-// mic readings — not invented profile fields this app has no data for.
+// could actually manage anything. Account now lives under Settings and is
+// scoped to what the app genuinely stores about a user — Supabase Auth's
+// email and their own submitted mic readings — not invented profile fields
+// this app has no data for.
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -65,7 +66,6 @@ class _AccountScreenState extends State<AccountScreen> {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final email = _supabaseService.currentUserEmail ?? '';
-    final hasPassword = _supabaseService.currentUserHasPassword;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Account')),
@@ -78,19 +78,6 @@ class _AccountScreenState extends State<AccountScreen> {
               title: const Text('Email'),
               subtitle: Text(email),
             ),
-            // Only accounts with a password (i.e. signed up with
-            // email/password, not exclusively via Google/Facebook/Apple)
-            // have anything here to change.
-            if (hasPassword) ...[
-              const Divider(height: 32),
-              const _SectionHeader('Security'),
-              ListTile(
-                leading: const Icon(Icons.lock_outline),
-                title: const Text('Change password'),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => context.push('/account/change-password'),
-              ),
-            ],
             const Divider(height: 32),
             const _SectionHeader('Your activity'),
             _ActivitySection(readings: _readings, error: _readingsError, formatDate: _formatDate),

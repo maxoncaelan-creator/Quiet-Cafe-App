@@ -111,7 +111,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _handleAccountTap() async {
-    await context.push(_signedInEmail != null ? '/account' : '/sign-in');
+    await context.push(_signedInEmail != null ? '/settings/account' : '/sign-in');
   }
 
   Future<void> _load() async {

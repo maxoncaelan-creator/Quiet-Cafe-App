@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../services/supabase_service.dart';
 import '../../widgets/app_drawer.dart';
 
 class SettingsScreen extends StatelessWidget {
@@ -8,11 +9,28 @@ class SettingsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final supabaseService = SupabaseService();
+    final signedIn = supabaseService.isSignedIn;
+
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
       drawer: const AppDrawer(currentRoute: AppRoute.settings),
       body: ListView(
         children: [
+          if (signedIn)
+            _SettingsRow(
+              icon: Icons.account_circle_outlined,
+              label: 'Account',
+              sublabel: 'Email and reading history',
+              onTap: () => context.push('/settings/account'),
+            ),
+          if (supabaseService.currentUserHasPassword)
+            _SettingsRow(
+              icon: Icons.lock_outline,
+              label: 'Change password',
+              sublabel: 'Update your account password',
+              onTap: () => context.push('/settings/change-password'),
+            ),
           _SettingsRow(
             icon: Icons.contrast,
             label: 'Display',

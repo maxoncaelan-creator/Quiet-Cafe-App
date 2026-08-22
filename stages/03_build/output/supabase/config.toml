@@ -1,0 +1,5 @@
+# This project previously had migrations and Functions but no local Supabase
+# project configuration, which made the database impossible to reproduce in
+# CI. `project_id` is the only required setting; the CLI supplies safe local
+# defaults for the rest of the stack.
+project_id = "quiet-restaurant-finder"
