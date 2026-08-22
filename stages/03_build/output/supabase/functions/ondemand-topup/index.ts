@@ -541,31 +541,43 @@ Deno.serve(async (req) => {
 
     // Additive only — see the file header. ignoreDuplicates makes this an
     // INSERT ... ON CONFLICT (place_id) DO NOTHING under the hood.
-    const { error: upsertError } = await supabaseAdmin
-      .from('restaurants')
-      .upsert(rows, { onConflict: 'place_id', ignoreDuplicates: true });
+    // A successful response must mean the database write succeeded. The old
+    // handler returned HTTP 207 after an upsert error, which functions.invoke
+    // treats as a success and left the UI claiming venues were added when no
+    // rows existed. Request the returned inserted ids so the success count is
+    // also the number of *new* rows, not merely Google results.
+    let insertedCount = 0;
+    if (rows.length > 0) {
+      const { data: insertedRows, error: upsertError } = await supabaseAdmin
+        .from('restaurants')
+        .upsert(rows, { onConflict: 'place_id', ignoreDuplicates: true })
+        .select('place_id');
+      if (upsertError) {
+        throw new Error(`Restaurant upsert failed: ${upsertError.message}`);
+      }
+      insertedCount = insertedRows?.length ?? 0;
+    }
 
-    await supabaseAdmin.from('ondemand_topup_events').insert({
+    const { error: eventError } = await supabaseAdmin.from('ondemand_topup_events').insert({
       user_id: userData.user.id,
       reservation_id: reservation.reservation_id,
       area_query: target.eventKey,
       haiku_decision: 'yes',
       haiku_reason: reason,
       result_count_before: currentResultCount,
-      places_found: rows.length,
+      places_found: insertedCount,
     });
-
-    if (upsertError) {
-      return jsonResponse({ triggered: true, placesFound: rows.length, upsertError: upsertError.message }, 207);
+    if (eventError) {
+      throw new Error(`Coverage event insert failed: ${eventError.message}`);
     }
 
     // A failed request/upsert stays retryable. Record the location only once
     // Google’s outcome has made it into the venue list, including a valid
     // zero-place search result.
     if (target.kind === 'location' && target.usesNearbyCheckpoint) {
-      await recordNearbyCheckpoint(target.location, currentResultCount, rows.length);
+      await recordNearbyCheckpoint(target.location, currentResultCount, insertedCount);
     }
-    return jsonResponse({ triggered: true, placesFound: rows.length, reason });
+    return jsonResponse({ triggered: true, placesFound: insertedCount, reason });
   } catch (err) {
     console.error('ondemand-topup: Search/upsert failed', err);
     return jsonResponse({ error: 'Search/upsert failed' }, 502);

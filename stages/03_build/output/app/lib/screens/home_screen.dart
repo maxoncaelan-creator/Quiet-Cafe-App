@@ -111,7 +111,8 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _handleAccountTap() async {
-    await context.push(_signedInEmail != null ? '/settings/account' : '/sign-in');
+    await context
+        .push(_signedInEmail != null ? '/settings/account' : '/sign-in');
   }
 
   Future<void> _load() async {
@@ -205,6 +206,10 @@ class _HomeScreenState extends State<HomeScreen> {
     context.go('/', extra: 'Find quiet venues in $area');
   }
 
+  // The suburb-targeted collector deliberately has no List View affordance.
+  // Search Assistant invokes the matching guarded server flow in the
+  // background after it identifies an explicit suburb in the request.
+  // ignore: unused_element
   Future<void> _findMoreVenues(String area) async {
     if (_refreshingCoverage) return;
 
@@ -275,7 +280,8 @@ class _HomeScreenState extends State<HomeScreen> {
       if (position == null) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Your location is unavailable. Turn on location services and try again.'),
+            content: Text(
+                'Your location is unavailable. Turn on location services and try again.'),
           ),
         );
         return;
@@ -295,7 +301,8 @@ class _HomeScreenState extends State<HomeScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Could not check nearby venues — please try again later.'),
+            content:
+                Text('Could not check nearby venues — please try again later.'),
           ),
         );
       }
@@ -431,6 +438,28 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ],
           ),
+          if (SupabaseService.isConfigured)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: FilledButton.icon(
+                  onPressed: _refreshingCoverage ? null : _checkNearbyVenues,
+                  icon: _refreshingCoverage
+                      ? const SizedBox(
+                          height: 18,
+                          width: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.my_location),
+                  label: Text(
+                    _refreshingCoverage
+                        ? 'Recording venues…'
+                        : 'Record venues near me',
+                  ),
+                ),
+              ),
+            ),
           Expanded(
             child: _all.isEmpty
                 ? const _EmptyState()
@@ -467,7 +496,6 @@ class _HomeScreenState extends State<HomeScreen> {
                           refreshing: _refreshingCoverage,
                           onAskAssistant: () =>
                               _askAssistantAbout(coverageArea),
-                          onFindMore: () => _findMoreVenues(coverageArea),
                           onCheckNearby: _checkNearbyVenues,
                           noMatches: ranked.isEmpty && needsData.isEmpty,
                         ),
@@ -486,7 +514,6 @@ class _SearchResultActions extends StatelessWidget {
   final bool refreshing;
   final bool noMatches;
   final VoidCallback onAskAssistant;
-  final VoidCallback onFindMore;
   final VoidCallback onCheckNearby;
 
   const _SearchResultActions({
@@ -494,7 +521,6 @@ class _SearchResultActions extends StatelessWidget {
     required this.refreshing,
     required this.noMatches,
     required this.onAskAssistant,
-    required this.onFindMore,
     required this.onCheckNearby,
   });
 
@@ -515,14 +541,14 @@ class _SearchResultActions extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             const Text(
-              'Check within 1 km of your location, ask the Assistant, or look for more venues in this area.',
+              'Record venues near you, or ask the Assistant to search this area.',
             ),
             const SizedBox(height: 16),
             Wrap(
               spacing: 12,
               runSpacing: 12,
               children: [
-                FilledButton.icon(
+                OutlinedButton.icon(
                   onPressed: refreshing ? null : onCheckNearby,
                   icon: refreshing
                       ? const SizedBox(
@@ -531,23 +557,13 @@ class _SearchResultActions extends StatelessWidget {
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : const Icon(Icons.my_location),
-                  label: Text(refreshing ? 'Checking…' : 'Check 1 km nearby'),
+                  label:
+                      Text(refreshing ? 'Recording…' : 'Record venues near me'),
                 ),
                 OutlinedButton.icon(
                   onPressed: onAskAssistant,
                   icon: const Icon(Icons.auto_awesome_outlined),
                   label: const Text('Ask Assistant'),
-                ),
-                OutlinedButton.icon(
-                  onPressed: refreshing ? null : onFindMore,
-                  icon: refreshing
-                      ? const SizedBox(
-                          height: 18,
-                          width: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.travel_explore),
-                  label: Text(refreshing ? 'Checking…' : 'Find more venues'),
                 ),
               ],
             ),
