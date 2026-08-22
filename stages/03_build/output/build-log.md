@@ -441,3 +441,28 @@ integration, so the backend release runbook is mandatory before another live
 release claim. The complete record, including the PR #37 review, production
 evidence, local-Podman limitation and speech-to-text entry gate, is in
 [`delivery-retrospective-2026-08-22.md`](delivery-retrospective-2026-08-22.md).
+
+## Production migration reconciliation — 2026-08-22
+
+The initial GitHub integration did not deploy the intended database directory,
+and correcting that configuration exposed older manual database changes that
+had been recorded under generated timestamps rather than the repository
+migration IDs. The automated deployment stopped safely; it did not partially
+apply the new migration.
+
+After an authenticated CLI comparison and schema check, the remote migration
+*record* was repaired with the official `supabase migration repair` command.
+The subsequent dry run listed exactly two absent source migrations:
+`0016_current_loudness_decay.sql` and
+`20260822154500_server_owned_contribution_scores.sql`. Both were then applied
+with `supabase db push --include-all --skip-vault`. Production now reports a
+one-to-one match for every repository migration. The new scoring function,
+current-loudness fields and all expected triggers were verified directly.
+
+The post-deploy security advisor found that three trigger-only security-definer
+functions still had browser-role execution grants. PR #43 revokes those
+grants, fixes the mutable search path on `find_nearest_restaurant`, and adds
+pgTAP regression coverage. It must pass hosted Supabase database CI before
+being merged. Podman is now installed, on `PATH`, and can run containers, but
+the Windows Supabase CLI still aborts its local stack before Postgres opens
+port 54322; that narrower startup issue is tracked in issue #40.

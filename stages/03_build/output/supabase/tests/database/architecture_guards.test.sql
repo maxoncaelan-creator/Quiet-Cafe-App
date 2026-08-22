@@ -1,7 +1,7 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select plan(7);
+select plan(11);
 
 insert into auth.users (id, email)
 values ('00000000-0000-0000-0000-000000000101', 'architecture-guard@example.com');
@@ -77,6 +77,34 @@ select is(
   (select current_loudness_source from public.restaurants where place_id = 'architecture-guard-venue'),
   'vote',
   'the fresh on-site observation remains independent of the historical aggregate'
+);
+
+select ok(
+  not has_function_privilege('anon', 'public.recompute_restaurant_score_after_contribution()', 'execute')
+    and not has_function_privilege('authenticated', 'public.recompute_restaurant_score_after_contribution()', 'execute'),
+  'browser roles cannot invoke the contribution scoring trigger function'
+);
+
+select ok(
+  not has_function_privilege('anon', 'public.set_current_loudness_from_mic()', 'execute')
+    and not has_function_privilege('authenticated', 'public.set_current_loudness_from_mic()', 'execute'),
+  'browser roles cannot invoke the microphone current-loudness trigger function'
+);
+
+select ok(
+  not has_function_privilege('anon', 'public.set_current_loudness_from_vote()', 'execute')
+    and not has_function_privilege('authenticated', 'public.set_current_loudness_from_vote()', 'execute'),
+  'browser roles cannot invoke the vote current-loudness trigger function'
+);
+
+select ok(
+  coalesce(
+    (select 'search_path=public, pg_temp' = any(proconfig)
+     from pg_proc
+     where oid = 'public.find_nearest_restaurant(double precision, double precision, double precision)'::regprocedure),
+    false
+  ),
+  'nearest-restaurant lookup uses a fixed search path'
 );
 
 select * from finish();

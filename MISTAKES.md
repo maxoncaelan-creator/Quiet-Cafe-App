@@ -695,3 +695,33 @@ While updating search-assistant I again submitted one apply_patch payload with t
 Tried to delete and add the retired function in one patch; the patch tool rejected duplicate targets before any file changed.
 **Standard:** Use one update operation per patch target.
 **Fix:** Replace the file through a single update patch.
+
+## production-migration-history-not-preflighted
+
+### 2026-08-22 | 03_build | caught: release verification
+Enabled the Supabase GitHub integration with the repository root as its working
+directory even though the Supabase project is nested. Correcting that setting
+then exposed a second, older problem: manual production changes had been
+recorded under generated timestamps rather than the repository migration IDs.
+The automated deployment stopped safely, but the app was running a mixed
+backend release.
+**Standard:** Before claiming a backend release, verify the integration working
+directory, compare `supabase migration list --linked`, and prove the active
+function versions against the merged source.
+**Fix:** Recorded the nested directory in configuration and the runbook. Used
+official `migration repair` only after schema equivalence was checked, dry-ran
+the resulting deployment, and applied the two genuinely missing migrations.
+
+## trigger-function-grants-not-tested
+
+### 2026-08-22 | 03_build | caught: Supabase security advisor
+New trigger-only `SECURITY DEFINER` functions revoked `PUBLIC` execution but
+did not revoke the project's explicit `anon` and `authenticated` grants. They
+could therefore be called directly through the RPC API even though they are
+intended only for trigger execution.
+**Standard:** Every new security-definer trigger function must be checked with
+both `has_function_privilege` regression tests and the Supabase security
+advisor after deployment.
+**Fix:** PR #43 adds explicit role revocations, fixes the separate mutable
+search-path warning, and adds pgTAP coverage before the source change can be
+merged.
