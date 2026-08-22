@@ -111,16 +111,20 @@ quiet-restaurant-finder/
 
 - **Before reporting a check as conclusive, say what it would show if the
   claim were false.** If the answer is *the same thing*, the check cannot
-  settle the question and must not be reported as if it had. Three occurrences
+  settle the question and must not be reported as if it had. Seven occurrences
   here came from checks that were structurally blind to what they were being
   cited for (`MISTAKES.md`, `verification-cannot-detect-the-fault`): an
   emulator run missing the `--dart-define` that would have made the tested
   feature appear at all; a `private: false` reading taken *after* Caelan had
   already flipped the repo to Public; a `merged: false` on every pull request
-  from a list endpoint that never populates that field. Each looked like
+  from a list endpoint that never populates that field; a legacy
+  `git merge-tree` invocation that reports clean regardless of whether a real
+  conflict exists; two separate multi-statement `execute_sql` calls whose
+  first statement's result was silently dropped; and a deployed assistant
+  top-up path that still returned 502 on every real request. Each looked like
   evidence and each was compatible with both answers.
 
-  Two specific forms worth naming, because both read as data:
+  Four specific forms worth naming, because all four read as data:
   - **A reading taken after the state changed** says nothing about the state
     before it. When something started working after someone intervened, the
     intervention is the leading explanation, not the thing to rule out.
@@ -128,6 +132,27 @@ quiet-restaurant-finder/
     unpopulated, not a finding. Confirm the endpoint actually populates a
     field before drawing conclusions from it — list and single-item endpoints
     of the same API often differ.
+  - **A multi-statement `execute_sql` call only surfaces its last statement's
+    result.** Every statement before the last one silently vanishes — not an
+    empty result, no result at all — so treating that gap as "confirmed
+    empty" or "confirmed absent" has been wrong twice in this workspace, once
+    badly enough to get asserted to Caelan in chat before self-correcting
+    minutes later. Run one statement per `execute_sql` call whenever the
+    result of an earlier statement actually matters, not just the last one's.
+  - **Source code and a deployment version do not prove a backend integration
+    works.** Before claiming a path that calls an external API is functional,
+    exercise a safe real request and inspect its response and the relevant
+    logs. A live 5xx, rejected credential or downstream error is invisible to
+    static checks and deployment metadata.
+
+- **Before changing a shared endpoint, migration or default, enumerate every
+  caller and its contract.** Preserve each existing caller deliberately or
+  record the approved behavioural change for all of them. Do not infer that a
+  new List View, Assistant or background path is the endpoint's only consumer;
+  write explicit modes for intentionally different behaviour. This guard
+  exists because `ondemand-topup` and related shared paths have repeatedly
+  acquired a change for one caller that silently changed another
+  (`MISTAKES.md`, `shared-endpoint-caller-impact-unreviewed`).
 
 ## Standards and mistakes
 

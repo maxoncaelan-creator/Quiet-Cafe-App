@@ -243,14 +243,42 @@ device behaviour.
 
 ## Active work queue
 
+### Immediate defects — resolve before new feature work
+
+- **Speech-to-text is unreliable across search inputs.** Reported in the app's
+  search bars and other speech-entry surfaces. Before changing code, inventory
+  every caller, the recognition package/plugin, platform permissions, widget
+  lifecycle and error path. Reproduce separately on web and a native device;
+  add explicit states for permission denied, unavailable recognition, network
+  failure and timeout. The fix is not complete until real microphone input has
+  been transcribed successfully on every supported platform without exposing
+  transcript content in diagnostics.
+- **Search Assistant renders a 429 as a connectivity failure.** Production
+  logs showed a real per-account rate-limit response while the app displayed
+  “couldn't reach the search assistant.” Catch the Supabase HTTP-function
+  error at the Flutter SDK boundary, surface the reset time, and add a
+  regression test for 429 and for a non-429 function error.
+- **Production backend release evidence must be part of every backend PR.**
+  The Supabase GitHub integration is now enabled, but it was enabled after PR
+  #37 merged and did not backfill it. For the next schema/function merge,
+  confirm the production migration list and deployed function versions match
+  the merged change before declaring release complete.
+- **Local Supabase database test is blocked by Podman/WSL port forwarding.**
+  Podman can start Postgres, but Windows cannot reach the published local
+  port, so `supabase start` is not a valid local test yet. Resolve the host
+  forwarding issue or deliberately use hosted CI as the database-test
+  boundary; do not report the failed local startup as passing verification.
+
 ### Needs a real device or browser
 
 - GPS venue guess: near a loaded venue, confirm “Are you at X?” and its
   Yes/No behaviours against a real location fix.
-- Location-aware assistant: allow location, ask a nearby question, and confirm
-  the current fix is stored and the reply is scoped to nearby venues. Then ask
-  for Leppington with thin/no local coverage and confirm Google Places adds
-  rows before Haiku replies; check the 24-hour cooldown does not re-spend.
+- Location-aware and venue-discovery assistant: with a signed-in beta account,
+  send a bare lower-case suburb, an exact venue-plus-suburb request, a close
+  name and an unknown venue. Confirm the live backend checks coverage, waits
+  for close-name confirmation before writing, supports cancel/replacement and
+  labels a rate limit correctly. Then verify nearby GPS scope and the 24-hour
+  cooldown do not re-spend.
 - Mic calibration: fresh sign-in, cold launch, skip, submission and the
   calibration offset’s later effect on readings.
 - Score refresh: submit a loudness vote and a mic reading, then confirm the
@@ -270,8 +298,9 @@ device behaviour.
   nearby refreshes from two accounts and confirm only one makes a Places call.
   Submit a loudness vote, immediately submit another vote for that venue, and
   confirm the database returns the five-minute wait message.
-- Web: validate responsive rail/drawer layout, download banner, max width,
-  filter drawer and web mic permission/levels in a real browser.
+- Web: validate responsive rail/drawer layout, download banner, max width and
+  filter drawer in a real browser. Speech recognition has its own immediate
+  defect above; do not reduce that investigation to a visual permission check.
 - Password recovery: click a real recovery-email link and land on
   `ResetPasswordScreen`.
 
@@ -279,7 +308,9 @@ device behaviour.
 
 - Deploy the marketing site to the apex `cafequiet.com`; check DNS records
   before attaching it because stale parking records previously appeared.
-- Attach `app.cafequiet.com` to Cloudflare Pages.
+- `app.cafequiet.com` is live. Keep its Cloudflare Pages build configuration
+  and public Supabase environment values verified when the web build changes;
+  a successful static deployment does not deploy Supabase backend changes.
 - Decide whether to add an admin view of outstanding/redeemed beta codes.
 - Create iOS OAuth credentials and run an iOS build/device test. Facebook
   remains hidden until its Supabase provider is configured.
@@ -370,3 +401,26 @@ Podman command; a downloaded Podman installer alone is insufficient until the
 CLI is available on `PATH` and its machine is running. Applying the database
 migrations and deploying the affected Edge Functions are still required before
 the latest Assistant changes reach the live app.
+
+## Latest production sync and delivery retrospective
+
+PR #37 was merged after its hosted checks passed. The Supabase GitHub
+integration was enabled after that merge, so it did not backfill the already
+merged release. Production was therefore still running the older Search
+Assistant and coverage functions and did not have the assistant-venue-draft
+migration. This was not a Cloudflare Pages issue: the static app was reaching
+Supabase, but the backend release had not been synchronised.
+
+On 2026-08-22 the reviewed `assistant_venue_discovery` migration was applied
+manually, `search-assistant` was deployed as version 12, and
+`ondemand-topup` as version 9. The private draft table exists with RLS and no
+browser read access. Future backend-changing merges must be verified by
+checking the production migration list and function versions, even with the
+GitHub integration enabled.
+
+The reported “couldn't reach the search assistant” screen was an HTTP 429
+rate-limit response rendered as a generic connectivity failure. Correctly
+mapping that SDK error remains a P2 UI follow-up. The complete record,
+including the PR #37 review, production evidence, local-Podman limitation and
+speech-to-text entry gate, is in
+[`delivery-retrospective-2026-08-22.md`](delivery-retrospective-2026-08-22.md).
