@@ -69,6 +69,20 @@ supabase start
 supabase test db
 ```
 
+On Windows, Supabase needs either Docker Desktop or Podman. With Podman, make
+sure the `podman` command is on `PATH`, then initialise and start its machine
+before `supabase start`:
+
+```text
+podman machine init
+podman machine start
+podman info
+```
+
+`supabase start` must report healthy services before the database test is a
+valid result. Do not treat a downloaded installer, or a failed container
+startup, as a passing database check.
+
 After deployment, test with a signed-in beta account:
 
 1. Send `crows nest` and confirm coverage is checked before the reply.

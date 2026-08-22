@@ -419,11 +419,12 @@ package). Store links (`lib/utils/store_links.dart`) are **placeholders**
 tracked as an open item in the workspace's `build-log.md`, not something
 to chase down speculatively.
 
-**Cloudflare Pages deployment — live as of 2026-08-19** at
-`https://quiet-restaurant-finder.pages.dev` (confirmed: clean boot, no
-console errors, and a direct deep-link load of `/list` — not just in-app
-navigation — worked with no 404, so `web/_redirects`' SPA fallback is
-doing its job for real). `.github/workflows/deploy-web.yml` is at the
+**Cloudflare Pages deployment — live at
+`https://app.cafequiet.com` as of 2026-08-22.** The Pages development domain
+remains `https://quiet-restaurant-finder.pages.dev`. The initial deployment
+was confirmed with a clean boot, no console errors, and a direct deep-link
+load of `/list` — not just in-app navigation — so `web/_redirects`' SPA
+fallback is doing its job for real. `.github/workflows/deploy-web.yml` is at the
 **repo root** (not inside `app/` — GitHub Actions only ever looks for
 workflow files at the true repository root's `.github/workflows/`, one
 level above this `stages/03_build/output/app/` directory since this ICM
@@ -431,11 +432,10 @@ workspace and the app share one git repo; a first attempt placed the file
 inside `app/.github/workflows/` and GitHub silently never saw it, caught
 2026-08-19 via the Actions tab showing the onboarding page instead of the
 workflow). This repo's first CI pipeline, builds and deploys on every
-push to `main`. Steps 1–4 below are done (Caelan ran the actual deploy
+push to `main`. Steps 1–5 below are done (Caelan ran the actual deploy
 and pasted back three real errors along the way — see `build-log.md`'s
 "Cloudflare Pages deploy — live, after three real fixes" for what each
-one was and how it got fixed); **5 and 6 are still open**, both
-Caelan's:
+one was and how it got fixed); **step 6 must remain configured** for OAuth:
 1. Cloudflare → API Tokens → create one scoped to **Account → Cloudflare
    Pages → Edit** *and* **User → User Details → Read**. Both are needed —
    confirmed live 2026-08-19 after a real deploy failed with
@@ -458,6 +458,7 @@ Caelan's:
    gets created automatically on the first run; that step is a
    `continue-on-error` no-op on every run after that.
 5. Cloudflare → that Pages project → Custom domains → add `app.cafequiet.com`.
+   **Done 2026-08-22.**
 6. Supabase → Authentication → URL Configuration → **Redirect URLs** → add
    **both**:
    ```

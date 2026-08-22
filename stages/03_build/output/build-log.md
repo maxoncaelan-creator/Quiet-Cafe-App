@@ -231,6 +231,15 @@ billing or the full assistant response, so the device smoke test remains open.
   The test command now uses Node's built-in discovery and the endpoint is a
   true 410-only compatibility stub. The 48-test pipeline suite passes locally;
   the pushed hosted run is the remaining Deno/Supabase verification boundary.
+## Latest verification — automated and deployed-web smoke test passed
+
+On 2026-08-21, `flutter test --no-pub --reporter expanded` passed all four
+tests and `flutter analyze --no-pub` reported no issues. The deployed web app
+at `quiet-restaurant-finder.pages.dev` loaded to the sign-in screen; its
+email-sign-in route opened successfully and the browser reported no console
+errors. This verifies the automated suite and public initial auth navigation,
+not an authenticated account flow, permissions, mic capture, GPS, or native
+device behaviour.
 
 ## Active work queue
 
@@ -329,3 +338,35 @@ billing or the full assistant response, so the device smoke test remains open.
 
 For the full reasoning, incident record and command history, use the dated
 archive above rather than re-expanding this active handoff log.
+
+## Latest implementation — venue coverage recording and Assistant discovery
+
+On 2026-08-22, the List View gained the visible **Record venues near me**
+action. It requests one bounded GPS fix and asks the authenticated
+on-demand collector to run Google Nearby Search within 1 km. The same
+collector has a hidden suburb-targeted mode used by Search Assistant before it
+answers a request containing an explicit area, so a thin or empty suburb can
+be refreshed in the background and read back in the same response.
+
+The collector now treats the restaurant insert as the success boundary:
+upsert, event-log, and coordinate-checkpoint failures return an error rather
+than a 2xx partial success. It inserts additively only, returns the count of
+new rows, and atomically reserves shared/per-user budget before any billed
+Google call. The associated migrations add GPS check checkpoints, paid-refresh
+reservations, account-held temporary Assistant location, and atomic Assistant
+token budgeting. Flutter analysis and tests passed (7 tests) after the change.
+
+PR #36 added bare-suburb recognition (including lower-case input), named
+venue-plus-suburb lookup, a Google Places fallback, close-name confirmation,
+and a community-venue draft flow. PR #37 documents that contract and makes a
+named Google lookup preview-only: a close candidate is no longer written to
+the public venue list until the user says yes. It also supports cancelling or
+replacing an unfinished draft and adds a database regression test for the
+private draft table.
+
+PR #37 passed hosted Flutter, Node pipeline, Deno, and Supabase database CI on
+2026-08-22. The local database suite requires a working Docker Desktop or
+Podman command; a downloaded Podman installer alone is insufficient until the
+CLI is available on `PATH` and its machine is running. Applying the database
+migrations and deploying the affected Edge Functions are still required before
+the latest Assistant changes reach the live app.
