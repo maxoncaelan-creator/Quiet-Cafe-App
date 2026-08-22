@@ -55,7 +55,13 @@ type UserLocation = {
 };
 
 type TopupTarget =
-  | { kind: 'area'; areaQuery: string; venueName?: string; eventKey: string }
+  | {
+      kind: 'area';
+      areaQuery: string;
+      venueName?: string;
+      previewOnly?: boolean;
+      eventKey: string;
+    }
   | {
       kind: 'location';
       location: UserLocation;
@@ -385,7 +391,13 @@ Deno.serve(async (req) => {
   }
   if (!betaAccess) return jsonResponse({ error: 'beta_access_required' }, 403);
 
-  let body: { areaQuery?: string; venueName?: string; location?: unknown; coverageMode?: unknown };
+  let body: {
+    areaQuery?: string;
+    venueName?: string;
+    previewOnly?: unknown;
+    location?: unknown;
+    coverageMode?: unknown;
+  };
   try {
     body = await req.json();
   } catch {
@@ -398,6 +410,7 @@ Deno.serve(async (req) => {
   const venueName = typeof body.venueName === 'string'
     ? body.venueName.trim().replace(/\s+/g, ' ')
     : undefined;
+  const previewOnly = body.previewOnly === true;
   const location = parseLocation(body.location);
   const useNearbyRefresh = body.coverageMode === 'nearby';
   if (body.coverageMode !== undefined && !useNearbyRefresh) {
@@ -412,6 +425,12 @@ Deno.serve(async (req) => {
   if (venueName && !areaQuery) {
     return jsonResponse({ error: '"venueName" requires "areaQuery"' }, 400);
   }
+  if (body.previewOnly !== undefined && !previewOnly) {
+    return jsonResponse({ error: '"previewOnly" must be true when supplied' }, 400);
+  }
+  if (previewOnly && !venueName) {
+    return jsonResponse({ error: '"previewOnly" requires "venueName"' }, 400);
+  }
   if ((!areaQuery && !location) || (areaQuery && location)) {
     return jsonResponse({ error: 'Provide exactly one of "areaQuery" or "location"' }, 400);
   }
@@ -423,6 +442,7 @@ Deno.serve(async (req) => {
         kind: 'area',
         areaQuery,
         ...(venueName ? { venueName } : {}),
+        ...(previewOnly ? { previewOnly: true } : {}),
         eventKey: venueName
           ? `venue:${venueName.toLowerCase()}|${areaQuery.toLowerCase()}`
           : `area:${areaQuery.toLowerCase()}`,
@@ -510,9 +530,12 @@ Deno.serve(async (req) => {
     });
   }
 
-  // 4. Yes — search, score, upsert additively. Once the Google request is
-  // attempted, complete the reservation even if a later response or write
-  // fails: that conservative accounting cannot understate paid API usage.
+  // 4. Yes — search and score. A named-venue preview returns candidates to
+  // the Assistant without changing the public list; exact matches are saved
+  // immediately by the Assistant, while close matches wait for confirmation.
+  // Once the Google request is attempted, complete the reservation even if a
+  // later response or write fails: that conservative accounting cannot
+  // understate paid API usage.
   let paidGoogleRequestAttempted = false;
   try {
     const byPlaceId = new Map<string, ReturnType<typeof normalizePlace>>();
@@ -572,7 +595,7 @@ Deno.serve(async (req) => {
     // rows existed. Request the returned inserted ids so the success count is
     // also the number of *new* rows, not merely Google results.
     let insertedCount = 0;
-    if (rows.length > 0) {
+    if (!(target.kind === 'area' && target.previewOnly) && rows.length > 0) {
       const { data: insertedRows, error: upsertError } = await supabaseAdmin
         .from('restaurants')
         .upsert(rows, { onConflict: 'place_id', ignoreDuplicates: true })
@@ -602,7 +625,24 @@ Deno.serve(async (req) => {
     if (target.kind === 'location' && target.usesNearbyCheckpoint) {
       await recordNearbyCheckpoint(target.location, currentResultCount, insertedCount);
     }
-    return jsonResponse({ triggered: true, placesFound: insertedCount, reason });
+    const candidates = target.kind === 'area' && target.previewOnly
+      ? rows.slice(0, 5).map(({ place_id, name, suburb, address, cuisine, google_rating, lat, lng }) => ({
+          place_id,
+          name,
+          suburb,
+          address,
+          cuisine,
+          google_rating,
+          lat,
+          lng,
+        }))
+      : undefined;
+    return jsonResponse({
+      triggered: true,
+      placesFound: insertedCount,
+      ...(candidates ? { candidates } : {}),
+      reason,
+    });
   } catch (err) {
     console.error('ondemand-topup: Search/upsert failed', err);
     return jsonResponse({ error: 'Search/upsert failed' }, 502);

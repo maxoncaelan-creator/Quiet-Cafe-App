@@ -219,6 +219,10 @@ function isNo(value: string) {
   return /^(?:no|nope|nah|wrong|not it)$/i.test(value.trim());
 }
 
+function isCancel(value: string) {
+  return /^(?:cancel|stop|never mind|nevermind|start over)$/i.test(value.trim());
+}
+
 function extractVenueRequest(text: string): VenueRequest | null {
   const cleaned = text.trim().replace(/[?.!]+$/, '');
   let match = cleaned.match(/^(?:find|look for|search for|is there|do you know)?\s*(.+?)\s+(?:in|at|near)\s+([a-z][a-z' -]{1,60}?)$/i)
@@ -258,16 +262,10 @@ async function clearVenueDraft(userId: string) {
   if (error) throw new Error(`Could not clear venue draft: ${error.message}`);
 }
 
-async function findVenue(name: string, suburb: string) {
-  const { data, error } = await supabaseAnon
-    .from('restaurants')
-    .select('place_id, name, suburb, address, cuisine, google_rating, lat, lng')
-    .ilike('suburb', `%${suburb}%`)
-    .limit(100);
-  if (error) throw new Error(`Could not look up venue: ${error.message}`);
+function rankVenueCandidates<T extends Pick<VenueCandidate, 'name'>>(name: string, venues: T[]) {
   const requested = normaliseName(name);
   const wanted = new Set(requested.split(' ').filter((word) => word.length > 2));
-  return (data ?? [])
+  return venues
     .map((venue) => ({
       venue,
       score: (() => {
@@ -280,7 +278,52 @@ async function findVenue(name: string, suburb: string) {
     .filter(({ venue, score }) => score >= 0.55 || normaliseName(venue.name).includes(requested))
     .sort((a, b) => b.score - a.score || a.venue.name.length - b.venue.name.length)
     .slice(0, 5)
-    .map(({ venue }) => venue as VenueCandidate);
+    .map(({ venue }) => venue);
+}
+
+async function findVenue(name: string, suburb: string) {
+  const { data, error } = await supabaseAnon
+    .from('restaurants')
+    .select('place_id, name, suburb, address, cuisine, google_rating, lat, lng')
+    .ilike('suburb', `%${suburb}%`)
+    .limit(100);
+  if (error) throw new Error(`Could not look up venue: ${error.message}`);
+  return rankVenueCandidates(name, (data ?? []) as VenueCandidate[]);
+}
+
+function parseVenueCandidates(value: unknown): VenueCandidate[] {
+  if (!value || typeof value !== 'object' || !Array.isArray((value as { candidates?: unknown }).candidates)) return [];
+  return (value as { candidates: unknown[] }).candidates.flatMap((candidate) => {
+    if (!candidate || typeof candidate !== 'object') return [];
+    const value = candidate as Record<string, unknown>;
+    if (typeof value.place_id !== 'string' || typeof value.name !== 'string') return [];
+    const stringOrNull = (field: string) => typeof value[field] === 'string' ? value[field] : null;
+    const numberOrNull = (field: string) => typeof value[field] === 'number' && Number.isFinite(value[field]) ? value[field] : null;
+    return [{
+      place_id: value.place_id,
+      name: value.name,
+      suburb: stringOrNull('suburb'),
+      address: stringOrNull('address'),
+      cuisine: stringOrNull('cuisine'),
+      google_rating: numberOrNull('google_rating'),
+      lat: numberOrNull('lat'),
+      lng: numberOrNull('lng'),
+    }];
+  });
+}
+
+async function addGoogleVenue(candidate: VenueCandidate) {
+  const { error } = await supabaseAdmin.from('restaurants').upsert({
+    place_id: candidate.place_id,
+    name: candidate.name,
+    suburb: candidate.suburb,
+    address: candidate.address,
+    cuisine: candidate.cuisine,
+    google_rating: candidate.google_rating,
+    lat: candidate.lat,
+    lng: candidate.lng,
+  }, { onConflict: 'place_id', ignoreDuplicates: true });
+  if (error) throw new Error(`Could not add Google venue: ${error.message}`);
 }
 
 async function addCommunityVenue(userId: string, draft: VenueDraft) {
@@ -306,10 +349,21 @@ async function addCommunityVenue(userId: string, draft: VenueDraft) {
 async function continueVenueDraft(userId: string, message: string): Promise<string | null> {
   const draft = await loadVenueDraft(userId);
   if (!draft) return null;
+  if (isCancel(message)) {
+    await clearVenueDraft(userId);
+    return 'Okay. I stopped.';
+  }
+  // A fresh venue request replaces an unfinished confirmation rather than
+  // trapping the user in an old yes/no question.
+  if (extractVenueRequest(message)) {
+    await clearVenueDraft(userId);
+    return null;
+  }
   if (draft.state === 'confirm_google_match') {
     if (isYes(message) && draft.candidate) {
+      await addGoogleVenue(draft.candidate);
       await clearVenueDraft(userId);
-      return 'Okay! That is the right place.';
+      return 'Okay! I added it.';
     }
     if (isNo(message)) {
       await saveVenueDraft(userId, { state: 'ask_address', venue_name: draft.requested_name, suburb: draft.requested_suburb, address: null });
@@ -438,7 +492,7 @@ async function refreshThinCoverage(token: string, scope: Exclude<SearchScope, nu
   return results;
 }
 
-async function refreshVenueCoverage(token: string, name: string, suburb: string) {
+async function refreshVenueCoverage(token: string, name: string, suburb: string): Promise<VenueCandidate[]> {
   try {
     const response = await fetch(`${SUPABASE_URL}/functions/v1/ondemand-topup`, {
       method: 'POST',
@@ -447,11 +501,16 @@ async function refreshVenueCoverage(token: string, name: string, suburb: string)
         Authorization: `Bearer ${token}`,
         apikey: SUPABASE_ANON_KEY,
       },
-      body: JSON.stringify({ areaQuery: suburb, venueName: name }),
+      body: JSON.stringify({ areaQuery: suburb, venueName: name, previewOnly: true }),
     });
-    if (!response.ok) console.error(`Venue lookup returned ${response.status}:`, await response.text());
+    if (!response.ok) {
+      console.error(`Venue lookup returned ${response.status}:`, await response.text());
+      return [];
+    }
+    return parseVenueCandidates(await response.json());
   } catch (error) {
     console.error('Venue lookup request failed:', error);
+    return [];
   }
 }
 
@@ -570,27 +629,34 @@ Deno.serve(async (req) => {
     const currentLocation = suppliedLocation ?? (await loadRecentLocation(userId));
     const venueRequest = extractVenueRequest(message);
     if (venueRequest) {
-      let matches = await findVenue(venueRequest.name, venueRequest.suburb);
-      if (matches.length === 0) {
-        // Reuse the guarded, beta-only Google refresh. It is deliberately a
-        // background call: the user only sees a question if Google gives a
-        // close name rather than silently receiving a wrong venue.
-        await refreshVenueCoverage(token, venueRequest.name, venueRequest.suburb);
-        matches = await findVenue(venueRequest.name, venueRequest.suburb);
+      const localMatches = await findVenue(venueRequest.name, venueRequest.suburb);
+      const localExact = localMatches.find((venue) => normaliseName(venue.name) === normaliseName(venueRequest.name));
+      if (localExact) {
+        return jsonResponse({ reply: `I found ${localExact.name} in ${localExact.suburb}.` });
       }
-      if (matches.length > 0) {
-        const exact = matches.find((venue) => normaliseName(venue.name) === normaliseName(venueRequest.name));
+
+      // A close database name is not proof that it is the venue the user
+      // meant. Search Google for the requested name before offering a match.
+      const googleMatches = rankVenueCandidates(
+        venueRequest.name,
+        await refreshVenueCoverage(token, venueRequest.name, venueRequest.suburb),
+      );
+      if (googleMatches.length > 0) {
+        const exact = googleMatches.find((venue) => normaliseName(venue.name) === normaliseName(venueRequest.name));
         if (exact) {
-          return jsonResponse({ reply: `I found ${exact.name} in ${exact.suburb}.` });
+          await addGoogleVenue(exact);
+          return jsonResponse({ reply: `I found ${exact.name} in ${exact.suburb ?? venueRequest.suburb}.` });
         }
-        const candidate = matches[0];
+        const candidate = googleMatches[0];
         await saveVenueDraft(userId, {
           state: 'confirm_google_match',
           requested_name: venueRequest.name,
           requested_suburb: venueRequest.suburb,
           candidate,
         });
-        return jsonResponse({ reply: `I found ${candidate.name}. Is that the right place? Please say yes or no.` });
+        return jsonResponse({
+          reply: `I found ${candidate.name} in ${candidate.suburb ?? venueRequest.suburb}. Is that right? Say yes or no.`,
+        });
       }
       await saveVenueDraft(userId, {
         state: 'ask_address',
