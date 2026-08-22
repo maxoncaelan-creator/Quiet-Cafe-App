@@ -565,11 +565,12 @@ class _TypingIndicator extends StatelessWidget {
           child: Icon(Icons.auto_awesome, size: 14, color: scheme.onPrimary),
         ),
         const SizedBox(width: 10),
-        SizedBox(
-          width: 16,
-          height: 16,
-          child:
-              CircularProgressIndicator(strokeWidth: 2, color: scheme.primary),
+        Text(
+          '...',
+          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                color: scheme.primary,
+                fontWeight: FontWeight.bold,
+              ),
         ),
       ],
     );

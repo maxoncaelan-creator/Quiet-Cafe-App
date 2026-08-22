@@ -12,6 +12,7 @@ import 'package:go_router/go_router.dart';
 import '../models/mic_reading.dart';
 import '../services/supabase_service.dart';
 import '../widgets/max_width_content.dart';
+import '../widgets/skeleton_loader.dart';
 
 class AccountScreen extends StatefulWidget {
   const AccountScreen({super.key});
@@ -45,10 +46,15 @@ class _AccountScreenState extends State<AccountScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Log out?'),
-        content: const Text("You'll need to sign in again to submit readings or manage favourites."),
+        content: const Text(
+            "You'll need to sign in again to submit readings or manage favourites."),
         actions: [
-          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Cancel')),
-          TextButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('Log out')),
+          TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Log out')),
         ],
       ),
     );
@@ -80,7 +86,10 @@ class _AccountScreenState extends State<AccountScreen> {
             ),
             const Divider(height: 32),
             const _SectionHeader('Your activity'),
-            _ActivitySection(readings: _readings, error: _readingsError, formatDate: _formatDate),
+            _ActivitySection(
+                readings: _readings,
+                error: _readingsError,
+                formatDate: _formatDate),
             const Divider(height: 32),
             ListTile(
               leading: Icon(Icons.logout, color: scheme.error),
@@ -103,7 +112,11 @@ class _SectionHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-      child: Text(label, style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold)),
+      child: Text(label,
+          style: Theme.of(context)
+              .textTheme
+              .titleSmall
+              ?.copyWith(fontWeight: FontWeight.bold)),
     );
   }
 }
@@ -113,7 +126,8 @@ class _ActivitySection extends StatelessWidget {
   final Object? error;
   final String Function(DateTime) formatDate;
 
-  const _ActivitySection({required this.readings, required this.error, required this.formatDate});
+  const _ActivitySection(
+      {required this.readings, required this.error, required this.formatDate});
 
   @override
   Widget build(BuildContext context) {
@@ -128,7 +142,7 @@ class _ActivitySection extends StatelessWidget {
     if (readings == null) {
       return const Padding(
         padding: EdgeInsets.all(16),
-        child: Center(child: CircularProgressIndicator()),
+        child: SkeletonBox(width: double.infinity, height: 72),
       );
     }
     if (readings!.isEmpty) {
@@ -146,7 +160,8 @@ class _ActivitySection extends StatelessWidget {
           ListTile(
             leading: const Icon(Icons.mic_none),
             title: Text(reading.restaurantName),
-            subtitle: Text('${reading.decibelValue.round()} dB · ${formatDate(reading.recordedAt)}'),
+            subtitle: Text(
+                '${reading.decibelValue.round()} dB · ${formatDate(reading.recordedAt)}'),
           ),
       ],
     );

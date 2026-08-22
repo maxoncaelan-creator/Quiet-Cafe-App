@@ -359,7 +359,8 @@ class SupabaseService {
       },
     );
     if (response.status < 200 || response.status >= 300) {
-      throw Exception('Nearby venue coverage refresh failed (${response.status})');
+      throw Exception(
+          'Nearby venue coverage refresh failed (${response.status})');
     }
     final data = response.data as Map<String, dynamic>;
     return VenueCoverageRefresh.fromJson(data);

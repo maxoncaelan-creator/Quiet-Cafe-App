@@ -11,6 +11,8 @@ import '../widgets/app_drawer.dart';
 import '../widgets/filter_drawer.dart';
 import '../widgets/noise_level_bar.dart';
 import '../widgets/restaurant_tile.dart';
+import '../widgets/searchable_suburb_picker.dart';
+import '../widgets/skeleton_loader.dart';
 import '../widgets/voice_search_bar.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -28,6 +30,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   List<Restaurant> _all = [];
   String? _suburbFilter;
+  bool _showAll = false;
   String? _cuisineFilter;
   int? _loudnessFilterIndex; // index into NoiseLevelBar.categories; null = any
   double? _minRatingFilter;
@@ -111,7 +114,8 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _handleAccountTap() async {
-    await context.push(_signedInEmail != null ? '/settings/account' : '/sign-in');
+    await context
+        .push(_signedInEmail != null ? '/settings/account' : '/sign-in');
   }
 
   Future<void> _load() async {
@@ -187,9 +191,19 @@ class _HomeScreenState extends State<HomeScreen> {
   void _clearFilters() {
     setState(() {
       _suburbFilter = null;
+      _showAll = true;
       _cuisineFilter = null;
       _loudnessFilterIndex = null;
       _minRatingFilter = null;
+    });
+  }
+
+  bool get _hasChosenScope => _showAll || _suburbFilter != null;
+
+  void _chooseSuburb(String? suburb) {
+    setState(() {
+      _suburbFilter = suburb;
+      _showAll = suburb == null;
     });
   }
 
@@ -205,6 +219,10 @@ class _HomeScreenState extends State<HomeScreen> {
     context.go('/', extra: 'Find quiet venues in $area');
   }
 
+  // The suburb-targeted collector deliberately has no List View affordance.
+  // Search Assistant invokes the matching guarded server flow in the
+  // background after it identifies an explicit suburb in the request.
+  // ignore: unused_element
   Future<void> _findMoreVenues(String area) async {
     if (_refreshingCoverage) return;
 
@@ -275,7 +293,8 @@ class _HomeScreenState extends State<HomeScreen> {
       if (position == null) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Your location is unavailable. Turn on location services and try again.'),
+            content: Text(
+                'Your location is unavailable. Turn on location services and try again.'),
           ),
         );
         return;
@@ -295,7 +314,8 @@ class _HomeScreenState extends State<HomeScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Could not check nearby venues — please try again later.'),
+            content:
+                Text('Could not check nearby venues — please try again later.'),
           ),
         );
       }
@@ -352,7 +372,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     if (_loading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const Scaffold(body: PageSkeleton());
     }
     if (_error != null) {
       return Scaffold(
@@ -382,7 +402,7 @@ class _HomeScreenState extends State<HomeScreen> {
         selectedLoudnessIndex: _loudnessFilterIndex,
         selectedMinRating: _minRatingFilter,
         sortBy: _sortBy,
-        onSuburbChanged: (v) => setState(() => _suburbFilter = v),
+        onSuburbChanged: _chooseSuburb,
         onCuisineChanged: (v) => setState(() => _cuisineFilter = v),
         onLoudnessChanged: (v) => setState(() => _loudnessFilterIndex = v),
         onRatingChanged: (v) => setState(() => _minRatingFilter = v),
@@ -409,73 +429,196 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
         ],
       ),
-      body: Column(
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: VoiceSearchBar(
-                    onQueryChanged: (q) => setState(() => _searchQuery = q)),
-              ),
-              Padding(
-                padding: const EdgeInsets.only(right: 12),
-                child: IconButton(
-                  tooltip: 'Filters',
-                  icon: Badge(
-                    isLabelVisible: hasActiveFilters,
-                    smallSize: 8,
-                    child: const Icon(Icons.filter_list),
-                  ),
-                  onPressed: () => _scaffoldKey.currentState?.openEndDrawer(),
+      body: !_hasChosenScope
+          ? _ChooseSuburbScreen(
+              suburbs: suburbs,
+              onSuburbSelected: _chooseSuburb,
+              onShowAll: () => _chooseSuburb(null),
+              showRecordVenues: SupabaseService.isConfigured,
+              refreshingCoverage: _refreshingCoverage,
+              onRecordVenues: _checkNearbyVenues,
+            )
+          : Column(
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: VoiceSearchBar(
+                          onQueryChanged: (q) =>
+                              setState(() => _searchQuery = q)),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.only(right: 12),
+                      child: IconButton(
+                        tooltip: 'Filters',
+                        icon: Badge(
+                          isLabelVisible: hasActiveFilters,
+                          smallSize: 8,
+                          child: const Icon(Icons.filter_list),
+                        ),
+                        onPressed: () =>
+                            _scaffoldKey.currentState?.openEndDrawer(),
+                      ),
+                    ),
+                  ],
                 ),
+                if (SupabaseService.isConfigured)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: _RecordNearbyButton(
+                        refreshing: _refreshingCoverage,
+                        onPressed: _checkNearbyVenues,
+                      ),
+                    ),
+                  ),
+                Expanded(
+                  child: _all.isEmpty
+                      ? const _EmptyState()
+                      : ListView(
+                          children: [
+                            for (final restaurant in ranked)
+                              RestaurantTile(
+                                restaurant: restaurant,
+                                isFavorite: _favoritePlaceIds
+                                    .contains(restaurant.placeId),
+                                onToggleFavorite: () =>
+                                    _toggleFavorite(restaurant),
+                              ),
+                            if (needsData.isNotEmpty) ...[
+                              const Padding(
+                                padding: EdgeInsets.all(16),
+                                child: Text(
+                                  'Not enough data yet',
+                                  style: TextStyle(fontWeight: FontWeight.bold),
+                                ),
+                              ),
+                              for (final restaurant in needsData)
+                                RestaurantTile(
+                                  restaurant: restaurant,
+                                  isFavorite: _favoritePlaceIds
+                                      .contains(restaurant.placeId),
+                                  onToggleFavorite: () =>
+                                      _toggleFavorite(restaurant),
+                                ),
+                            ],
+                            if (coverageArea != null &&
+                                SupabaseService.isConfigured) ...[
+                              const SizedBox(height: 8),
+                              _SearchResultActions(
+                                area: coverageArea,
+                                refreshing: _refreshingCoverage,
+                                onAskAssistant: () =>
+                                    _askAssistantAbout(coverageArea),
+                                onCheckNearby: _checkNearbyVenues,
+                                noMatches: ranked.isEmpty && needsData.isEmpty,
+                              ),
+                            ],
+                          ],
+                        ),
+                ),
+              ],
+            ),
+    );
+  }
+}
+
+class _ChooseSuburbScreen extends StatelessWidget {
+  final List<String> suburbs;
+  final ValueChanged<String?> onSuburbSelected;
+  final VoidCallback onShowAll;
+  final bool showRecordVenues;
+  final bool refreshingCoverage;
+  final VoidCallback onRecordVenues;
+
+  const _ChooseSuburbScreen({
+    required this.suburbs,
+    required this.onSuburbSelected,
+    required this.onShowAll,
+    required this.showRecordVenues,
+    required this.refreshingCoverage,
+    required this.onRecordVenues,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 440),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Icon(
+                Icons.location_city_outlined,
+                size: 48,
+                color: Theme.of(context).colorScheme.primary,
               ),
+              const SizedBox(height: 16),
+              Text(
+                'Choose Suburb',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.headlineSmall,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Start with a suburb to browse its restaurants.',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+              const SizedBox(height: 24),
+              SearchableSuburbPicker(
+                suburbs: suburbs,
+                selectedSuburb: null,
+                hintText: 'Select a suburb',
+                includeAllSuburbs: false,
+                onChanged: onSuburbSelected,
+              ),
+              const SizedBox(height: 12),
+              OutlinedButton(
+                onPressed: onShowAll,
+                child: const Text('show all'),
+              ),
+              if (showRecordVenues) ...[
+                const SizedBox(height: 24),
+                _RecordNearbyButton(
+                  refreshing: refreshingCoverage,
+                  onPressed: onRecordVenues,
+                ),
+              ],
             ],
           ),
-          Expanded(
-            child: _all.isEmpty
-                ? const _EmptyState()
-                : ListView(
-                    children: [
-                      for (final restaurant in ranked)
-                        RestaurantTile(
-                          restaurant: restaurant,
-                          isFavorite:
-                              _favoritePlaceIds.contains(restaurant.placeId),
-                          onToggleFavorite: () => _toggleFavorite(restaurant),
-                        ),
-                      if (needsData.isNotEmpty) ...[
-                        const Padding(
-                          padding: EdgeInsets.all(16),
-                          child: Text(
-                            'Not enough data yet',
-                            style: TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                        ),
-                        for (final restaurant in needsData)
-                          RestaurantTile(
-                            restaurant: restaurant,
-                            isFavorite:
-                                _favoritePlaceIds.contains(restaurant.placeId),
-                            onToggleFavorite: () => _toggleFavorite(restaurant),
-                          ),
-                      ],
-                      if (coverageArea != null &&
-                          SupabaseService.isConfigured) ...[
-                        const SizedBox(height: 8),
-                        _SearchResultActions(
-                          area: coverageArea,
-                          refreshing: _refreshingCoverage,
-                          onAskAssistant: () =>
-                              _askAssistantAbout(coverageArea),
-                          onFindMore: () => _findMoreVenues(coverageArea),
-                          onCheckNearby: _checkNearbyVenues,
-                          noMatches: ranked.isEmpty && needsData.isEmpty,
-                        ),
-                      ],
-                    ],
-                  ),
-          ),
-        ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RecordNearbyButton extends StatelessWidget {
+  final bool refreshing;
+  final VoidCallback onPressed;
+
+  const _RecordNearbyButton({
+    required this.refreshing,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return FilledButton.icon(
+      onPressed: refreshing ? null : onPressed,
+      icon: refreshing
+          ? const SkeletonBox(
+              width: 18,
+              height: 18,
+              borderRadius: BorderRadius.all(Radius.circular(99)),
+            )
+          : const Icon(Icons.my_location),
+      label: Text(
+        refreshing ? 'Recording venues…' : 'Record venues near me',
       ),
     );
   }
@@ -486,7 +629,6 @@ class _SearchResultActions extends StatelessWidget {
   final bool refreshing;
   final bool noMatches;
   final VoidCallback onAskAssistant;
-  final VoidCallback onFindMore;
   final VoidCallback onCheckNearby;
 
   const _SearchResultActions({
@@ -494,7 +636,6 @@ class _SearchResultActions extends StatelessWidget {
     required this.refreshing,
     required this.noMatches,
     required this.onAskAssistant,
-    required this.onFindMore,
     required this.onCheckNearby,
   });
 
@@ -515,39 +656,29 @@ class _SearchResultActions extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             const Text(
-              'Check within 1 km of your location, ask the Assistant, or look for more venues in this area.',
+              'Record venues near you, or ask the Assistant to search this area.',
             ),
             const SizedBox(height: 16),
             Wrap(
               spacing: 12,
               runSpacing: 12,
               children: [
-                FilledButton.icon(
+                OutlinedButton.icon(
                   onPressed: refreshing ? null : onCheckNearby,
                   icon: refreshing
-                      ? const SizedBox(
-                          height: 18,
+                      ? const SkeletonBox(
                           width: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
+                          height: 18,
+                          borderRadius: BorderRadius.all(Radius.circular(99)),
                         )
                       : const Icon(Icons.my_location),
-                  label: Text(refreshing ? 'Checking…' : 'Check 1 km nearby'),
+                  label:
+                      Text(refreshing ? 'Recording…' : 'Record venues near me'),
                 ),
                 OutlinedButton.icon(
                   onPressed: onAskAssistant,
                   icon: const Icon(Icons.auto_awesome_outlined),
                   label: const Text('Ask Assistant'),
-                ),
-                OutlinedButton.icon(
-                  onPressed: refreshing ? null : onFindMore,
-                  icon: refreshing
-                      ? const SizedBox(
-                          height: 18,
-                          width: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.travel_explore),
-                  label: Text(refreshing ? 'Checking…' : 'Find more venues'),
                 ),
               ],
             ),

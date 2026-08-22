@@ -30,6 +30,7 @@ import 'screens/settings/permissions_settings_screen.dart';
 import 'screens/settings/settings_screen.dart';
 import 'screens/sign_in_email_screen.dart';
 import 'widgets/app_shell.dart';
+import 'widgets/skeleton_loader.dart';
 
 // Single source of truth for router.dart's own gate redirect below —
 // also handed to BetaGateScreen so a successful redemption can trigger a
@@ -149,8 +150,7 @@ final GoRouter appRouter = GoRouter(
         ),
         GoRoute(
           path: '/checking-access',
-          builder: (context, state) =>
-              const Scaffold(body: Center(child: CircularProgressIndicator())),
+          builder: (context, state) => const Scaffold(body: PageSkeleton()),
         ),
         GoRoute(
             path: '/sign-in', builder: (context, state) => const AuthScreen()),
@@ -236,8 +236,7 @@ class _RestaurantByIdLoader extends StatelessWidget {
       future: SupabaseService().fetchRestaurantByPlaceId(placeId),
       builder: (context, snapshot) {
         if (snapshot.connectionState != ConnectionState.done) {
-          return const Scaffold(
-              body: Center(child: CircularProgressIndicator()));
+          return const Scaffold(body: PageSkeleton());
         }
         if (snapshot.hasError || !snapshot.hasData) {
           return Scaffold(

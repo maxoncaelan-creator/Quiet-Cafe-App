@@ -5,6 +5,7 @@ import '../services/restaurant_repository.dart';
 import '../services/supabase_service.dart';
 import '../widgets/app_drawer.dart';
 import '../widgets/restaurant_tile.dart';
+import '../widgets/skeleton_loader.dart';
 
 class FavouritesScreen extends StatefulWidget {
   const FavouritesScreen({super.key});
@@ -44,7 +45,8 @@ class _FavouritesScreenState extends State<FavouritesScreen> {
   }
 
   Future<void> _removeFavorite(Restaurant restaurant) async {
-    setState(() => _favorites.removeWhere((r) => r.placeId == restaurant.placeId));
+    setState(
+        () => _favorites.removeWhere((r) => r.placeId == restaurant.placeId));
     try {
       await _supabaseService.removeFavorite(restaurant.placeId);
     } catch (_) {
@@ -67,13 +69,14 @@ class _FavouritesScreenState extends State<FavouritesScreen> {
 
   Widget _buildBody() {
     if (_loading) {
-      return const Center(child: CircularProgressIndicator());
+      return const PageSkeleton(itemCount: 3);
     }
     if (!_supabaseService.isSignedIn) {
       return const _EmptyFavourites(
         icon: Icons.login,
         title: 'Sign in to save favourites',
-        message: 'Favouriting a restaurant needs an account, same as submitting a noise reading.',
+        message:
+            'Favouriting a restaurant needs an account, same as submitting a noise reading.',
       );
     }
     if (_favorites.isEmpty) {
@@ -103,7 +106,8 @@ class _EmptyFavourites extends StatelessWidget {
   final String title;
   final String message;
 
-  const _EmptyFavourites({required this.icon, required this.title, required this.message});
+  const _EmptyFavourites(
+      {required this.icon, required this.title, required this.message});
 
   @override
   Widget build(BuildContext context) {
@@ -115,7 +119,9 @@ class _EmptyFavourites extends StatelessWidget {
           children: [
             Icon(icon, size: 48, color: Theme.of(context).disabledColor),
             const SizedBox(height: 12),
-            Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            Text(title,
+                style:
+                    const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
             const SizedBox(height: 4),
             Text(message, textAlign: TextAlign.center),
           ],

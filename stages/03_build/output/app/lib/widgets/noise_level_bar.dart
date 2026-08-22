@@ -1,6 +1,6 @@
 // Redesigned 2026-08-19, per Caelan: the loudness word now sits fully
-// inside a single colored box (calmest teal for Silent, angriest red for
-// Earsplitting) instead of the previous 7-segment bar. Same category
+// inside a single colored box (calmest teal for Quiet, angriest red for
+// Very Loud) instead of the previous 7-segment bar. Same category
 // taxonomy, same color ramp (_colorForQuietness) — only the shape changed.
 // Used both compact (list tile) and full-size (detail screen), so the
 // class name/public API stayed put even though the rendering didn't.
@@ -9,19 +9,17 @@ import 'package:flutter/material.dart';
 
 class NoiseLevelBar extends StatelessWidget {
   static const categories = [
-    'Silent',
-    'Very Quiet',
     'Quiet',
-    'Moderate',
+    'Normal',
     'Loud',
     'Very Loud',
-    'Earsplitting',
   ];
 
   final double? quietnessScore;
   final bool compact;
 
-  const NoiseLevelBar({super.key, required this.quietnessScore, this.compact = false});
+  const NoiseLevelBar(
+      {super.key, required this.quietnessScore, this.compact = false});
 
   static int? categoryIndexFor(double? quietnessScore) {
     if (quietnessScore == null) return null;
@@ -30,8 +28,8 @@ class NoiseLevelBar extends StatelessWidget {
     return index.clamp(0, categories.length - 1);
   }
 
-  // Red -> amber -> teal ramp: index 0 (Silent) is calmest teal, the last
-  // category (Earsplitting) is angriest red.
+  // Red -> amber -> teal ramp: index 0 (Quiet) is calmest teal, the last
+  // category (Very Loud) is angriest red.
   static Color _colorForQuietness(double quietness, ColorScheme scheme) {
     const red = Color(0xFFBA1A1A);
     const amber = Color(0xFFC77800);
@@ -55,14 +53,21 @@ class NoiseLevelBar extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final index = categoryIndexFor(quietnessScore);
 
-    final boxColor = index == null ? scheme.surfaceContainerHigh : _categoryColor(index, scheme);
+    final boxColor = index == null
+        ? scheme.surfaceContainerHigh
+        : _categoryColor(index, scheme);
     final textColor = index == null
         ? scheme.onSurfaceVariant
-        : (ThemeData.estimateBrightnessForColor(boxColor) == Brightness.dark ? Colors.white : Colors.black);
-    final labelText = index == null ? (compact ? '—' : 'Not enough data yet') : categories[index];
+        : (ThemeData.estimateBrightnessForColor(boxColor) == Brightness.dark
+            ? Colors.white
+            : Colors.black);
+    final labelText = index == null
+        ? (compact ? '—' : 'Not enough data yet')
+        : categories[index];
 
     final box = Container(
-      padding: EdgeInsets.symmetric(horizontal: compact ? 10 : 20, vertical: compact ? 5 : 12),
+      padding: EdgeInsets.symmetric(
+          horizontal: compact ? 10 : 20, vertical: compact ? 5 : 12),
       decoration: BoxDecoration(
         color: boxColor,
         borderRadius: BorderRadius.circular(compact ? 8 : 12),
@@ -74,7 +79,10 @@ class NoiseLevelBar extends StatelessWidget {
         softWrap: false,
         style: (compact
                 ? Theme.of(context).textTheme.bodySmall
-                : Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w600))
+                : Theme.of(context)
+                    .textTheme
+                    .headlineSmall
+                    ?.copyWith(fontWeight: FontWeight.w600))
             ?.copyWith(color: textColor),
       ),
     );
