@@ -254,14 +254,16 @@ device behaviour.
   in [GitHub issue #41](https://github.com/maxoncaelan-creator/Quiet-Cafe-App/issues/41).
 
   On 2026-08-22, `flutter analyze --no-pub` reported no issues and
-  `flutter test --no-pub --reporter expanded` passed 14 tests after the source
-  repair. These checks verify Dart integration only; they do not exercise an
-  OS/browser recognition service or microphone permission prompt.
+  `flutter test --no-pub --reporter expanded` now passes 21 tests, including
+  deterministic permission, network, no-speech and fallback voice-error
+  guidance. A release web build also passed and is now required in PR CI.
+  These checks verify Dart integration and compilation only; they do not
+  exercise an OS/browser recognition service or microphone permission prompt.
 - **Search Assistant 429 classification is fixed in source.** The Flutter
   service now catches Supabase's thrown HTTP-function error, maps the 429
   `resetAt` payload to the existing countdown UI, and leaves other failures as
   the generic fallback. Regression coverage includes 429, non-429 and malformed
-  payloads; `flutter analyze --no-pub` and 17 tests passed. A live 429 check is
+  payloads; `flutter analyze --no-pub` and 21 tests passed. A live 429 check is
   blocked until the production migrations below are synchronised.
 - **Production migrations are out of sync with `main` (blocked).** Evidence on
   2026-08-22 found production missing `20260822140000`, `20260822153000` and

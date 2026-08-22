@@ -2,6 +2,24 @@ import 'package:flutter/foundation.dart';
 import 'package:speech_to_text/speech_recognition_error.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 
+/// Translates platform recognizer errors into the short next step shown in
+/// both search inputs. Kept pure so the guidance remains covered without a
+/// browser or native speech service.
+String speechRecognitionMessageForError(String error) {
+  switch (error) {
+    case 'error_permission':
+    case 'error_audio_error':
+      return 'Please allow microphone and speech recognition access in Settings.';
+    case 'error_network':
+      return 'Voice search needs an internet connection. Please try again.';
+    case 'error_speech_timeout':
+    case 'error_no_match':
+      return 'I did not hear any words. Try the microphone again.';
+    default:
+      return 'Voice search stopped. Please try again.';
+  }
+}
+
 /// One app-wide owner for the platform speech recognizer.
 ///
 /// `speech_to_text` keeps the status and error callbacks from its first
@@ -100,23 +118,8 @@ class SpeechRecognitionService extends ChangeNotifier {
 
   void _handleError(SpeechRecognitionError error) {
     _listening = false;
-    _lastError = _messageFor(error.errorMsg);
+    _lastError = speechRecognitionMessageForError(error.errorMsg);
     notifyListeners();
     _onErrorMessage?.call(_lastError!);
-  }
-
-  String _messageFor(String error) {
-    switch (error) {
-      case 'error_permission':
-      case 'error_audio_error':
-        return 'Please allow microphone and speech recognition access in Settings.';
-      case 'error_network':
-        return 'Voice search needs an internet connection. Please try again.';
-      case 'error_speech_timeout':
-      case 'error_no_match':
-        return 'I did not hear any words. Try the microphone again.';
-      default:
-        return 'Voice search stopped. Please try again.';
-    }
   }
 }
