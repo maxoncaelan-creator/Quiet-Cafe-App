@@ -47,12 +47,21 @@ Use the Supabase Dashboard's GitHub integration or an authenticated
 migration IDs are preserved. Re-run steps 3–5 before declaring the release
 complete.
 
-## Current blocked recovery
+## 2026-08-22 recovery record
 
-The 2026-08-22 evidence check found production missing the source migrations
-`20260822140000_fix_ondemand_topup_reservation_ambiguity`,
-`20260822153000_atomic_assistant_budget`, and
-`20260822154500_server_owned_contribution_scores`, although they are in
-`main`. The deployed `search-assistant` source calls the atomic-budget
-function, so production consistency must be restored through the linked
-Supabase deployment path before another Assistant release claim.
+Production history was reconciled on 2026-08-22 using an authenticated linked
+CLI. Generated timestamp records for already-present schema changes were
+replaced with their repository migration IDs via `supabase migration repair`;
+no table data was changed during that step. A dry run then identified only two
+absent migrations, which were applied with:
+
+```powershell
+supabase db push --linked --include-all --skip-vault
+```
+
+`supabase migration list --linked` now shows every local migration matching
+production. The contribution-score function, current-loudness columns, and
+five associated triggers were verified. Treat this as the required recovery
+pattern if historical manual changes ever cause migration-record drift again:
+inspect schema first, repair history only when equivalence is proven, dry-run,
+then apply the exact missing source migrations.
