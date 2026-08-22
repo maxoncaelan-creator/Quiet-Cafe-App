@@ -2,4 +2,9 @@
 # project configuration, which made the database impossible to reproduce in
 # CI. `project_id` is the only required setting; the CLI supplies safe local
 # defaults for the rest of the stack.
+#
+# The Supabase GitHub integration must use `stages/03_build/output` as its
+# working directory: this file and its `supabase/` folder are intentionally
+# nested beneath the repository root. The root directory would silently skip
+# these migrations while reporting that production is up to date.
 project_id = "quiet-restaurant-finder"
