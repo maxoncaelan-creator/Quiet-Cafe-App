@@ -17,9 +17,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
-import 'package:speech_to_text/speech_to_text.dart' as stt;
 
 import '../services/location_service.dart';
+import '../services/speech_recognition_service.dart';
 import '../services/supabase_service.dart';
 import '../widgets/app_drawer.dart';
 
@@ -590,10 +590,7 @@ class _Composer extends StatefulWidget {
 }
 
 class _ComposerState extends State<_Composer> {
-  final _speech = stt.SpeechToText();
-  bool _listening = false;
-  bool _speechAvailable = false;
-  bool _initAttempted = false;
+  final _speech = SpeechRecognitionService.shared;
 
   @override
   void dispose() {
@@ -601,46 +598,28 @@ class _ComposerState extends State<_Composer> {
     super.dispose();
   }
 
-  // Not called from initState — speech_to_text's initialize() triggers the
-  // OS microphone-permission prompt immediately, which showed up on this
-  // screen's very first load (before any user interaction) when tested on
-  // a real device. Deferred to the first tap of the mic button instead.
-  Future<void> _initSpeech() async {
-    if (_initAttempted) return;
-    _initAttempted = true;
-    final available = await _speech.initialize(onStatus: (status) {
-      if ((status == 'done' || status == 'notListening') && mounted) {
-        setState(() => _listening = false);
-      }
-    });
-    if (mounted) setState(() => _speechAvailable = available);
-  }
-
   Future<void> _toggleListening() async {
-    if (!_initAttempted) await _initSpeech();
-    if (!_speechAvailable) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-              content:
-                  Text("Speech recognition isn't available on this device.")),
-        );
-      }
-      return;
-    }
-    if (_listening) {
+    if (_speech.isListening) {
       await _speech.stop();
-      setState(() => _listening = false);
       return;
     }
-    setState(() => _listening = true);
-    await _speech.listen(
-      onResult: (result) {
-        widget.controller.text = result.recognizedWords;
+
+    await _speech.start(
+      onWords: (words) {
+        if (!mounted) return;
+        widget.controller.text = words;
         widget.controller.selection =
             TextSelection.collapsed(offset: widget.controller.text.length);
       },
+      onError: _showVoiceError,
     );
+  }
+
+  void _showVoiceError(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
@@ -666,12 +645,20 @@ class _ComposerState extends State<_Composer> {
                   onSubmitted: (_) => widget.onSend(),
                 ),
               ),
-              IconButton(
-                icon: Icon(
-                  _listening ? Icons.mic : Icons.mic_none,
-                  color: _listening ? scheme.primary : scheme.onSurfaceVariant,
+              AnimatedBuilder(
+                animation: _speech,
+                builder: (context, _) => IconButton(
+                  icon: Icon(
+                    _speech.isListening ? Icons.mic : Icons.mic_none,
+                    color: _speech.isListening
+                        ? scheme.primary
+                        : scheme.onSurfaceVariant,
+                  ),
+                  tooltip: _speech.isListening
+                      ? 'Stop listening'
+                      : 'Speak your message',
+                  onPressed: widget.sending ? null : _toggleListening,
                 ),
-                onPressed: widget.sending ? null : _toggleListening,
               ),
               IconButton.filled(
                 icon: const Icon(Icons.arrow_upward),

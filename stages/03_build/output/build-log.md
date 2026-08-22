@@ -21,12 +21,11 @@ compaction.
 - **Scope:** Seeded coverage is Greater Sydney, Newcastle, Dubbo, Moss Vale and
   Kiama. The search-area list is curated rather than exhaustive; GPS-based
   nearby checks deliberately allow demand-led expansion wherever users are.
-- **Platforms:** Android, iOS and Web. Web is live at
-  `https://quiet-restaurant-finder.pages.dev`; its custom domain is not yet
-  attached.
+- **Platforms:** Android, iOS and Web. The production web app is live at
+  `https://app.cafequiet.com`.
 - **Backend:** live Supabase project `quiet-restaurant-finder`
   (`aesorixtfasfuvcqrvem`, `ap-southeast-2`). Migrations through
-  `20260821084522_add_user_location_state.sql` are applied.
+  `20260822042954_assistant_venue_discovery.sql` are applied.
 - **Repository:** [Quiet-Cafe-App](https://github.com/maxoncaelan-creator/Quiet-Cafe-App).
   The account-bound beta gate merged as [PR #26](https://github.com/maxoncaelan-creator/Quiet-Cafe-App/pull/26)
   on 2026-08-21 (`main` merge commit `07fa080`).
@@ -245,14 +244,18 @@ device behaviour.
 
 ### Immediate defects — resolve before new feature work
 
-- **Speech-to-text is unreliable across search inputs.** Reported in the app's
-  search bars and other speech-entry surfaces. Before changing code, inventory
-  every caller, the recognition package/plugin, platform permissions, widget
-  lifecycle and error path. Reproduce separately on web and a native device;
-  add explicit states for permission denied, unavailable recognition, network
-  failure and timeout. The fix is not complete until real microphone input has
-  been transcribed successfully on every supported platform without exposing
-  transcript content in diagnostics.
+- **Speech-to-text is unreliable across search inputs.** The source fix is in
+  draft PR #38: one shared `speech_to_text` instance now owns initialisation
+  and callbacks for the List and Search Assistant inputs, errors are actionable
+  (permission, unavailable, network and timeout), and the Android release
+  manifest declares the recognition service. It still requires successful live
+  microphone transcription on web, Android and iOS before the defect is closed;
+  do not log transcript content during that check.
+
+  On 2026-08-22, `flutter analyze --no-pub` reported no issues and
+  `flutter test --no-pub --reporter expanded` passed 14 tests after the source
+  repair. These checks verify Dart integration only; they do not exercise an
+  OS/browser recognition service or microphone permission prompt.
 - **Search Assistant renders a 429 as a connectivity failure.** Production
   logs showed a real per-account rate-limit response while the app displayed
   “couldn't reach the search assistant.” Catch the Supabase HTTP-function

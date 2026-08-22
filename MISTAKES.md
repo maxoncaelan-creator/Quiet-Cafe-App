@@ -201,6 +201,27 @@ Integrated a vendor's client-side SDK on a platform where the backend provider's
 
 Recorded 2026-08-19 as five separate slugs (google-signin-reinitialized-per-call, google-signin-blocked-on-optional-access-token, google-signin-wrong-param-for-web-client-id, google-signin-never-verified-on-web, and the unrecorded nonce mismatch). Merged 2026-08-20: they are one class, not five. Each was a different symptom of the single decision to drive Google's browser SDK from app code on web, and splitting them by symptom kept every count at 1 - so the threshold that would have forced a guard could never fire, which is exactly how the same root cause survived five consecutive fixes. See _system/mistakes.md, "the slug is the identity of the mistake".
 
+### 2026-08-22 | 03_build | caught: user
+
+The List search field and Search Assistant composer each constructed and
+initialised a separate `speech_to_text` recognizer. The package documents that
+initialisation is once per application session and keeps the first status/error
+callbacks, so switching screens could leave the visible microphone button
+without ownership of the callbacks. The Android manifest also omitted the
+`android.speech.RecognitionService` package-visibility query required when
+targeting Android SDK 30 or newer.
+
+**Standard:** Treat documented one-instance/one-initialisation plugin contracts
+as architectural constraints. Inventory every UI owner before integrating a
+platform plugin, and compare the full platform manifest against the current
+plugin installation guide.
+
+**Fix:** Added a single app-wide `SpeechRecognitionService`, routed both search
+inputs through it, and made permission, network, timeout and unavailable errors
+visible to the user. Added the Android recognition-service query and release
+internet permission. Real microphone verification remains required on web and
+a physical Android/iOS device before the issue can be closed.
+
 ### 2026-08-19 | 03_build | caught: user
 OAuthService.signInWithGoogle() called GoogleSignIn.instance.initialize() fresh on every invocation instead of once per app lifetime. google_sign_in's own doc comment is explicit: 'Clients must call this method exactly once... Calling this method more than once will result in undefined behavior.' Worked on the very first attempt (nothing had ever actually exercised a second attempt, since the button itself was missing on web until this session's earlier fix), then threw 'Bad state: init() has already been called' on any retry - caught live by Caelan tapping the newly-visible button.
 **Standard:** A third-party SDK's own documented lifecycle contract (init-exactly-once, singleton clients, etc.) has to be honored structurally (memoized/guarded), not just called correctly once and hoped to only run once.
