@@ -463,5 +463,6 @@ The post-deploy security advisor found that three trigger-only security-definer
 functions still had browser-role execution grants. PR #43 revokes those
 grants, fixes the mutable search path on `find_nearest_restaurant`, and adds
 pgTAP regression coverage. It must pass hosted Supabase database CI before
-being merged. Local database tests remain blocked until a Podman or Docker CLI
-is available on `PATH` (tracked in issue #40).
+being merged. Podman is now installed, on `PATH`, and can run containers, but
+the Windows Supabase CLI still aborts its local stack before Postgres opens
+port 54322; that narrower startup issue is tracked in issue #40.
