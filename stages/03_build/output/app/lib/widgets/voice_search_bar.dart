@@ -4,7 +4,8 @@
 // doesn't measure decibels or write to Supabase.
 
 import 'package:flutter/material.dart';
-import 'package:speech_to_text/speech_to_text.dart' as stt;
+
+import '../services/speech_recognition_service.dart';
 
 class VoiceSearchBar extends StatefulWidget {
   final ValueChanged<String> onQueryChanged;
@@ -17,59 +18,31 @@ class VoiceSearchBar extends StatefulWidget {
 
 class _VoiceSearchBarState extends State<VoiceSearchBar> {
   final _controller = TextEditingController();
-  final _speech = stt.SpeechToText();
-  bool _listening = false;
-  bool _speechAvailable = false;
-
-  bool _initAttempted = false;
-
-  // Deliberately NOT called from initState — speech_to_text's initialize()
-  // triggers the OS microphone-permission prompt immediately, and doing
-  // that the instant this screen loads (before the user has touched
-  // anything) is a bad surprise. Only runs on the first real tap of the
-  // mic button instead. Found by actually running the app on a device,
-  // not by reading the code.
-  Future<void> _initSpeech() async {
-    if (_initAttempted) return;
-    _initAttempted = true;
-    final available = await _speech.initialize(
-      onStatus: _onStatus,
-      onError: (_) {
-        if (mounted) setState(() => _listening = false);
-      },
-    );
-    if (mounted) setState(() => _speechAvailable = available);
-  }
-
-  void _onStatus(String status) {
-    if (status == 'done' || status == 'notListening') {
-      if (mounted) setState(() => _listening = false);
-    }
-  }
+  final _speech = SpeechRecognitionService.shared;
 
   Future<void> _toggleListening() async {
-    if (!_initAttempted) await _initSpeech(); // first tap only — see _initSpeech's doc comment
-    if (!_speechAvailable) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Speech recognition isn't available on this device.")),
-        );
-      }
-      return;
-    }
-    if (_listening) {
+    if (_speech.isListening) {
       await _speech.stop();
-      if (mounted) setState(() => _listening = false);
       return;
     }
-    setState(() => _listening = true);
-    await _speech.listen(
-      onResult: (result) {
-        _controller.text = result.recognizedWords;
-        _controller.selection = TextSelection.collapsed(offset: _controller.text.length);
-        widget.onQueryChanged(result.recognizedWords);
+
+    await _speech.start(
+      onWords: (words) {
+        if (!mounted) return;
+        _controller.text = words;
+        _controller.selection =
+            TextSelection.collapsed(offset: _controller.text.length);
+        widget.onQueryChanged(words);
       },
+      onError: _showVoiceError,
     );
+  }
+
+  void _showVoiceError(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
@@ -104,13 +77,20 @@ class _VoiceSearchBarState extends State<VoiceSearchBar> {
                   onChanged: widget.onQueryChanged,
                 ),
               ),
-              IconButton(
-                icon: Icon(
-                  _listening ? Icons.mic : Icons.mic_none,
-                  color: _listening ? scheme.primary : scheme.onSurfaceVariant,
+              AnimatedBuilder(
+                animation: _speech,
+                builder: (context, _) => IconButton(
+                  icon: Icon(
+                    _speech.isListening ? Icons.mic : Icons.mic_none,
+                    color: _speech.isListening
+                        ? scheme.primary
+                        : scheme.onSurfaceVariant,
+                  ),
+                  tooltip: _speech.isListening
+                      ? 'Stop listening'
+                      : 'Search by voice',
+                  onPressed: _toggleListening,
                 ),
-                tooltip: _listening ? 'Stop listening' : 'Search by voice',
-                onPressed: _toggleListening,
               ),
             ],
           ),

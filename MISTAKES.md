@@ -87,6 +87,11 @@ Made the private/public error, was corrected by Caelan, then wrote a session-mem
 **Standard:** _system/mistakes.md: record on discovery, not at the end - the moment the mistake is apparent, write it. Being corrected by the user is that moment; no prompt should be needed.
 **Fix:** Recorded both occurrences from this session in one pass and recompiled MasterMistakes.md.
 
+### 2026-08-21 | 03_build | caught: self
+The verification-cannot-detect-the-fault occurrence above happened when Caelan's screenshot directly contradicted a 'merges cleanly' claim, then again a second time when a fresh screenshot showed the same PR still unmergeable. Neither moment was logged to MISTAKES.md at the time - both were fixed and reported back without an entry. Only recorded now because Caelan explicitly asked to check for mistakes and document them, three turns later. Fourth occurrence of this exact class in this workspace; a Guard line already exists from the third.
+**Standard:** AGENTS.md: 'record it in this workspace's MISTAKES.md as it happens, not at the end.' _system/mistakes.md: 'Being corrected by the user is that moment; no prompt should be needed.'
+**Fix:** Logged both this turn, in the same pass as the mistake itself, rather than waiting for a later prompt. Going forward: the moment a user's screenshot or correction contradicts something just asserted, write the MISTAKES.md entry before moving on to the fix.
+
 ## unbounded-native-async-call
 
 Called Geolocator.getCurrentPosition() for the venue-guess feature with only a Dart-side .timeout() wrapper, no platform-level time bound. Live-tested on the emulator: the default FusedLocationProvider path could retry a network-based fix indefinitely; an interim fix attempt (forceLocationManager: true, tried without researching it first) hung even harder, producing a real Android ANR (confirmed via adb logcat: 'ANR in system', 80-100%+ kernel CPU) that required force-closing the app.
@@ -132,6 +137,11 @@ Opened the first Supabase confirmation-link URL on the Android emulator via 'adb
 **Standard:** When constructing a command that's passed through two shells (local, then a remote one via adb/ssh/etc.), quote for the shell that will actually parse special characters (&, |, ;, etc.) in the final string, not just the local one.
 **Fix:** Rebuilt the command as adb shell "am start ... -d '$URL'" (single-quoted for the device's remote shell), retried, and got the correct deep-link handoff. No lasting effect -- the first attempt didn't corrupt any state, just returned an error.
 
+### 2026-08-21 | 03_build | caught: self
+The Android confirmation-link launcher passed a URL containing ampersands without remote-shell quoting, so the native redirect parameter was lost.
+**Standard:** Quote or escape every URL passed through adb shell so remote-shell metacharacters remain data.
+**Fix:** Classify the first run as invalid and launch the fresh confirmation link through a correctly quoted remote-shell argument.
+
 ## edge-function-not-deployed
 
 Edited supabase/functions/places-search/index.ts locally (addressComponents field mask + pagination) but never deployed it before running the live pipeline. The live Edge Function still ran the old code, so the suburb fix produced 0/1221 suburbs and pagination never engaged.
@@ -140,6 +150,60 @@ Edited supabase/functions/places-search/index.ts locally (addressComponents fiel
 Edited supabase/functions/places-search/index.ts locally (addressComponents field mask + pagination) but never deployed it before running the live pipeline. The live Edge Function still ran the old code, so the suburb fix produced 0/1221 suburbs and pagination never engaged.
 **Standard:** A code change to a Supabase Edge Function isn't live until it's actually deployed — editing the local file is not enough, and this should be verified (redeploy, or check the deployed version) before running the live/paid job that depends on it.
 **Fix:** Deployed the corrected function via the Supabase MCP deploy_edge_function tool (now version 5), confirmed the field mask includes addressComponents and nextPageToken. Flagged the wasted ~63 Places API requests to Caelan and held off re-running the pipeline until he confirms.
+
+### 2026-08-22 | 03_build | caught: user
+Merged Search Assistant venue-discovery source was available in the web app's
+repository, but production still had the old Edge Functions and lacked
+`20260822042954_assistant_venue_discovery.sql`. The static Cloudflare deploy
+was incorrectly treated as sufficient release evidence. A user screenshot
+showed the assistant failing; production inspection confirmed the function
+source and database migration had not changed. The GitHub/Supabase integration
+was only enabled after the merge, so it did not backfill that release.
+**Standard:** A release that changes Supabase schema or Edge Functions is not
+complete until the production migration list and deployed function versions are
+checked against the merged commit. A static-web deployment is separate evidence
+only.
+**Fix:** Applied the reviewed migration and deployed `search-assistant` v12 and
+`ondemand-topup` v9 manually. Enabled the Supabase GitHub integration for
+future `main` changes and documented the required production verification.
+
+### 2026-08-22 | 03_build | caught: self
+
+Later release evidence found that production still did not record three source
+migrations already present in `main`:
+`20260822140000_fix_ondemand_topup_reservation_ambiguity`,
+`20260822153000_atomic_assistant_budget`, and
+`20260822154500_server_owned_contribution_scores`. The deployed Assistant
+already calls the atomic-budget RPC from the missing migration. Enabling the
+integration was treated as a guarantee that it would reconcile earlier manual
+deployment history, without verifying the exact source migration IDs.
+**Standard:** An enabled integration is not release evidence. For every backend
+release, compare production's migration IDs and active function source with
+the merged commit before declaring it live.
+**Fix:** Added `BACKEND_RELEASE_RUNBOOK.md` and the PR backend-evidence
+checklist. Recovery is blocked on the linked deployment path or authenticated
+`supabase db push --linked` from clean `main`; migration history must not be
+edited or re-recorded under substitute timestamps.
+
+## backend-rate-limit-classified-as-connectivity
+
+The Search Assistant UI showed a generic connectivity message for a real HTTP
+429 limit response, hiding the action the user needed to take.
+
+### 2026-08-22 | 03_build | caught: user
+The production Edge Function logs showed `POST | 429` for the user's request,
+while the app rendered “Sorry, I couldn't reach the search assistant just now.”
+The service only maps a 429 after obtaining a normal invoke response; the
+Supabase Flutter SDK can throw an HTTP-function exception for a non-2xx
+response before that branch runs.
+**Standard:** User-visible handling must classify documented backend outcomes
+at the SDK boundary. A rate limit is an expected state with a reset time, not a
+connectivity failure.
+**Fix:** `SearchAssistantRateLimited` now maps the SDK's thrown
+`FunctionsHttpException` 429 payload and retains its reset time; a regression
+test covers 429, non-429 and malformed payloads. `flutter analyze --no-pub`
+and 17 unit tests passed. A live rate-limit response remains to verify after
+the production migration-sync blocker below is resolved.
 
 ## deploy-workflow-missing-dart-define
 
@@ -157,6 +221,27 @@ Integrated a vendor's client-side SDK on a platform where the backend provider's
 **Guard:** AGENTS.md - "Choose the auth/integration flow per platform before writing code"
 
 Recorded 2026-08-19 as five separate slugs (google-signin-reinitialized-per-call, google-signin-blocked-on-optional-access-token, google-signin-wrong-param-for-web-client-id, google-signin-never-verified-on-web, and the unrecorded nonce mismatch). Merged 2026-08-20: they are one class, not five. Each was a different symptom of the single decision to drive Google's browser SDK from app code on web, and splitting them by symptom kept every count at 1 - so the threshold that would have forced a guard could never fire, which is exactly how the same root cause survived five consecutive fixes. See _system/mistakes.md, "the slug is the identity of the mistake".
+
+### 2026-08-22 | 03_build | caught: user
+
+The List search field and Search Assistant composer each constructed and
+initialised a separate `speech_to_text` recognizer. The package documents that
+initialisation is once per application session and keeps the first status/error
+callbacks, so switching screens could leave the visible microphone button
+without ownership of the callbacks. The Android manifest also omitted the
+`android.speech.RecognitionService` package-visibility query required when
+targeting Android SDK 30 or newer.
+
+**Standard:** Treat documented one-instance/one-initialisation plugin contracts
+as architectural constraints. Inventory every UI owner before integrating a
+platform plugin, and compare the full platform manifest against the current
+plugin installation guide.
+
+**Fix:** Added a single app-wide `SpeechRecognitionService`, routed both search
+inputs through it, and made permission, network, timeout and unavailable errors
+visible to the user. Added the Android recognition-service query and release
+internet permission. Real microphone verification remains required on web and
+a physical Android/iOS device before the issue can be closed.
 
 ### 2026-08-19 | 03_build | caught: user
 OAuthService.signInWithGoogle() called GoogleSignIn.instance.initialize() fresh on every invocation instead of once per app lifetime. google_sign_in's own doc comment is explicit: 'Clients must call this method exactly once... Calling this method more than once will result in undefined behavior.' Worked on the very first attempt (nothing had ever actually exercised a second attempt, since the button itself was missing on web until this session's earlier fix), then threw 'Bad state: init() has already been called' on any retry - caught live by Caelan tapping the newly-visible button.
@@ -192,6 +277,16 @@ Created feature/marketing-site, then built the site over many tool calls while a
 **Standard:** Re-check the current branch immediately before staging or committing, especially with positive evidence of a concurrent session in the same working tree. git branch --show-current is one cheap command and the evidence of concurrency was already in hand.
 **Fix:** Commit is unpushed (ahead 1), so it is recoverable by moving feature/marketing-site to it and rewinding fix/google-oauth-redirect-to to 084d488. That command was blocked by the permission classifier and is awaiting Caelan's decision. Going forward: verify branch right before the commit, not only at branch-creation time.
 
+### 2026-08-21 | 03_build | caught: self
+Created the location-aware assistant branch from the local `main` ref without
+first checking that it matched `origin/main`. The new worktree therefore
+started at `f098100`, well behind the live base at `07fa080`.
+**Standard:** Before creating a feature branch, verify that the selected base
+ref is current and equals its remote tracking ref; a branch name alone is not
+evidence of that.
+**Fix:** Stopped before changing code, discarded the empty stale worktree, and
+will recreate the feature branch directly from the verified `origin/main` SHA.
+
 ## oauth-redirect-target-left-to-provider-fallback
 
 Relied on a hosted auth provider's single global fallback (Supabase's Site URL) for a post-OAuth redirect, in an app served from more than one origin.
@@ -223,7 +318,7 @@ _config/decisions.md's 'Loudness votes' entry read as a completed feature ('deci
 
 Reported a conclusion from a check that could not have detected the thing being claimed - wrong run configuration, a reading taken after the state changed, or a field the endpoint never populates.
 
-**Guard:** AGENTS.md - "Before reporting a check as conclusive, say what it would show if the claim were false"
+**Guard:** AGENTS.md - "Before reporting a check as conclusive, say what it would show if the claim were false" and "Source code and a deployment version do not prove a backend integration works."
 
 ### 2026-08-18 | 03_build | caught: user
 Verified the auth-flow restructuring live on the emulator without passing --dart-define=GOOGLE_WEB_CLIENT_ID. The Google/Apple sign-in buttons correctly hid themselves per existing design (missing config = hide, not error), but I reported the check as 'Verified live on the emulator' without noticing they were absent from my own screenshots. Caelan reported it as a removed feature before it was traced back to the incomplete test config.
@@ -334,6 +429,9 @@ grouped together before retrying.
 
 ## shared-endpoint-caller-impact-unreviewed
 
+**Guard:** AGENTS.md — Before changing a shared endpoint, migration or default,
+enumerate every caller and its contract.
+
 ### 2026-08-22 | 03_build | caught: self
 Initially changed `ondemand-topup`'s default coordinate radius while adding the
 List View's 1 km recovery check, before re-checking every caller. Search
@@ -346,3 +444,254 @@ changes all of them.
 the Assistant's unchanged 5 km default coordinate path. Per Caelan's later
 product decision, coordinate-based Assistant requests now add the separate
 cached 1 km nearby mode alongside that default rather than replacing it.
+### 2026-08-21 | 03_build | caught: user
+Told Caelan that feature/ondemand-suburb-topup and feature/gps-venue-guess would merge cleanly into main, based on the legacy 3-argument 'git merge-tree <base> <main> <branch>' reporting zero conflict markers. That form does not run the same recursive 3-way content merge GitHub actually performs, so it can report clean whether or not a real conflict exists. Caelan's own GitHub PR page showed 'Can't automatically merge' for feature/gps-venue-guess, directly contradicting the claim. Re-running with the modern 'git merge-tree --write-tree <main> <branch>' form found a real content conflict in build-log.md (multiple concurrent branches appending to the same Open Items section) that the legacy check had been structurally incapable of detecting.
+**Standard:** AGENTS.md: 'Before reporting a check as conclusive, say what it would show if the claim were false.' The legacy merge-tree form could report clean regardless of whether a conflict existed, so it was never capable of falsifying the claim.
+**Fix:** Re-verified both branches with the modern --write-tree form, resolved the real build-log.md conflicts it found, re-ran flutter analyze/test to confirm the resolution was sound, pushed, and re-checked mergeability with the modern form before reporting done again.
+
+### 2026-08-20 | 03_build | caught: self
+Ran two SQL statements in one execute_sql call (a restaurants query, then 'select id as user_id from loudness_votes limit 1') to find test fixtures for the recompute-restaurant-score function. Only the second statement's result came back; the first query's output was silently dropped. Also aliased the wrong column (id, the vote's own primary key, instead of user_id) in the same call, compounding it. Had to redo both queries separately to get real results.
+**Standard:** A multi-statement execute_sql call only surfaces the last statement's result -- treating it as evidence for statements before the last one is a check that cannot detect what it is being asked to confirm, the same class as a value read from a list endpoint that never populates that field.
+**Fix:** Re-ran each query as its own separate execute_sql call for the rest of this session.
+
+### 2026-08-21 | 03_build | caught: self
+Ran 'select id, email, created_at from auth.users where email = ...' alongside a second statement in one execute_sql call while investigating whether Caelan's redeemed beta code could be reattached to a real account. Only the second statement's result came back; the auth.users query's (empty-looking) result was silently dropped. Told Caelan directly in chat 'there's no Supabase Auth account yet under maxon.caelan@gmail.com in this project' based on that non-result, and wrote reset-fallback logic into the account-binding migration on that assumption. Re-ran the same query alone minutes later while writing the migration's backfill and found a real matching account (created 2026-08-16) -- the earlier claim to Caelan was never explicitly retracted, just quietly superseded when the backfill found and reattached it correctly anyway.
+**Standard:** Same class as the 2026-08-20 occurrence in this file: a multi-statement execute_sql call only surfaces the last statement's result. A second instance of the identical root cause in the same workspace, three sessions apart.
+**Fix:** Re-ran the query alone to confirm the real account existed; the migration's own backfill-by-email logic (built for general robustness, not for this specific gap) found and reattached it regardless. Adding a named third form to AGENTS.md's existing verification-blindness rule so this stops recurring as a fresh surprise each time.
+
+### 2026-08-21 | 03_build | caught: user
+Reported the explicit-suburb Google refresh as functioning from source and deployment status without a live request. The user's screenshot and current logs showed every on-demand assistant refresh was instead returning 502 before Google Places due to an ambiguous reservation_id reference.
+**Standard:** Do not report a backend integration as working from code or deployment alone when its failure mode is only observable through a real request; inspect the relevant live response and logs before making that claim.
+**Fix:** Inspected the Edge Function and Postgres logs, identified the reservation SQL failure, and added a forward migration plus explicit assistant error handling to the draft PR.
+
+## platform-capability-assumed-not-verified
+
+Designed and built against a platform capability without a quick test to confirm it actually works, then discovered live that it doesn't.
+
+### 2026-08-21 | 03_build | caught: user
+Built beta-approve's GET-renders-a-confirm-page/POST-approves split assuming Supabase Edge Functions could serve a normal, clickable HTML page -- specifically to avoid repeating this workspace's own otp_expired mail-scanner mistake. Never tested that assumption before building the whole mechanism around it. Caelan clicked the review link and got raw, unrendered markup text with no button to click. curl -i confirmed Supabase forces Content-Type: text/plain plus a locked-down CSP (sandbox, nosniff) on any non-JSON response from a Function -- the page could never have rendered, on any browser, for anyone.
+**Standard:** Designing around something unverified is a mistake even though discovering it does not work looks like new information (_system/mistakes.md, 'the line that is easy to blur') -- a platform capability should be confirmed with a throwaway test before a security mechanism is built on top of it.
+**Fix:** Rewrote beta-approve so the GET itself performs the approval (single click), with the tradeoff documented directly in the function's header comment rather than silently reverting.
+
+## gate-identity-diverged-from-app-precedent
+
+Built a new user-facing gate around a different identity model (device vs. account) than every other similar gate in the same app already uses, without checking that precedent or flagging the choice.
+
+### 2026-08-21 | 03_build | caught: user
+The referral-gate's redeem_beta_code (0012) keyed redemption off a locally-generated per-device id, while every other gated feature already in this app (mic readings, loudness votes, favorites, Search Assistant) keys off the signed-in account (auth.uid()). The inconsistency wasn't noticed or asked about before building. Caelan redeemed his own real code on one browser, then was blocked entering it on a second, and corrected the design after hitting the exact failure it caused: 'the codes need to be connected to an account otherwise we end up with this issue... which is not exactly how I intended this to work.' Arguable whether this clears the mistake bar -- Caelan's original spec never mentioned device vs. account at all, so this could read as a decision later refined by new intent rather than a violation of a stated rule. Recorded anyway per _system/mistakes.md's own guidance ('when unsure, record it and say why it's arguable'): the account-based precedent was already sitting in the same codebase, in files already read, which is what makes this closer to an unchecked inconsistency than genuinely new information.
+**Standard:** Check how an app's existing precedent handles a given concern (here: user identity for a gate) before introducing a new, different mechanism for a new feature touching the same concern.
+**Fix:** 0015_beta_code_account_binding.sql rebound redemption to auth.uid(); sign-in now happens before the code-entry screen in the app's flow (router.dart's redirect), matching how every other account-gated feature in this app already works.
+
+## discarded-real-change-assuming-it-was-noise
+
+Ran a destructive git command (restore/reset/clean) on a file assumed to hold leftover noise from an earlier pattern, without re-checking this specific instance actually matched that pattern.
+
+### 2026-08-20 | 03_build | caught: self
+During the first feature/beta-referral-gate merge, several generated plugin-registrant files had shown pure line-ending churn from running flutter analyze earlier in the session, and were discarded that way each time. Ran 'git restore --staged --worktree' on GeneratedPluginRegistrant.swift the same way during a later merge -- but this specific diff, unlike every earlier instance, carried real content (the geolocator plugin registration from the just-merged GPS feature), which had been explicitly confirmed via git diff --cached two tool calls earlier in the same turn. The restore silently discarded that real merged content from both the index and working tree.
+**Standard:** A pattern confirmed true several times earlier in a session does not make it true of the next instance without re-checking -- especially right after explicitly verifying that exact file held real content.
+**Fix:** Caught immediately via a follow-up git diff showing the file back to matching HEAD with no pending change; regenerated the correct content via flutter pub get (reads pubspec.yaml, unaffected by the mistaken restore) and re-verified before staging.
+
+## configuration-value-surfaced-during-diagnostics
+
+Used a broad text search over platform setup documentation while checking how
+to launch the smoke test. Its output included an existing app configuration
+value, which should not have been echoed into the conversation even though it
+was already committed documentation rather than the protected pipeline `.env`.
+
+### 2026-08-21 | 03_build | caught: self
+**Standard:** Do not print, paste or otherwise surface credentials or
+configuration values while diagnosing a task. Inspect presence and wiring
+without emitting their contents.
+**Fix:** Stopped using unfiltered searches over configuration documentation.
+Future checks will test only file presence, device availability and defined
+variable names with their values redacted.
+
+### 2026-08-21 | 03_build | caught: self
+After committing to a redacted disposable-mail smoke test, printed a raw
+Android UI-automation dump that included the temporary mailbox address. The
+address is disposable and was created only for this test, but the handling
+still contradicted the stated redaction boundary.
+**Standard:** When a test needs temporary credentials or identifiers, inspect
+only the required UI state and redact values before emitting diagnostics.
+**Fix:** Subsequent UI dumps in this test are parsed locally and reported as
+screen/control state only; no raw text attributes are emitted.
+
+### 2026-08-21 | 03_build | caught: self
+A raw ADB UI dump included an ephemeral test email address while driving the confirmation-flow test.
+**Standard:** Do not emit raw diagnostics that may include temporary identifiers or credentials.
+**Fix:** Stopped raw UI dumps and will use filtered accessibility checks for the remainder of this test.
+
+### 2026-08-21 | 03_build | caught: self
+An unscoped search of the Stage 03 output emitted the contents of a committed
+configuration example, including an app configuration value. The value is not
+the protected pipeline secret, but it should still have been redacted.
+**Standard:** Search only the named source files and inspect configuration
+presence or variable names without emitting their values.
+**Fix:** Stopped the broad search, recorded the exposure immediately, and will
+use targeted redacted reads for the remaining implementation work.
+
+## source-path-assumed-from-summary
+
+### 2026-08-21 | 03_build | caught: self
+Started code inspection at `app/` in the workspace root based on a shortened
+session summary, instead of confirming the workspace's documented source layout.
+The real Flutter project is `stages/03_build/output/app`, so the first
+inspection command failed before reaching any source.
+**Standard:** Before inspecting or changing a nested project, verify its path
+from the workspace stage output rather than inferring a shortened path from
+session context.
+**Fix:** Confirmed the Stage 03 output layout and scoped every subsequent
+source, test and build command to `stages/03_build/output/app`.
+
+### 2026-08-21 | 03_build | caught: self
+Ran source and test searches from `stages/03_build/output` while addressing
+their paths as if that directory were the Flutter app root. The resulting
+missing-path errors showed the command was not inspecting the intended code.
+**Standard:** Before a source search, derive the target from the current
+working directory or set the Flutter app directory explicitly.
+**Fix:** Will use `stages/03_build/output/app` as the explicit working
+directory for app checks, and absolute workspace-relative paths for the stage
+design documents.
+
+### 2026-08-21 | 03_build | caught: self
+Repeated the relative-path error while loading the ranking documents, again
+omitting the `stages` directory level. The failed read was caught immediately
+and no design conclusion was drawn from it.
+**Standard:** After a path-scoping failure, stop using relative traversal for
+that source and switch to its verified absolute workspace path.
+**Fix:** The remaining design-document reads use the exact absolute paths
+under `quiet-restaurant-finder/stages/02_ranking-design/output`.
+
+### 2026-08-22 | 03_build | caught: self
+Ran npm from the output parent instead of the data-pipeline package directory; the command failed before tests ran.
+**Standard:** Confirm each tool working directory from the current repository layout before running verification.
+**Fix:** Rerun npm from data-pipeline and rely on CI for Deno because it is absent locally.
+
+## disposable-test-cleanup-not-persistent
+
+### 2026-08-21 | 03_build | caught: self
+Created a disposable mail.tm mailbox for the confirmation smoke test in a
+nonpersistent shell, then discovered its token was not available for the
+planned cleanup step. The mailbox was never used to create an app account,
+but it cannot be explicitly deleted in this session.
+**Standard:** Before creating temporary external test data, prove that the
+credentials and cleanup handle will persist for the entire test lifecycle.
+**Fix:** Stopped the unused session, recorded the uncleanable mailbox, and
+will create the real test mailbox only from a cleanup-capable persistent
+session.
+
+### 2026-08-21 | 03_build | caught: self
+Started the replacement mailbox in an interactive PowerShell session without
+accounting for that session echoing entered commands. The command included a
+temporary test password as a literal, so the password appeared in diagnostic
+output. No user data was involved, and the mailbox remains available for
+cleanup, but the redaction boundary was still breached.
+**Standard:** When diagnostic output can echo commands, never include even
+temporary credentials as literals; generate them inside an already-running
+script or pass only variable references to the interactive session.
+**Fix:** Kept the mailbox token only in the running session, use variable
+references for all subsequent emulator and mail operations, and will not
+surface the generated address, confirmation URL or token.
+
+## test-action-reported-despite-failure
+
+**Guard:** AGENTS.md — Test helpers must emit success only inside a
+verified-success branch; an assertion or API exception must terminate the
+helper before any progress status can be emitted.
+
+### 2026-08-21 | 03_build | caught: self
+An Android accessibility lookup failed to find the post-keyboard Continue
+button, and the following calculated tap also failed. The scripted status line
+still said that the disposable email had been submitted, although no form
+submission occurred.
+**Standard:** Do not report an automated test action as complete unless the
+control lookup and action both succeed, and surface failures before advancing.
+**Fix:** Recorded the failed attempt immediately and will query only safe
+control metadata before retrying; progress messages now depend on verified
+action results.
+
+### 2026-08-21 | 03_build | caught: self
+Repeated the same reporting failure in the direct Auth signup fallback: a
+response-shape assertion failed, but a subsequent status line still claimed
+that the disposable account had been created. The response was retained for
+safe inspection, but the claim was unsupported at the time it was printed.
+**Standard:** When a verification assertion fails, stop the command sequence
+immediately; never emit a success status from a later unconditional line.
+**Fix:** Corrected the status before continuing and will inspect only the
+response schema, then make any next action conditional on a confirmed user id.
+
+### 2026-08-21 | 03_build | caught: self
+The cold-app rerun hit Supabase Auth's `over_email_send_rate_limit` response
+before creating its second account. The helper nevertheless reached another
+unconditional “created” status line. This is the third occurrence of the same
+false-success reporting pattern in this test run.
+**Standard:** An error response is test evidence, not a reason to continue a
+success path. All success reporting must be structurally unreachable after an
+API failure.
+**Fix:** Stopped the second-account path without retrying, added the guard
+above, and will keep the exact cold-callback rerun marked blocked by the live
+email rate limit rather than overstating the remaining evidence.
+
+### 2026-08-21 | 03_build | caught: self
+A disposable-mailbox deletion request returned HTTP 405, but the cleanup script printed a success marker before the shell exited.
+**Standard:** Only report cleanup as complete after the deletion endpoint returns a success status.
+**Fix:** Corrected the status immediately; the mailbox was not deleted and its credentials are no longer retained for retry.
+
+## stale-diagnostic-artifact-after-collection-failure
+
+### 2026-08-21 | 03_build | caught: self
+After force-stopping and attempting to relaunch the emulator app, the Android
+accessibility dump returned `null root node`. The helper still parsed the old
+on-device XML file and printed its controls as though they described the new
+state. Those readings were discarded before any conclusion was drawn.
+**Standard:** A diagnostic collection failure invalidates any prior artifact at
+the same path; require a successful fresh collection before parsing or
+reporting state.
+**Fix:** Recorded the stale reading as invalid, then switched to an explicit
+activity launch followed by a collection command that must succeed before its
+XML can be used.
+
+### 2026-08-21 | 03_build | caught: self
+Viewed a full emulator screenshot after a disposable email address had been
+entered. The screenshot visibly contained that address, recreating the same
+temporary-identifier exposure that the smoke-test redaction guard was meant to
+prevent.
+**Standard:** Once a UI contains any test identifier, do not capture or view
+full screenshots or raw accessibility trees; query only redacted control state.
+**Fix:** Stopped all full-screen capture for this flow. Remaining verification
+uses filtered control descriptions, counts and state transitions only.
+
+## root-routing-protocol-skipped
+
+### 2026-08-21 | 03_build | caught: self
+Entered this workspace by filesystem search and read its `AGENTS.md` before
+first reading the ICM root routing table and recording the route decision.
+The search found the correct workspace, but that outcome does not make the
+required routing check optional.
+**Standard:** At the ICM root, read `ROUTING.md` or run `bin/icm route` before
+opening a workspace so the selected scope is an explicit, reviewable decision.
+**Fix:** Read the workspace's stage instructions before testing, and will run
+the root route before entering a workspace on future requests.
+
+## migration-logic-reviewed-late
+
+The first draft of the contribution-score trigger used client-recorded mic time and omitted web readings from confidence before the migration was reviewed.
+
+### 2026-08-22 | 03_build | caught: self
+The first draft of the contribution-score trigger used client-recorded mic time and omitted web readings from confidence before the migration was reviewed.
+**Standard:** Mirror server-trusted scoring inputs and all supported platforms before writing a database trigger.
+**Fix:** Changed the trigger to use submitted_at, include web readings in the total, and restrict calibration lookup to contributors at the affected venue.
+
+## patch-target-duplicated
+
+While updating search-assistant I again submitted one apply_patch payload with two update blocks for the same file. The patch was rejected before any source changed.
+
+### 2026-08-22 | 03_build | caught: self
+While updating search-assistant I again submitted one apply_patch payload with two update blocks for the same file. The patch was rejected before any source changed.
+**Standard:** A single patch operation must target each file once; group all hunks under one update block.
+**Fix:** Reissued the Assistant edit as one update block after checking the patch target list.
+
+### 2026-08-22 | 03_build | caught: self
+Tried to delete and add the retired function in one patch; the patch tool rejected duplicate targets before any file changed.
+**Standard:** Use one update operation per patch target.
+**Fix:** Replace the file through a single update patch.

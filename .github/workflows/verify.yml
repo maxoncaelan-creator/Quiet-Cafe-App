@@ -23,6 +23,7 @@ jobs:
       - run: flutter pub get
       - run: flutter analyze
       - run: flutter test
+      - run: flutter build web --release --no-wasm-dry-run
 
   pipeline:
     runs-on: ubuntu-latest
