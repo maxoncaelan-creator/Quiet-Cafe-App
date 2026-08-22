@@ -43,7 +43,7 @@ const MAX_HISTORY_TURNS = 6;
 const MAX_HISTORY_TURN_CHARS = 500;
 const MAX_CONTEXT_VENUES = 20;
 const MAX_CONTEXT_LINE_CHARS = 180;
-const MAX_OUTPUT_TOKENS = 400;
+const MAX_OUTPUT_TOKENS = 120;
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -141,8 +141,23 @@ function extractAreaQuery(text: string): string | null {
   const match = text.match(
     /\b(?:in|near|around|at)\s+([a-z][a-z' -]{1,60}?)(?=\s+(?:for|with|that|which|tonight|today|tomorrow|please)\b|[?.!,]|$)/i,
   );
-  if (!match) return null;
-  const area = match[1].trim().replace(/\s+/g, ' ');
+  // People often type only a suburb, including in lower case ("crows nest").
+  // Keep ordinary food searches in the regular conversation path instead.
+  const bareCandidate = text.trim().replace(/\s+/g, ' ');
+  const areaWords = bareCandidate.toLowerCase().split(' ');
+  const nonAreaWords = new Set([
+    'food', 'restaurant', 'restaurants', 'cafe', 'cafes', 'venue', 'venues',
+    'quiet', 'normal', 'loud', 'very', 'near', 'nearby', 'place', 'places',
+    'find', 'search', 'show', 'all', 'italian', 'thai', 'japanese', 'chinese',
+  ]);
+  const bareArea =
+    /^[a-z][a-z' -]{1,60}$/i.test(bareCandidate) &&
+      areaWords.length <= 4 &&
+      !areaWords.some((word) => nonAreaWords.has(word))
+      ? bareCandidate
+      : null;
+  if (!match && !bareArea) return null;
+  const area = (match?.[1] ?? bareArea!).trim().replace(/\s+/g, ' ');
   if (!area || /^(?:me|here|my location|nearby)$/i.test(area)) return null;
   return area;
 }
@@ -151,6 +166,174 @@ function findRequestedArea(message: string, history: ChatMessage[]) {
   return [message, ...history.filter((turn) => turn.role === 'user').reverse().map((turn) => turn.content)]
     .map(extractAreaQuery)
     .find((area): area is string => area != null);
+}
+
+type VenueRequest = { name: string; suburb: string };
+type VenueCandidate = {
+  place_id: string;
+  name: string;
+  suburb: string | null;
+  address: string | null;
+  cuisine: string | null;
+  google_rating: number | null;
+  lat: number | null;
+  lng: number | null;
+};
+type VenueDraft = {
+  state: 'confirm_google_match' | 'ask_address' | 'confirm_manual';
+  requested_name: string | null;
+  requested_suburb: string | null;
+  candidate: VenueCandidate | null;
+  venue_name: string | null;
+  suburb: string | null;
+  address: string | null;
+};
+
+function normaliseName(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function editDistance(left: string, right: string) {
+  const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  for (let leftIndex = 1; leftIndex <= left.length; leftIndex++) {
+    let diagonal = previous[0];
+    previous[0] = leftIndex;
+    for (let rightIndex = 1; rightIndex <= right.length; rightIndex++) {
+      const saved = previous[rightIndex];
+      previous[rightIndex] = Math.min(
+        previous[rightIndex] + 1,
+        previous[rightIndex - 1] + 1,
+        diagonal + Number(left[leftIndex - 1] !== right[rightIndex - 1]),
+      );
+      diagonal = saved;
+    }
+  }
+  return previous[right.length];
+}
+
+function isYes(value: string) {
+  return /^(?:yes|yeah|yep|correct|right|that'?s right)$/i.test(value.trim());
+}
+
+function isNo(value: string) {
+  return /^(?:no|nope|nah|wrong|not it)$/i.test(value.trim());
+}
+
+function extractVenueRequest(text: string): VenueRequest | null {
+  const cleaned = text.trim().replace(/[?.!]+$/, '');
+  let match = cleaned.match(/^(?:find|look for|search for|is there|do you know)?\s*(.+?)\s+(?:in|at|near)\s+([a-z][a-z' -]{1,60}?)$/i)
+    ?? cleaned.match(/^(.+?)\s+(?:venue|restaurant|cafe|bar|pub)\s+(?:in\s+)?([a-z][a-z' -]{1,60}?)$/i);
+  if (!match) {
+    const reversed = cleaned.match(/^(?:in|at|near)\s+([a-z][a-z' -]{1,60}?)\s*[,\-:]\s*(.+)$/i);
+    if (reversed) match = [reversed[0], reversed[2], reversed[1]];
+  }
+  if (!match) return null;
+  const name = match[1].replace(/^(?:a |an |the )?(?:venue|restaurant|cafe|bar|pub)\s+(?:called |named )?/i, '').trim();
+  const suburb = match[2].trim().replace(/\s+/g, ' ');
+  if (name.length < 2 || suburb.length < 2 || /^(?:food|restaurants?|cafes?|places?)$/i.test(name)) return null;
+  return { name, suburb };
+}
+
+async function loadVenueDraft(userId: string) {
+  const { data, error } = await supabaseAdmin
+    .from('assistant_venue_drafts')
+    .select('state, requested_name, requested_suburb, candidate, venue_name, suburb, address')
+    .eq('user_id', userId)
+    .maybeSingle();
+  if (error) throw new Error(`Could not load venue draft: ${error.message}`);
+  return data as VenueDraft | null;
+}
+
+async function saveVenueDraft(userId: string, draft: Partial<VenueDraft> & { state: VenueDraft['state'] }) {
+  const { error } = await supabaseAdmin.from('assistant_venue_drafts').upsert({
+    user_id: userId,
+    ...draft,
+    updated_at: new Date().toISOString(),
+  });
+  if (error) throw new Error(`Could not save venue draft: ${error.message}`);
+}
+
+async function clearVenueDraft(userId: string) {
+  const { error } = await supabaseAdmin.from('assistant_venue_drafts').delete().eq('user_id', userId);
+  if (error) throw new Error(`Could not clear venue draft: ${error.message}`);
+}
+
+async function findVenue(name: string, suburb: string) {
+  const { data, error } = await supabaseAnon
+    .from('restaurants')
+    .select('place_id, name, suburb, address, cuisine, google_rating, lat, lng')
+    .ilike('suburb', `%${suburb}%`)
+    .limit(100);
+  if (error) throw new Error(`Could not look up venue: ${error.message}`);
+  const requested = normaliseName(name);
+  const wanted = new Set(requested.split(' ').filter((word) => word.length > 2));
+  return (data ?? [])
+    .map((venue) => ({
+      venue,
+      score: (() => {
+        const candidate = normaliseName(venue.name);
+        const sharedWords = candidate.split(' ').filter((word) => wanted.has(word)).length;
+        const spellingSimilarity = 1 - editDistance(requested, candidate) / Math.max(requested.length, candidate.length, 1);
+        return sharedWords * 2 + spellingSimilarity;
+      })(),
+    }))
+    .filter(({ venue, score }) => score >= 0.55 || normaliseName(venue.name).includes(requested))
+    .sort((a, b) => b.score - a.score || a.venue.name.length - b.venue.name.length)
+    .slice(0, 5)
+    .map(({ venue }) => venue as VenueCandidate);
+}
+
+async function addCommunityVenue(userId: string, draft: VenueDraft) {
+  const name = draft.venue_name?.trim();
+  const suburb = draft.suburb?.trim();
+  if (!name || !suburb) throw new Error('Venue name and suburb are required');
+  const duplicate = await findVenue(name, suburb);
+  if (duplicate.some((venue) => normaliseName(venue.name) === normaliseName(name))) return false;
+  const { error } = await supabaseAdmin.from('restaurants').insert({
+    place_id: `community:${crypto.randomUUID()}`,
+    name,
+    suburb,
+    address: draft.address?.trim() || null,
+    source: 'community',
+    community_submitted_by: userId,
+    community_submitted_at: new Date().toISOString(),
+    confidence: 'Low',
+  });
+  if (error) throw new Error(`Could not add community venue: ${error.message}`);
+  return true;
+}
+
+async function continueVenueDraft(userId: string, message: string): Promise<string | null> {
+  const draft = await loadVenueDraft(userId);
+  if (!draft) return null;
+  if (draft.state === 'confirm_google_match') {
+    if (isYes(message) && draft.candidate) {
+      await clearVenueDraft(userId);
+      return 'Okay! That is the right place.';
+    }
+    if (isNo(message)) {
+      await saveVenueDraft(userId, { state: 'ask_address', venue_name: draft.requested_name, suburb: draft.requested_suburb, address: null });
+      return 'Okay. What street is it on? You can say skip.';
+    }
+    return 'Is that the right place? Please say yes or no.';
+  }
+  if (draft.state === 'ask_address') {
+    await saveVenueDraft(userId, { ...draft, state: 'confirm_manual', address: /^(?:skip|no|not sure)$/i.test(message.trim()) ? null : message.trim() });
+    return `I have ${draft.venue_name} in ${draft.suburb}. Add it? Please say yes or no.`;
+  }
+  if (draft.state === 'confirm_manual') {
+    if (isYes(message)) {
+      const added = await addCommunityVenue(userId, draft);
+      await clearVenueDraft(userId);
+      return added ? 'Okay! I added it. It needs quietness readings now.' : 'That place is already here.';
+    }
+    if (isNo(message)) {
+      await clearVenueDraft(userId);
+      return 'Okay. I did not add it.';
+    }
+    return 'Should I add it? Please say yes or no.';
+  }
+  return null;
 }
 
 type CoverageRefresh = {
@@ -255,6 +438,23 @@ async function refreshThinCoverage(token: string, scope: Exclude<SearchScope, nu
   return results;
 }
 
+async function refreshVenueCoverage(token: string, name: string, suburb: string) {
+  try {
+    const response = await fetch(`${SUPABASE_URL}/functions/v1/ondemand-topup`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+        apikey: SUPABASE_ANON_KEY,
+      },
+      body: JSON.stringify({ areaQuery: suburb, venueName: name }),
+    });
+    if (!response.ok) console.error(`Venue lookup returned ${response.status}:`, await response.text());
+  } catch (error) {
+    console.error('Venue lookup request failed:', error);
+  }
+}
+
 function haversineMeters(a: UserLocation, latitude: number, longitude: number) {
   const radians = Math.PI / 180;
   const latitudeDelta = (latitude - a.latitude) * radians;
@@ -335,6 +535,13 @@ Deno.serve(async (req) => {
   if (message.length > MAX_MESSAGE_CHARS) {
     return jsonResponse({ error: `"message" must be at most ${MAX_MESSAGE_CHARS} characters` }, 400);
   }
+  try {
+    const draftReply = await continueVenueDraft(userId, message);
+    if (draftReply) return jsonResponse({ reply: draftReply });
+  } catch (error) {
+    console.error('Could not continue venue draft:', error);
+    return jsonResponse({ error: 'venue_draft_unavailable' }, 502);
+  }
   const history = sanitiseHistory(body.history);
 
   // Reserve before any coverage refresh. A caller who is out of Assistant
@@ -361,6 +568,40 @@ Deno.serve(async (req) => {
     const suppliedLocation = parseLocation(body.location);
     if (suppliedLocation) await storeCurrentLocation(userId, suppliedLocation);
     const currentLocation = suppliedLocation ?? (await loadRecentLocation(userId));
+    const venueRequest = extractVenueRequest(message);
+    if (venueRequest) {
+      let matches = await findVenue(venueRequest.name, venueRequest.suburb);
+      if (matches.length === 0) {
+        // Reuse the guarded, beta-only Google refresh. It is deliberately a
+        // background call: the user only sees a question if Google gives a
+        // close name rather than silently receiving a wrong venue.
+        await refreshVenueCoverage(token, venueRequest.name, venueRequest.suburb);
+        matches = await findVenue(venueRequest.name, venueRequest.suburb);
+      }
+      if (matches.length > 0) {
+        const exact = matches.find((venue) => normaliseName(venue.name) === normaliseName(venueRequest.name));
+        if (exact) {
+          return jsonResponse({ reply: `I found ${exact.name} in ${exact.suburb}.` });
+        }
+        const candidate = matches[0];
+        await saveVenueDraft(userId, {
+          state: 'confirm_google_match',
+          requested_name: venueRequest.name,
+          requested_suburb: venueRequest.suburb,
+          candidate,
+        });
+        return jsonResponse({ reply: `I found ${candidate.name}. Is that the right place? Please say yes or no.` });
+      }
+      await saveVenueDraft(userId, {
+        state: 'ask_address',
+        requested_name: venueRequest.name,
+        requested_suburb: venueRequest.suburb,
+        venue_name: venueRequest.name,
+        suburb: venueRequest.suburb,
+        address: null,
+      });
+      return jsonResponse({ reply: `I cannot find ${venueRequest.name}. What street is it on? You can say skip.` });
+    }
     const requestedArea = findRequestedArea(message, history);
     const scope: SearchScope = requestedArea
       ? { kind: 'area', areaQuery: requestedArea }
@@ -408,7 +649,9 @@ Deno.serve(async (req) => {
 
     const systemPrompt = `You are the Search Assistant inside Quiet Restaurant Finder, an app that ranks Sydney restaurants by how quiet they are. Higher quietness_score means quieter/better.
 
-Help the user find a restaurant that matches what they're asking for — cuisine, suburb, how quiet they need it, price, whatever they mention. Use ONLY the restaurant data below. Never invent a restaurant that isn't listed here. The backend has already made any appropriate Google Places coverage check before you answer, so never say that you cannot search Google or external sources. For a named suburb with listed venues, name two or three real options from the context. If the requested area still has no listed venues after a completed refresh, say that the app could not find a venue there yet and invite the user to try a nearby area. Keep replies short and conversational, like a helpful local, not a formal report.
+Help the user find a restaurant that matches what they ask for. Use ONLY the restaurant data below. Never invent a restaurant. The backend has already made any needed Google check, so never say you cannot search Google. For a named suburb with venues, name two or three real options. If there are none, say so simply.
+
+Talk like you are helping a five-year-old: use little words, one or two short sentences, and no long explanations.
 
 Reply in plain conversational text only — no markdown (no **bold**, no bullet/numbered lists, no headers). This is shown in a plain-text chat bubble that doesn't render markdown, so formatting characters would show up literally to the user. Use plain sentences or a simple dash-prefixed line if you need to list a couple of things.
 
