@@ -39,14 +39,13 @@ displayed noise number, so it doesn't need re-deriving.
 **Superseded 2026-08-17: numbers replaced with named categories on a
 colored bar.** Caelan's call — the gauge-plus-number wasn't landing with
 users. `QuietnessGauge` (semicircle + number) removed entirely, replaced by
-`widgets/noise_level_bar.dart` (`NoiseLevelBar`): seven named categories
-(Silent, Very Quiet, Quiet, Moderate, Loud, Very Loud, Earsplitting) over
-even bands of `quietness_score`, shown as a segmented spectrum bar with the
-current category highlighted and the category name as the primary heading
-— no raw number shown anywhere in the main display. Same non-negotiable as
-above still holds: `quietness_score` itself is untouched, this is a display
-layer change only. See build-log.md "numbers replaced with a categorical
-noise bar" for the verification.
+`widgets/noise_level_bar.dart` (`NoiseLevelBar`).
+
+**Updated 2026-08-22: four public categories.** The current categories are
+Quiet, Normal, Loud, and Very Loud. The category name is the primary heading
+on a colored bar; raw numbers are not shown in the main display. The same
+non-negotiable still holds: `quietness_score` itself is untouched, this is a
+display-layer change only. See build-log.md for verification.
 
 **Superseded 2026-08-18: "Score breakdown" removed entirely, replaced by
 loudness votes.** Per Caelan, the detail screen no longer shows the

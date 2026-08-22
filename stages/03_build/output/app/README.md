@@ -34,8 +34,8 @@ it. If you're picking this project back up, start with the workspace's
 - Ranked list of restaurants by quietness, with a popout filter panel
   (suburb, cuisine, loudness tier, minimum rating), sort options (quietest/
   loudest first, rating highest/lowest), and voice search. The loudness
-  indicator is a single colored box around the category word (calmest teal
-  for Silent, angriest red for Earsplitting), not a numeric score.
+  indicator is a single colored box around the category word: Quiet, Normal,
+  Loud, or Very Loud — not a numeric score.
 - Restaurant detail view with a confidence indicator; in-app microphone
   reading (rate-limited to one submission per 30 seconds per account) and
   a lightweight Quiet/Normal/Loud vote, both signed-in only and both
@@ -51,7 +51,9 @@ it. If you're picking this project back up, start with the workspace's
 - Favorites (sign-in required)
 - Search Assistant — a Claude-powered chat for finding a restaurant that
   matches what you're after, gated to signed-in accounts with a
-  10,000-token/5-hour budget per account
+  10,000-token/5-hour budget per account. A suburb-only message works in any
+  case; a named venue plus suburb checks the database, then Google Places,
+  before asking to add a community venue when neither source finds it.
 - Account management: email/password or Google/Apple/Facebook sign-in
   (Google renders its own button on web — a custom one can't drive
   Google's web sign-in flow — and the existing custom button on
@@ -76,10 +78,12 @@ Apple/Facebook sign-in setup, and everything else platform-specific, see
 
 For web: `flutter run -d chrome --dart-define=...` (same dart-defines) for
 local dev, `flutter build web --release --dart-define=...` for a production
-build. **Live at [quiet-restaurant-finder.pages.dev](https://quiet-restaurant-finder.pages.dev)**
-(Cloudflare Pages) as of 2026-08-19 — `app.cafequiet.com` as a custom
-domain is still pending. Deployment details are in `PLATFORM_SETUP.md`'s
-"Web" section.
+build. **Live at [app.cafequiet.com](https://app.cafequiet.com)** on
+Cloudflare Pages. Deployment details are in `PLATFORM_SETUP.md`'s "Web"
+section.
+
+The backend's venue-discovery contract, deployment order, and test checklist
+are in [`../supabase/functions/search-assistant/README.md`](../supabase/functions/search-assistant/README.md).
 
 ## Contributing changes
 
