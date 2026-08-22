@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/mic_reading.dart';
 import '../services/mic_service.dart';
 import '../services/supabase_service.dart';
+import 'skeleton_loader.dart';
 
 /// Captures one fixed, ten-second venue reading directly on the venue detail
 /// screen. There is deliberately no stop button: a partial sample would be a
@@ -158,7 +159,8 @@ class _VenueLoudnessCaptureState extends State<VenueLoudnessCapture> {
 
     if (!SupabaseService.isConfigured) {
       setState(
-        () => _error = 'This build is not connected to the live database, so the reading was not submitted.',
+        () => _error =
+            'This build is not connected to the live database, so the reading was not submitted.',
       );
       return;
     }
@@ -233,7 +235,13 @@ class _VenueLoudnessCaptureState extends State<VenueLoudnessCapture> {
             ),
             const SizedBox(height: 20),
             if (_recording) ...[
-              const Center(child: CircularProgressIndicator()),
+              const Center(
+                child: SkeletonBox(
+                  width: 44,
+                  height: 44,
+                  borderRadius: BorderRadius.all(Radius.circular(99)),
+                ),
+              ),
               const SizedBox(height: 16),
               Center(
                 child: Text(
@@ -273,10 +281,10 @@ class _VenueLoudnessCaptureState extends State<VenueLoudnessCapture> {
                   _starting
                       ? 'Preparing microphone…'
                       : _saving
-                      ? 'Submitting…'
-                      : (_averageDecibel == null
-                            ? 'Start 10-second reading'
-                            : 'Take another 10-second reading'),
+                          ? 'Submitting…'
+                          : (_averageDecibel == null
+                              ? 'Start 10-second reading'
+                              : 'Take another 10-second reading'),
                 ),
               ),
             ],
