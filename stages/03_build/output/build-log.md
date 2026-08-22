@@ -225,6 +225,12 @@ billing or the full assistant response, so the device smoke test remains open.
   Node scoring suite passed 48/48 locally. The local Flutter and Supabase CLI
   runners again produced no usable completion output on this workstation, so
   their clean CI run remains the verification boundary.
+- CI follow-up: the first hosted run passed Flutter but exposed a quoted Node
+  test glob that resolves to no files on GitHub's Linux runner, plus type
+  errors in unreachable legacy code retained below the retired score endpoint.
+  The test command now uses Node's built-in discovery and the endpoint is a
+  true 410-only compatibility stub. The 48-test pipeline suite passes locally;
+  the pushed hosted run is the remaining Deno/Supabase verification boundary.
 
 ## Active work queue
 
