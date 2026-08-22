@@ -38,7 +38,12 @@ const supabaseAnon = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
 const TOKEN_LIMIT = 10000;
-const WINDOW_MS = 5 * 60 * 60 * 1000; // 5 hours — keep in sync with search_assistant_screen.dart's client-side check
+const MAX_MESSAGE_CHARS = 800;
+const MAX_HISTORY_TURNS = 6;
+const MAX_HISTORY_TURN_CHARS = 500;
+const MAX_CONTEXT_VENUES = 20;
+const MAX_CONTEXT_LINE_CHARS = 180;
+const MAX_OUTPUT_TOKENS = 400;
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -153,6 +158,63 @@ type CoverageRefresh = {
   status?: number;
 };
 
+type AssistantBudgetClaim = {
+  outcome: 'granted' | 'rate_limited';
+  window_start: string;
+  reserved_tokens: number;
+  reset_at: string;
+};
+
+function sanitiseHistory(value: unknown): ChatMessage[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter(
+      (turn): turn is ChatMessage =>
+        Boolean(turn) &&
+        typeof turn === 'object' &&
+        ((turn as ChatMessage).role === 'user' || (turn as ChatMessage).role === 'assistant') &&
+        typeof (turn as ChatMessage).content === 'string',
+    )
+    .slice(-MAX_HISTORY_TURNS)
+    .map((turn) => ({ role: turn.role, content: turn.content.trim().slice(0, MAX_HISTORY_TURN_CHARS) }))
+    .filter((turn) => turn.content.length > 0);
+}
+
+function estimatedAssistantTokens(message: string, history: ChatMessage[]) {
+  const conversationChars = message.length + history.reduce((total, turn) => total + turn.content.length, 0);
+  // The prompt, context lines and every user-controlled turn are explicitly
+  // bounded above. Three characters/token is deliberately conservative for
+  // this mostly-English payload, so the reservation remains safe until the
+  // provider returns the exact total.
+  const maximumPromptChars = 2_200 + MAX_CONTEXT_VENUES * MAX_CONTEXT_LINE_CHARS + conversationChars;
+  return Math.min(TOKEN_LIMIT, Math.ceil(maximumPromptChars / 3) + MAX_OUTPUT_TOKENS);
+}
+
+async function claimAssistantBudget(userId: string, reservedTokens: number): Promise<AssistantBudgetClaim> {
+  const { data, error } = await supabaseAdmin
+    .rpc('claim_search_assistant_budget', {
+      p_user_id: userId,
+      p_reserved_tokens: reservedTokens,
+    })
+    .single();
+  if (error || !data) throw new Error(`Could not reserve Assistant budget: ${error?.message ?? 'No result returned'}`);
+  return data as AssistantBudgetClaim;
+}
+
+async function settleAssistantBudget(
+  userId: string,
+  claim: AssistantBudgetClaim,
+  actualTokens: number,
+) {
+  const { error } = await supabaseAdmin.rpc('settle_search_assistant_budget', {
+    p_user_id: userId,
+    p_window_start: claim.window_start,
+    p_reserved_tokens: claim.reserved_tokens,
+    p_actual_tokens: actualTokens,
+  });
+  if (error) console.error('Failed to settle Assistant budget:', error.message);
+}
+
 async function refreshThinCoverage(token: string, scope: Exclude<SearchScope, null>): Promise<CoverageRefresh[]> {
   const refreshBodies = scope.kind === 'area'
     ? [{ areaQuery: scope.areaQuery }]
@@ -259,93 +321,92 @@ Deno.serve(async (req) => {
   }
   const userId = userData.user.id;
 
-  let body: { message?: string; history?: ChatMessage[]; location?: unknown };
+  let body: { message?: string; history?: unknown; location?: unknown };
   try {
     body = await req.json();
   } catch {
     return jsonResponse({ error: 'Invalid JSON body' }, 400);
   }
 
-  const message = body.message?.trim();
+  const message = typeof body.message === 'string' ? body.message.trim() : '';
   if (!message) {
     return jsonResponse({ error: '"message" is required' }, 400);
   }
-  const history = Array.isArray(body.history) ? body.history : [];
-
-  // Fixed 5-hour window per account, not sliding — simplest to reason
-  // about and to explain to the user ("available again in X"). A window
-  // that's expired resets tokensUsed to 0 as part of this same check, so a
-  // blocked response below can only ever mean the window is still active.
-  const { data: usageRow } = await supabaseAdmin
-    .from('search_assistant_usage')
-    .select('window_start, tokens_used')
-    .eq('user_id', userId)
-    .maybeSingle();
-
-  const now = new Date();
-  let windowStart = usageRow ? new Date(usageRow.window_start) : now;
-  let tokensUsed = usageRow?.tokens_used ?? 0;
-
-  if (now.getTime() - windowStart.getTime() >= WINDOW_MS) {
-    windowStart = now;
-    tokensUsed = 0;
+  if (message.length > MAX_MESSAGE_CHARS) {
+    return jsonResponse({ error: `"message" must be at most ${MAX_MESSAGE_CHARS} characters` }, 400);
   }
+  const history = sanitiseHistory(body.history);
 
-  if (tokensUsed >= TOKEN_LIMIT) {
-    const resetAt = new Date(windowStart.getTime() + WINDOW_MS);
-    return jsonResponse({ error: 'rate_limited', resetAt: resetAt.toISOString() }, 429);
-  }
-
-  // Every assistant request can carry a fresh GPS fix. Store it behind the
-  // authenticated backend (not the client Data API), then fall back to the
-  // caller's recent fix for follow-up turns that do not need another device
-  // lookup. Only the latest fix is retained, and only for six hours of use.
-  const suppliedLocation = parseLocation(body.location);
-  if (suppliedLocation) await storeCurrentLocation(userId, suppliedLocation);
-  const currentLocation = suppliedLocation ?? (await loadRecentLocation(userId));
-  const requestedArea = findRequestedArea(message, history);
-  const scope: SearchScope = requestedArea
-    ? { kind: 'area', areaQuery: requestedArea }
-    : currentLocation
-      ? { kind: 'location', location: currentLocation }
-      : null;
-
-  // This must happen before loading the assistant context. A named suburb
-  // with zero stored venues therefore asks Google Places, inserts safe new
-  // rows, then gives Haiku the refreshed rows in this same answer.
-  const coverageRefreshes = scope ? await refreshThinCoverage(token, scope) : [];
-
-  let restaurants: Awaited<ReturnType<typeof loadRestaurantContext>>;
+  // Reserve before any coverage refresh. A caller who is out of Assistant
+  // budget must not be able to bypass that limit by making us spend Google
+  // Places calls before Anthropic is reached.
+  let budgetClaim: AssistantBudgetClaim;
   try {
-    restaurants = await loadRestaurantContext(scope);
+    budgetClaim = await claimAssistantBudget(userId, estimatedAssistantTokens(message, history));
   } catch (error) {
-    return jsonResponse({ error: 'Could not load restaurant data', detail: String(error) }, 502);
+    console.error('Assistant budget reservation failed:', error);
+    return jsonResponse({ error: 'assistant_unavailable' }, 502);
+  }
+  if (budgetClaim.outcome !== 'granted') {
+    return jsonResponse({ error: 'rate_limited', resetAt: budgetClaim.reset_at }, 429);
   }
 
-  // If a Google-backed refresh actually failed and there are no local options,
-  // be precise with the user. The old flow swallowed the 502 and left Haiku to
-  // claim that it had no ability to call Google at all.
-  if (
-    scope?.kind === 'area' &&
-    restaurants.length === 0 &&
-    coverageRefreshes.some((refresh) => !refresh.succeeded)
-  ) {
-    return jsonResponse({
-      reply: `I couldn't check Google for cafes in ${scope.areaQuery} just now. Please try again in a moment.`,
-    });
-  }
+  let budgetSettled = false;
+  let providerRequestAttempted = false;
+  try {
+    // Every assistant request can carry a fresh GPS fix. Store it behind the
+    // authenticated backend (not the client Data API), then fall back to the
+    // caller's recent fix for follow-up turns that do not need another device
+    // lookup. Only the latest fix is retained, and only for six hours of use.
+    const suppliedLocation = parseLocation(body.location);
+    if (suppliedLocation) await storeCurrentLocation(userId, suppliedLocation);
+    const currentLocation = suppliedLocation ?? (await loadRecentLocation(userId));
+    const requestedArea = findRequestedArea(message, history);
+    const scope: SearchScope = requestedArea
+      ? { kind: 'area', areaQuery: requestedArea }
+      : currentLocation
+        ? { kind: 'location', location: currentLocation }
+        : null;
 
-  const restaurantContext = (restaurants ?? [])
-    .map((r) => {
-      // confidence is only ever null when quietness_score is also null (see
-      // combineScores() in scoring.js), so no fallback is needed here.
-      const quietness = r.quietness_score == null ? 'no quietness data yet' : `quietness ${Math.round(r.quietness_score)}/100 (${r.confidence} confidence)`;
-      const rating = r.google_rating == null ? 'unrated' : `${r.google_rating}★ on Google`;
-      return `- ${r.name} — ${r.cuisine ?? 'cuisine unknown'}, ${r.suburb ?? 'suburb unknown'}, ${quietness}, ${rating}`;
-    })
-    .join('\n');
+    // This must happen before loading the assistant context. A named suburb
+    // with zero stored venues therefore asks Google Places, inserts safe new
+    // rows, then gives Haiku the refreshed rows in this same answer.
+    const coverageRefreshes = scope ? await refreshThinCoverage(token, scope) : [];
 
-  const systemPrompt = `You are the Search Assistant inside Quiet Restaurant Finder, an app that ranks Sydney restaurants by how quiet they are. Higher quietness_score means quieter/better.
+    let restaurants: Awaited<ReturnType<typeof loadRestaurantContext>>;
+    try {
+      restaurants = await loadRestaurantContext(scope);
+    } catch (error) {
+      console.error('Could not load restaurant data:', error);
+      return jsonResponse({ error: 'restaurant_data_unavailable' }, 502);
+    }
+
+    // If a Google-backed refresh actually failed and there are no local options,
+    // be precise with the user. The old flow swallowed the 502 and left Haiku to
+    // claim that it had no ability to call Google at all.
+    if (
+      scope?.kind === 'area' &&
+      restaurants.length === 0 &&
+      coverageRefreshes.some((refresh) => !refresh.succeeded)
+    ) {
+      return jsonResponse({
+        reply: `I couldn't check Google for cafes in ${scope.areaQuery} just now. Please try again in a moment.`,
+      });
+    }
+
+    const restaurantContext = restaurants
+      .slice(0, MAX_CONTEXT_VENUES)
+      .map((r) => {
+        // confidence is only ever null when quietness_score is also null (see
+        // combineScores() in scoring.js), so no fallback is needed here.
+        const quietness = r.quietness_score == null ? 'no quietness data yet' : `quietness ${Math.round(r.quietness_score)}/100 (${r.confidence} confidence)`;
+        const rating = r.google_rating == null ? 'unrated' : `${r.google_rating}★ on Google`;
+        return `- ${r.name} — ${r.cuisine ?? 'cuisine unknown'}, ${r.suburb ?? 'suburb unknown'}, ${quietness}, ${rating}`
+          .slice(0, MAX_CONTEXT_LINE_CHARS);
+      })
+      .join('\n');
+
+    const systemPrompt = `You are the Search Assistant inside Quiet Restaurant Finder, an app that ranks Sydney restaurants by how quiet they are. Higher quietness_score means quieter/better.
 
 Help the user find a restaurant that matches what they're asking for — cuisine, suburb, how quiet they need it, price, whatever they mention. Use ONLY the restaurant data below. Never invent a restaurant that isn't listed here. The backend has already made any appropriate Google Places coverage check before you answer, so never say that you cannot search Google or external sources. For a named suburb with listed venues, name two or three real options from the context. If the requested area still has no listed venues after a completed refresh, say that the app could not find a venue there yet and invite the user to try a nearby area. Keep replies short and conversational, like a helpful local, not a formal report.
 
@@ -356,42 +417,48 @@ Search scope: ${scope?.kind === 'area' ? scope.areaQuery : scope?.kind === 'loca
 Current restaurants:
 ${restaurantContext || '(none loaded yet)'}`;
 
-  const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-api-key': ANTHROPIC_API_KEY,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 512,
-      system: systemPrompt,
-      messages: [...history, { role: 'user', content: message }],
-    }),
-  });
+    providerRequestAttempted = true;
+    const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-api-key': ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: MAX_OUTPUT_TOKENS,
+        system: systemPrompt,
+        messages: [...history, { role: 'user', content: message }],
+      }),
+    });
 
-  if (!anthropicRes.ok) {
-    const detail = await anthropicRes.text();
-    return jsonResponse({ error: 'Anthropic API error', detail }, 502);
+    if (!anthropicRes.ok) {
+      console.error('Anthropic API error:', anthropicRes.status, await anthropicRes.text());
+      return jsonResponse({ error: 'assistant_unavailable' }, 502);
+    }
+
+    const data = await anthropicRes.json();
+    const reply = data.content?.[0]?.text ?? '';
+
+    const usage = data.usage ?? {};
+    const inputTokens = typeof usage.input_tokens === 'number' ? usage.input_tokens : 0;
+    const outputTokens = typeof usage.output_tokens === 'number' ? usage.output_tokens : 0;
+    const tokensThisCall = inputTokens + outputTokens;
+
+    await settleAssistantBudget(userId, budgetClaim, tokensThisCall);
+    budgetSettled = true;
+
+    return jsonResponse({ reply });
+  } finally {
+    if (!budgetSettled) {
+      // Once a provider request is dispatched, retain the conservative
+      // reservation if the provider fails before reporting exact usage.
+      await settleAssistantBudget(
+        userId,
+        budgetClaim,
+        providerRequestAttempted ? budgetClaim.reserved_tokens : 0,
+      );
+    }
   }
-
-  const data = await anthropicRes.json();
-  const reply = data.content?.[0]?.text ?? '';
-
-  const usage = data.usage ?? {};
-  const tokensThisCall = (usage.input_tokens ?? 0) + (usage.output_tokens ?? 0);
-
-  // Best-effort — an accounting write failing shouldn't block a reply the
-  // user already paid a real Anthropic call for. Logged, not thrown.
-  const { error: upsertError } = await supabaseAdmin.from('search_assistant_usage').upsert({
-    user_id: userId,
-    window_start: windowStart.toISOString(),
-    tokens_used: tokensUsed + tokensThisCall,
-  });
-  if (upsertError) {
-    console.error('Failed to record search assistant usage:', upsertError.message);
-  }
-
-  return jsonResponse({ reply });
 });

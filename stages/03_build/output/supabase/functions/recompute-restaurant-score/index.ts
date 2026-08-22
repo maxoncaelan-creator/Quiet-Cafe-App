@@ -1,6 +1,9 @@
-// Recomputes and writes back one restaurant's mic/vote sub-scores and
-// overall quietness_score/confidence — added 2026-08-20 after Caelan
-// reported the loudness-vote buttons doing nothing visible.
+// Retired score-recompute endpoint. Contribution aggregation is now a
+// database trigger (20260822154500), so this deployed compatibility stub
+// returns 410 until the Function is explicitly removed from each environment.
+//
+// The implementation below is retained temporarily as migration reference;
+// it is unreachable and must not be restored as a client-invoked path.
 //
 // Root cause: only the Node data-pipeline (data-pipeline/src/pipeline.js)
 // ever wrote these columns, and that only runs when Caelan manually
@@ -183,6 +186,14 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
+
+  // Aggregates are now recomputed by the database in the same transaction as
+  // a microphone reading or vote (20260822154500). Retire this public-facing
+  // service-role endpoint rather than leaving a callable write path that no
+  // client needs. Keep the deployed function returning a stable response
+  // until it can be removed explicitly from every Supabase environment.
+  return jsonResponse({ error: 'recompute_endpoint_retired' }, 410);
+
   if (req.method !== 'POST') {
     return jsonResponse({ error: 'Method not allowed' }, 405);
   }

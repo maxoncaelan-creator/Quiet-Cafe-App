@@ -203,6 +203,29 @@ billing or the full assistant response, so the device smoke test remains open.
   Austral request that proves the Google call, inserted rows, and returned
   options together.
 
+## Current draft implementation — backend architecture hardening
+
+- Search Assistant now atomically reserves a bounded token budget in Postgres
+  before it can request coverage or call Anthropic, then settles that
+  reservation to the provider's actual usage. Concurrent requests therefore
+  cannot all observe the same remaining allowance, and a rate-limited caller
+  cannot spend Google Places capacity before being rejected.
+- On-demand coverage is now deterministic: every eligible scope below the
+  minimum venue threshold refreshes after its existing cooldown/cache rules;
+  Haiku no longer decides whether a billed Google call should occur. The
+  existing global/per-account reservation and the one-kilometre coordinate
+  checkpoint remain the cost guardrails.
+- A microphone reading or loudness vote now recomputes its venue aggregate in
+  the same database transaction. The Flutter client no longer calls a
+  best-effort, service-role score-recompute endpoint; that endpoint returns
+  `410` until it is explicitly removed from deployed environments.
+- Added a committed Supabase local-project configuration, pgTAP regression
+  tests for budget and contribution-score triggers, and a GitHub verification
+  workflow for Flutter, Node, Deno, local migrations and database tests. The
+  Node scoring suite passed 48/48 locally. The local Flutter and Supabase CLI
+  runners again produced no usable completion output on this workstation, so
+  their clean CI run remains the verification boundary.
+
 ## Active work queue
 
 ### Needs a real device or browser

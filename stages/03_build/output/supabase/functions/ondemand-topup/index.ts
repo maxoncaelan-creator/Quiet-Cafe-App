@@ -2,9 +2,9 @@
 // (data-pipeline/src/pipeline.js) pre-populates a curated, representative
 // set of areas; this function is the other half — when a real search comes
 // up thin for a suburb outside (or under-covered within) that curated set,
-// this asks Haiku whether it's worth spending a real Google Places API
-// call to fill it in, rather than either ignoring the gap or blindly
-// hitting Google on every thin search.
+// this applies an explicit, auditable coverage policy before spending a real
+// Google Places API call. It avoids both ignoring the gap and asking a
+// probabilistic language model to make a billing decision.
 //
 // Deliberately additive-only: on conflict with an existing place_id this
 // does nothing rather than overwriting. The batch pipeline's upsert
@@ -16,15 +16,13 @@
 // job.
 //
 // Cost guardrails: a database-backed reservation atomically enforces the
-// global and per-account daily Google allowance before a paid request starts;
-// Haiku then judges partial coverage from real context, and each accepted area
-// top-up has a per-run request ceiling (2 pages base + up to 3
+// global and per-account daily Google allowance before a paid request starts.
+// Each accepted area top-up has a per-run request ceiling (2 pages base + up to 3
 // single-page category follow-ups = 5 Places requests max, well under the
 // batch pipeline's per-area allowance, since this can fire far more often).
 
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
-const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY');
 const GOOGLE_PLACES_KEY_CONFIGURED = Boolean(Deno.env.get('GOOGLE_PLACES_KEY'));
 const PIPELINE_SHARED_SECRET = Deno.env.get('PIPELINE_SHARED_SECRET');
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
@@ -342,61 +340,14 @@ function scoreFromReviews(positiveCount: number, negativeCount: number) {
   return { subscore, confidence: CONFIDENCE_LEVELS[clamp(points, 1, 6) - 1] };
 }
 
-// --- Haiku decision ---
-
-async function askHaiku(input: {
-  scopeLabel: string;
-  currentResultCount: number;
-  lastCheckedAt: string | null;
-  lastDecision: string | null;
-}): Promise<{ decision: 'yes' | 'no'; reason: string }> {
-  const recency = input.lastCheckedAt
-    ? `last checked ${Math.round((Date.now() - new Date(input.lastCheckedAt).getTime()) / 3_600_000)} hours ago (decision then: ${input.lastDecision})`
-    : 'never checked before';
-
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-api-key': ANTHROPIC_API_KEY!,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 200,
-      system:
-        'You decide whether a restaurant-finder app should spend a real, billed Google Places API call to fetch more venues for a searched suburb. ' +
-        'Say yes when coverage is thin (roughly under 15 venues) and this area has not been checked very recently. ' +
-        'Say no when coverage already looks reasonable (roughly 25+) or this exact area was checked in about the last 24 hours, even if the count is still low — repeatedly re-querying an area that genuinely has few venues just wastes money. ' +
-        'Reply with ONLY a JSON object: {"decision": "yes" or "no", "reason": "one short sentence"}. No other text.',
-      messages: [
-        {
-          role: 'user',
-          content: `Search scope: ${input.scopeLabel}\nCurrent venues in database for this scope: ${input.currentResultCount}\n${recency}`,
-        },
-      ],
-    }),
-  });
-
-  if (!res.ok) throw new Error(`Anthropic API error: ${res.status} ${await res.text()}`);
-  const data = await res.json();
-  const text = data.content?.[0]?.text ?? '{}';
-  // Haiku wraps JSON in a ```json fence more often than not despite being
-  // told not to (confirmed live 2026-08-20 — response came back as
-  // "```json\n{...}\n```") — strip one if present rather than fighting the
-  // model with prompt tweaks alone.
-  const stripped = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '');
-  try {
-    const parsed = JSON.parse(stripped);
-    if (parsed.decision === 'yes' || parsed.decision === 'no') {
-      return { decision: parsed.decision, reason: String(parsed.reason ?? '').slice(0, 500) };
-    }
-  } catch {
-    // fall through to the safe default below
+function coverageReason(target: TopupTarget, currentResultCount: number) {
+  if (target.kind === 'location' && target.usesNearbyCheckpoint) {
+    return 'A user requested a direct 1 km nearby venue check.';
   }
-  // An unparseable reply is treated as "no" — the safe default is not
-  // spending money on a request whose gate didn't clearly say yes.
-  return { decision: 'no', reason: `Could not parse Haiku response, defaulted to no. Raw: ${text.slice(0, 300)}` };
+  if (currentResultCount === 0) {
+    return 'No venues are currently listed for this search scope.';
+  }
+  return `${currentResultCount} venues are below the ${MIN_COVERAGE}-venue coverage threshold.`;
 }
 
 // --- Handler ---
@@ -404,7 +355,6 @@ async function askHaiku(input: {
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
-  if (!ANTHROPIC_API_KEY) return jsonResponse({ error: 'ANTHROPIC_API_KEY is not configured' }, 500);
   if (!GOOGLE_PLACES_KEY_CONFIGURED) return jsonResponse({ error: 'GOOGLE_PLACES_KEY is not configured' }, 500);
   if (!PIPELINE_SHARED_SECRET) return jsonResponse({ error: 'PIPELINE_SHARED_SECRET is not configured' }, 500);
 
@@ -425,7 +375,10 @@ Deno.serve(async (req) => {
     .not('redeemed_at', 'is', null)
     .limit(1)
     .maybeSingle();
-  if (betaAccessError) return jsonResponse({ error: 'Could not check beta access', detail: betaAccessError.message }, 502);
+  if (betaAccessError) {
+    console.error('Could not check beta access:', betaAccessError.message);
+    return jsonResponse({ error: 'beta_access_unavailable' }, 502);
+  }
   if (!betaAccess) return jsonResponse({ error: 'beta_access_required' }, 403);
 
   let body: { areaQuery?: string; location?: unknown; coverageMode?: unknown };
@@ -435,7 +388,9 @@ Deno.serve(async (req) => {
     return jsonResponse({ error: 'Invalid JSON body' }, 400);
   }
 
-  const areaQuery = body.areaQuery?.trim().replace(/\s+/g, ' ');
+  const areaQuery = typeof body.areaQuery === 'string'
+    ? body.areaQuery.trim().replace(/\s+/g, ' ')
+    : undefined;
   const location = parseLocation(body.location);
   const useNearbyRefresh = body.coverageMode === 'nearby';
   if (body.coverageMode !== undefined && !useNearbyRefresh) {
@@ -471,13 +426,17 @@ Deno.serve(async (req) => {
       .from('restaurants')
       .select('place_id', { count: 'exact', head: true })
       .ilike('suburb', `%${target.areaQuery}%`);
-    if (error) return jsonResponse({ error: 'Could not check venue coverage', detail: error.message }, 502);
+    if (error) {
+      console.error('Could not check area coverage:', error.message);
+      return jsonResponse({ error: 'coverage_unavailable' }, 502);
+    }
     currentResultCount = count ?? 0;
   } else {
     try {
       currentResultCount = await countNearbyRestaurants(target.location, target.radiusMeters);
     } catch (err) {
-      return jsonResponse({ error: 'Could not check venue coverage', detail: String(err) }, 502);
+      console.error('Could not check nearby coverage:', err);
+      return jsonResponse({ error: 'coverage_unavailable' }, 502);
     }
   }
 
@@ -494,7 +453,7 @@ Deno.serve(async (req) => {
 
   const { data: lastEvent } = await supabaseAdmin
     .from('ondemand_topup_events')
-    .select('triggered_at, haiku_decision')
+    .select('triggered_at')
     .eq('area_query', target.eventKey)
     .order('triggered_at', { ascending: false })
     .limit(1)
@@ -508,52 +467,20 @@ Deno.serve(async (req) => {
     return jsonResponse({ triggered: false, reason: 'recently_checked', resultCount: currentResultCount });
   }
 
-  // 2. The explicit 1 km mode always checks Google after an atomically claimed
-  // nearby-cache reservation. Zero-result scopes also always fetch; the
-  // existing broader flows retain Haiku's partial-coverage cost judgement.
-  const scopeLabel = target.kind === 'area'
-    ? target.areaQuery
-    : `within ${target.radiusMeters / 1000} km of the user`;
-  let decision: 'yes' | 'no';
-  let reason: string;
-  if (target.kind === 'location' && target.usesNearbyCheckpoint) {
-    decision = 'yes';
-    reason = 'A user requested a direct 1 km nearby venue check.';
-  } else if (currentResultCount === 0) {
-    decision = 'yes';
-    reason = 'No venues are currently listed for this search scope.';
-  } else {
-    try {
-      ({ decision, reason } = await askHaiku({
-        scopeLabel,
-        currentResultCount,
-        lastCheckedAt: lastEvent?.triggered_at ?? null,
-        lastDecision: lastEvent?.haiku_decision ?? null,
-      }));
-    } catch (err) {
-      return jsonResponse({ triggered: false, reason: 'topup_decision_unavailable', detail: String(err) }, 502);
-    }
-  }
-
-  if (decision === 'no') {
-    await supabaseAdmin.from('ondemand_topup_events').insert({
-      user_id: userData.user.id,
-      area_query: target.eventKey,
-      haiku_decision: 'no',
-      haiku_reason: reason,
-      result_count_before: currentResultCount,
-    });
-    return jsonResponse({ triggered: false, reason });
-  }
+  // 2. The explicit 1 km mode always checks Google after an atomically
+  // claimed nearby-cache reservation. Every other scope checks whenever its
+  // result count is below MIN_COVERAGE and the recency guard has passed.
+  const reason = coverageReason(target, currentResultCount);
 
   // 3. Claim global, per-user, and (for 1 km mode) nearby capacity in one
-  // database transaction. This is deliberately after Haiku's no-cost decision
-  // but before any Google request, so concurrent yes decisions cannot overspend.
+  // database transaction, before any Google request, so concurrent requests
+  // cannot overspend.
   let reservation: TopupReservationClaim;
   try {
     reservation = await claimTopupReservation(userData.user.id, target);
   } catch (err) {
-    return jsonResponse({ error: 'Could not reserve coverage refresh', detail: String(err) }, 502);
+    console.error('Could not reserve coverage refresh:', err);
+    return jsonResponse({ error: 'coverage_reservation_unavailable' }, 502);
   }
   if (reservation.outcome !== 'granted' || !reservation.reservation_id) {
     return jsonResponse({

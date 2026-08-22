@@ -396,24 +396,6 @@ class SupabaseService {
       'recorded_at': reading.recordedAt.toIso8601String(),
       'capture_duration_ms': reading.captureDuration.inMilliseconds,
     });
-    await _recomputeScore(reading.placeId);
-  }
-
-  /// Calls the recompute-restaurant-score Edge Function so a submitted vote
-  /// or reading actually shows up in quietness_score/confidence, instead of
-  /// only ever being picked up by the next full data-pipeline run (which
-  /// Caelan triggers manually and which re-fetches every restaurant from
-  /// Google Places — real API cost, so it can't run on every submission).
-  /// Best-effort: the vote/reading write this follows already succeeded, so
-  /// a recompute failure here isn't surfaced to the user — the next full
-  /// pipeline run would still pick it up eventually.
-  Future<void> _recomputeScore(String placeId) async {
-    try {
-      await _client.functions
-          .invoke('recompute-restaurant-score', body: {'placeId': placeId});
-    } catch (_) {
-      // Non-fatal — see doc comment above.
-    }
   }
 
   /// The signed-in user's most recent mic calibration, or null if they've
@@ -455,7 +437,6 @@ class SupabaseService {
     await _client
         .from('loudness_votes')
         .insert({'place_id': placeId, 'vote': vote});
-    await _recomputeScore(placeId);
   }
 
   /// Maps a `restaurants` table row (see 0001_init.sql) onto the same
