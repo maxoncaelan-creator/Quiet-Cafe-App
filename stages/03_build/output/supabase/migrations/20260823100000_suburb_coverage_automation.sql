@@ -970,14 +970,14 @@ begin
   for update skip locked;
   if not found then return; end if;
 
-  update public.nsw_suburb_sweep_jobs
+  update public.nsw_suburb_sweep_jobs as job
   set status = 'running',
       claimed_at = now(),
       lease_expires_at = now() + interval '15 minutes',
       lease_token = v_lease_token,
-      attempt_count = attempt_count + 1,
+      attempt_count = job.attempt_count + 1,
       updated_at = now()
-  where suburb_id = v_job.suburb_id;
+  where job.suburb_id = v_job.suburb_id;
 
   insert into public.nsw_suburb_sweep_state (suburb_id, last_attempt_at, updated_at)
   values (v_job.suburb_id, now(), now())
