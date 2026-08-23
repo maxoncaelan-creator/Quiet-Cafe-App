@@ -58,10 +58,11 @@ Three things every model must understand before touching billed code:
   and checked before the call, not after.** A per-user cap cannot enforce a global
   spend ceiling.
 
-**Before Step 1 begins, Caelan must confirm the real number** by reading actual
-Google Cloud billing for this project. Google replaced the flat $200 monthly
-credit in March 2025 with per-SKU free allowances, so the true marginal cost of a
-sweep can only be read from the billing console, not estimated from docs.
+**Confirmed 2026-08-23: the operational ceiling is 8,000 Google Places calls per
+UTC month.** The Step 0 migration seeds that value in the server-enforced ledger.
+Google replaced the flat $200 monthly credit in March 2025 with per-SKU free
+allowances, so reassess the request-to-dollar relationship from the billing
+console whenever the ceiling is changed.
 
 ### Consequence Caelan should weigh
 
@@ -310,9 +311,8 @@ guard must pre-date the throttle.
 **3. The field mask is on an expensive tier.** `places-search` requests
 `places.reviews` alongside `rating`, `priceLevel` and `userRatingCount`.
 Reviews are an Enterprise/Atmosphere-class field, so these are not cheap
-Essentials-tier calls. **The 300/month ceiling in
-`places_budget_config` is a placeholder, not a costed figure** — Caelan needs to
-read real Google Cloud billing before step 1 opens the throttle. Terra should
+Essentials-tier calls. **Caelan confirmed an 8,000-call-per-UTC-month operational
+ceiling on 2026-08-23.** The ledger enforces that number, but Terra should still
 treat splitting cheap discovery from expensive review-enrichment as a costed
 proposal to bring back, not an assumption to build on.
 
@@ -326,9 +326,8 @@ part of the freshness redesign rather than tune it.
 and is on step 1's exit criteria as a demonstrated stop, not an asserted one.
 
 **Still needed from Caelan:** the Sentry DSN (see
-[`SENTRY_SETUP.md`](SENTRY_SETUP.md)) and a confirmed request ceiling from real
-billing. Neither blocks the PR; both block Sentry actually reporting and step 1
-respectively.
+[`SENTRY_SETUP.md`](SENTRY_SETUP.md)). It does not block the PR or Step 1; it
+only blocks Sentry actually reporting.
 
 **Build log:** deliberately not edited in this step, because
 [PR #44](https://github.com/maxoncaelan-creator/Quiet-Cafe-App/pull/44) has

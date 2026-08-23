@@ -32,13 +32,13 @@ create table public.places_budget_config (
 comment on table public.places_budget_config is
   'Single-row ceiling for billed Google Places requests per UTC month. Caelan can change monthly_request_ceiling without a deploy.';
 
--- PROVISIONAL. 300 requests/month is a placeholder chosen against a $10 ceiling
--- and an assumed high-tier per-request cost. It has NOT been reconciled against
--- real Google Cloud billing for this project. Confirm it from the billing
--- console before step 1 opens the throttle, and change this row rather than
--- editing this migration.
+-- Confirmed 2026-08-23: this project's operational ceiling is 8,000 Google
+-- Places calls per UTC month. The limit remains an editable row so a later
+-- billing or product decision can change it without a database deploy. This
+-- migration has not yet been applied, so the confirmed value belongs here
+-- rather than in a follow-up data migration.
 insert into public.places_budget_config (id, monthly_request_ceiling, note)
-values (true, 300, 'Provisional against $10/month. Confirm against real Google Cloud billing before step 1 raises Places traffic.')
+values (true, 8000, 'Confirmed 2026-08-23: 8,000 Google Places calls per UTC month.')
 on conflict (id) do nothing;
 
 create table public.places_request_reservations (
