@@ -55,6 +55,73 @@ class SearchAssistantRateLimited implements Exception {
   const SearchAssistantRateLimited(this.resetAt);
 }
 
+/// What the backend is doing about a suburb's venue coverage, when the question
+/// named one. Lets a thin suburb say so plainly instead of leaving the user to
+/// conclude the venue does not exist — see the `coverage` field in
+/// supabase/functions/search-assistant.
+enum AssistantCoverageStatus {
+  /// A sweep was queued. More venues may appear later, not in this answer.
+  refreshQueued,
+
+  /// A sweep is already queued or running from an earlier request.
+  refreshPending,
+
+  /// Swept recently. What is listed is what there is.
+  upToDate,
+}
+
+class AssistantCoverage {
+  final AssistantCoverageStatus status;
+  final String suburb;
+  final DateTime? nextEligibleAt;
+
+  const AssistantCoverage({
+    required this.status,
+    required this.suburb,
+    this.nextEligibleAt,
+  });
+}
+
+/// The assistant's answer, plus optional coverage state.
+///
+/// [coverage] is null whenever the question named no suburb, the backend chose
+/// not to report one, or the app is talking to an older Function version that
+/// predates the field. Callers must treat its absence as ordinary.
+class AssistantAnswer {
+  final String reply;
+  final AssistantCoverage? coverage;
+
+  const AssistantAnswer({required this.reply, this.coverage});
+}
+
+/// Parses the optional `coverage` object from a Search Assistant response.
+///
+/// Deliberately total: any shape it does not recognise yields null rather than
+/// throwing, so a backend that adds a new status cannot break an app build that
+/// predates it. Kept top-level so it is directly testable without a live
+/// Supabase client.
+AssistantCoverage? assistantCoverageFromResponse(dynamic value) {
+  if (value is! Map) return null;
+  final suburb = value['suburb'];
+  if (suburb is! String || suburb.isEmpty) return null;
+
+  final status = switch (value['status']) {
+    'refresh_queued' => AssistantCoverageStatus.refreshQueued,
+    'refresh_pending' => AssistantCoverageStatus.refreshPending,
+    'up_to_date' => AssistantCoverageStatus.upToDate,
+    _ => null,
+  };
+  if (status == null) return null;
+
+  final rawNextEligible = value['nextEligibleAt'];
+  return AssistantCoverage(
+    status: status,
+    suburb: suburb,
+    nextEligibleAt:
+        rawNextEligible is String ? DateTime.tryParse(rawNextEligible) : null,
+  );
+}
+
 /// Returns the assistant rate-limit state only for the backend's documented
 /// 429 payload. `functions_client` throws [FunctionsHttpException] for a
 /// non-2xx response, so callers must inspect its [FunctionException.details]
@@ -299,7 +366,7 @@ class SupabaseService {
   /// table (yet). The function itself requires a signed-in caller and
   /// enforces the per-account token budget — this only surfaces what it
   /// says, it doesn't duplicate that logic.
-  Future<String> askSearchAssistant(
+  Future<AssistantAnswer> askSearchAssistant(
     String message,
     List<Map<String, String>> history, {
     double? latitude,
@@ -340,7 +407,10 @@ class SupabaseService {
       throw Exception('Search Assistant request failed (${response.status})');
     }
     final data = response.data as Map<String, dynamic>;
-    return data['reply'] as String? ?? '';
+    return AssistantAnswer(
+      reply: data['reply'] as String? ?? '',
+      coverage: assistantCoverageFromResponse(data['coverage']),
+    );
   }
 
   /// Requests more coverage for an explicitly named area from the guarded
