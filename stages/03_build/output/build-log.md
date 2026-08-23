@@ -558,7 +558,7 @@ budget reservation. Returned locality aliases are persisted under their
 official canonical label, and worker completion requires a lease token.
 
 Local verification passed Deno type checks, five focused Deno tests,
-`git diff --check`, and static confirmation that the 41 pgTAP assertions match
+`git diff --check`, and static confirmation that the 42 pgTAP assertions match
 the declared plan. The database suite could not run locally because Docker,
 Podman and the Supabase CLI stack are unavailable here; hosted Supabase CI is
 therefore a required review gate. The pricing proposal is documented but no

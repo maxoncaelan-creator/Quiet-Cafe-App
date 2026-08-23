@@ -796,9 +796,9 @@ begin
 
   -- Re-check under the per-suburb coordination lock. A worker might have
   -- completed this locality after the caller first decided to refresh it.
-  select eligible, reason, next_eligible_at
+  select eligibility.eligible, eligibility.reason, eligibility.next_eligible_at
     into v_eligible, v_reason, v_next_eligible_at
-    from public.suburb_sweep_eligibility(p_suburb_id);
+    from public.suburb_sweep_eligibility(p_suburb_id) as eligibility;
   if not v_eligible then
     return query select v_reason, null::uuid;
     return;
@@ -852,9 +852,9 @@ begin
 
   perform public.record_nsw_suburb_coverage_demand(p_suburb_id, p_source);
 
-  select eligible, reason, next_eligible_at
+  select eligibility.eligible, eligibility.reason, eligibility.next_eligible_at
     into v_eligible, v_reason, v_next_eligible_at
-    from public.suburb_sweep_eligibility(p_suburb_id);
+    from public.suburb_sweep_eligibility(p_suburb_id) as eligibility;
   if not v_eligible then
     return query select v_reason, v_next_eligible_at;
     return;

@@ -1,7 +1,7 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select plan(41);
+select plan(42);
 
 select is(
   public.normalise_nsw_suburb_name('  Crows   Nest '),
@@ -158,6 +158,12 @@ select results_eq(
   $$,
   array['queued'::text],
   'a newly demanded stale locality is queued'
+);
+
+select results_eq(
+  $$ select outcome from public.claim_nsw_suburb_sweep(gen_random_uuid()) $$,
+  array['retired_or_unknown_suburb'::text],
+  'a direct sweep claim executes the eligibility query for an unknown locality'
 );
 
 -- `now()` is stable for this test transaction, so make recency explicit
