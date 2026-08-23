@@ -244,8 +244,8 @@ device behaviour.
 
 ### Immediate defects — resolve before new feature work
 
-- **Speech-to-text is unreliable across search inputs.** The source fix is in
-  draft PR #38: one shared `speech_to_text` instance now owns initialisation
+- **Speech-to-text is unreliable across search inputs.** The source fix merged
+  as PR #38: one shared `speech_to_text` instance now owns initialisation
   and callbacks for the List and Search Assistant inputs, errors are actionable
   (permission, unavailable, network and timeout), and the Android release
   manifest declares the recognition service. It still requires successful live
@@ -263,17 +263,18 @@ device behaviour.
   service now catches Supabase's thrown HTTP-function error, maps the 429
   `resetAt` payload to the existing countdown UI, and leaves other failures as
   the generic fallback. Regression coverage includes 429, non-429 and malformed
-  payloads; `flutter analyze --no-pub` and 21 tests passed. A live 429 check is
-  blocked until the production migrations below are synchronised.
-- **Production migrations are out of sync with `main` (blocked).** Evidence on
-  2026-08-22 found production missing `20260822140000`, `20260822153000` and
-  `20260822154500`, although the deployed Assistant calls the atomic-budget
-  function from `20260822153000`. Do not patch migration history manually.
-  Complete the linked Supabase deployment or run authenticated `supabase db
-  push --linked` from clean `main`, then follow
-  [`BACKEND_RELEASE_RUNBOOK.md`](supabase/BACKEND_RELEASE_RUNBOOK.md) and attach
-  the resulting migration/function evidence to the PR. This is tracked in
-  [GitHub issue #39](https://github.com/maxoncaelan-creator/Quiet-Cafe-App/issues/39).
+  payloads; `flutter analyze --no-pub` and 21 tests passed. The live 429 check is
+  **no longer blocked** — production migrations were synchronised and verified on
+  2026-08-23 — but it still needs a signed-in beta account to exercise the real
+  rate limit and confirm the countdown UI renders instead of the generic
+  connectivity failure.
+- **Production migration sync — resolved.** Issue #39 is closed. Production and
+  the repository now report the same 24 migrations, and all six Edge Functions
+  are deployed and `ACTIVE`. Verified directly on 2026-08-23; see "Latest
+  verification — production security and sync" below. The
+  [`BACKEND_RELEASE_RUNBOOK.md`](supabase/BACKEND_RELEASE_RUNBOOK.md) check
+  remains mandatory after every backend-changing merge — this drifted silently
+  once already, even with the GitHub integration enabled.
 - **Local Supabase database test is blocked by Podman tooling.** Podman Desktop
   has a running WSL machine, but its native `podman` CLI was not installed or
   on `PATH`; the official CLI installer completed without creating a native
@@ -325,6 +326,9 @@ device behaviour.
 - `app.cafequiet.com` is live. Keep its Cloudflare Pages build configuration
   and public Supabase environment values verified when the web build changes;
   a successful static deployment does not deploy Supabase backend changes.
+- Enable Supabase Auth **leaked-password protection** (HaveIBeenPwned check). The
+  security advisor reports it disabled; it is a dashboard toggle, not a
+  migration.
 - Decide whether to add an admin view of outstanding/redeemed beta codes.
 - Create iOS OAuth credentials and run an iOS build/device test. Facebook
   remains hidden until its Supabase provider is configured.
@@ -466,3 +470,45 @@ pgTAP regression coverage. It must pass hosted Supabase database CI before
 being merged. Podman is now installed, on `PATH`, and can run containers, but
 the Windows Supabase CLI still aborts its local stack before Postgres opens
 port 54322; that narrower startup issue is tracked in issue #40.
+
+## Latest verification — production security and sync
+
+On 2026-08-23 the post-merge state of PR #43 was checked directly against the
+live project (`aesorixtfasfuvcqrvem`) rather than inferred from the merge.
+
+- **Migrations:** production lists 24 migrations and the repository holds 24
+  migration files, ending at `20260822160000_revoke_trigger_function_execution`.
+  One-to-one, with no repaired-record drift remaining.
+- **Edge Functions:** all six repository functions are deployed and `ACTIVE`.
+  Every one shares a deploy timestamp of 2026-08-22 19:30 local, so the
+  corrected GitHub integration redeployed them together rather than leaving a
+  partial release. `search-assistant` is version 13 and `ondemand-topup` is
+  version 10, both one ahead of the numbers recorded on 2026-08-22.
+- **The revoke actually took:** querying `has_function_privilege` for `public`,
+  `anon` and `authenticated` against the three trigger-only functions returned
+  an empty set. No browser-facing role can execute them.
+- **The triggers still fire:** all four triggers on `mic_readings` and
+  `loudness_votes` exist and are enabled (`tgenabled = 'O'`), so revoking the
+  API grants did not disturb contribution scoring or current-loudness writes.
+- **`find_nearest_restaurant`:** `proconfig` is `search_path=public, pg_temp`
+  and the function remains `SECURITY INVOKER`, as the migration intended.
+- **Security advisor now reports no trigger-function findings.** What remains is
+  seven `rls_enabled_no_policy` INFO notices and two `SECURITY DEFINER`
+  warnings, discussed below.
+
+### Advisor findings that are accepted, not defects
+
+- `has_beta_access()` and `redeem_beta_code(p_code text)` are flagged as
+  `SECURITY DEFINER` functions executable by `authenticated`. That is the beta
+  gate working as designed: a signed-in user must be able to call both. Left as
+  is deliberately — do not "fix" these by revoking the grant.
+- Seven tables report RLS enabled with no policies: `assistant_venue_drafts`,
+  `beta_codes`, `early_access_signups`, `ondemand_topup_events`,
+  `ondemand_topup_reservations`, `user_location_state` and
+  `venue_coverage_checkpoints`. No policy is the deny-all posture these tables
+  want; they are reached through security-definer functions and the service
+  role, never from the browser. This is the same "no browser read access"
+  property PR #37 added a regression test for.
+
+The one genuinely open advisor item is leaked-password protection, listed under
+"Requires Caelan or a dashboard decision" above.
