@@ -53,11 +53,35 @@ discovery plus a bounded set of detail requests.
 - It needs a benchmark using real suburb response distributions before claiming
   a dollar saving.
 
-## Caelan's decision
+## Caelan's decision — made 2026-08-23
 
-Before enabling scheduled paid sweeps, choose one:
+**Option 2: stay inside the free tier until user numbers justify paying.**
 
-1. keep the 8,000-call ceiling and explicitly accept the higher potential
-   spend;
-2. lower the ceiling to match the intended monthly spend; or
-3. approve a separate discovery/enrichment design and policy review.
+The ceiling is now **1,000 requests per UTC month**, set by
+`20260823110000_free_tier_places_ceiling.sql`. That is the largest value that
+stays within Google's free allowance for Text Search Enterprise + Atmosphere,
+so the expected marginal cost of the app's automated sweeps is zero.
+
+Review the ceiling when active users reach 50, 100, 300, 500, 1000, 5000, and
+every 10,000 thereafter. Option 3 (the discovery/enrichment split) is not
+rejected — it is deferred, and becomes the thing to do *instead of* simply
+buying a higher ceiling, because it raises effective coverage per dollar rather
+than raising spend.
+
+### Two things this decision does not cover
+
+**The 8,000 figure never reached the database.** It was written into
+`20260823091000_places_request_budget.sql` by PR #46 after that migration had
+already been applied, so production continued to hold the original 300 while
+the repository claimed 8,000. Applied migrations do not re-run and that insert
+carries `on conflict do nothing`. The new migration uses an unconditional
+`update` so both a fresh database and production converge on 1,000, and
+`places_budget_ceiling.test.sql` now asserts the settled value so the same
+silent divergence fails a test instead of going unnoticed.
+
+**The ledger does not see the whole bill.** It governs only Google traffic
+routed through the `places-search` Edge Function. `data-pipeline/src/places.js`
+calls Google directly and is not counted, so a pipeline run consumes the same
+free allowance invisibly — and a full seed run is far larger than 1,000
+requests. Until the pipeline is brought under the same ledger, "free" describes
+the app's automated sweeps, not total project spend.

@@ -10,7 +10,7 @@ updates its own status block here when it finishes.
 | Step | Owner | Scope | Status |
 |---|---|---|---|
 | 0 | Claude Opus 5 (Claude Code) | Instrumentation, extensions, budget guard, dependencies | **Done — merged PRs #45 and #46** |
-| 1 | ChatGPT Terra 5.6 | Backend automation: gazetteer, sweep freshness, cron, queue | **Draft PR #47 open — awaiting hosted Supabase CI and Caelan review** |
+| 1 | ChatGPT Terra 5.6 | Backend automation: gazetteer, sweep freshness, cron, queue | **Reviewed and merged — automation ships disabled** |
 | 2 | Claude Opus 5 (Claude Code) | Full-stack assistant rewire | Not started |
 | 3 | Anthropic Sonnet 5 | Frontend: Riverpod migration, score refresh propagation | Not started |
 | 4 | Claude Opus 5 (Claude Code) | Beta hardening, PostHog, launch work | Not started |
@@ -333,3 +333,54 @@ only blocks Sentry actually reporting.
 [PR #44](https://github.com/maxoncaelan-creator/Quiet-Cafe-App/pull/44) has
 uncommitted changes to the same file and a conflict would be pointless. Fold
 step 0 into the build log after #44 merges.
+
+### Step 1 — ChatGPT Terra 5.6, reviewed by Claude Opus 5, 2026-08-23
+
+**Reviewed, accepted, merged.** All seven exit criteria met, hosted CI green.
+
+Verified rather than taken on trust: the gazetteer source is the official NSW
+Spatial Services boundaries endpoint; the once-a-month sync cadence is enforced
+by a `CHECK (gazetteer_sync_min_interval >= interval '30 days')` rather than by
+convention; `resolve_nsw_suburb('louder the better')` is regression-tested to
+resolve to nothing, bare and embedded in prose; and a dense Crows Nest at
+fifteen venues is tested as sweepable when stale — the exact case that started
+this work. 42 pgTAP tests.
+
+**Three things the implementation did better than the brief.** Budget is
+claimed per *request* rather than per sweep, so the ledger counts real billed
+calls. `verifyPlacesDispatchBoundary()` fails closed when the Edge Function
+deploys ahead of its migration. And `coverage_automation_config.enabled`
+defaults to `false`, so merging started nothing.
+
+**Security passed.** 20 new functions, all with `set search_path`, 17 explicitly
+revoked. The four without are the step-0 budget functions being redefined with
+byte-identical signatures, so `CREATE OR REPLACE` preserves their grants — no
+repeat of #43. That invariant is unwritten though: if a future edit changes one
+of those argument lists the revoke silently disappears and the function becomes
+`PUBLIC`-executable. Worth a comment at those definitions.
+
+**One real defect found, and it was not in the diff.** Production held a ceiling
+of 300 while the repository claimed 8,000. PR #46 had edited migration
+`20260823091000` *after* it was applied; applied migrations do not re-run and
+its insert carries `on conflict do nothing`, so the change never reached the
+database. Same class of repo-versus-production divergence as the earlier
+migration-repair incident, and nothing would have caught it.
+
+**Resolved before merge.** Caelan chose to stay inside the free tier until user
+numbers justify paying. `20260823110000_free_tier_places_ceiling.sql` uses an
+unconditional `update` so a fresh database and production both converge on
+1,000 — the largest ceiling with zero expected marginal cost, given the
+`places.reviews` field mask bills as Text Search Enterprise + Atmosphere.
+`places_budget_ceiling.test.sql` now asserts the settled value, so the same
+divergence fails a test rather than going unnoticed. Recorded in
+`_config/decisions.md` under "Google Places spend".
+
+**Known limitation, recorded not fixed:** the ledger only sees Google traffic
+through the `places-search` Edge Function. `data-pipeline/src/places.js` calls
+Google directly and is uncounted, and a full seed run far exceeds 1,000
+requests. "Free" describes the app's automated sweeps, not total project spend.
+
+**Not yet done:** the automation is merged but `enabled = false`. Turning it on
+needs the worker URL and vault secret configured — see
+`COVERAGE_AUTOMATION_SETUP.md`. Nothing has swept, and no live Google request
+has been made through the new path.

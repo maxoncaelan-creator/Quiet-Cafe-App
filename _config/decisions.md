@@ -117,6 +117,36 @@ Not active:
   Google Places only. `data-pipeline/src/yelp.js` is kept dormant (was never
   wired into `pipeline.js` in the first place) in case this gets revisited.
 
+## Google Places spend
+
+**Stay inside Google's free tier until user numbers justify paying.** Confirmed
+with Caelan 2026-08-23. The ceiling is **1,000 Places requests per UTC month**,
+held as an editable row in `places_budget_config` and set by
+`20260823110000_free_tier_places_ceiling.sql`.
+
+1,000 is not arbitrary: `places-search` requests `places.reviews`, which Google
+bills as Text Search **Enterprise + Atmosphere** — about 1,000 free requests a
+month, then roughly $40 per 1,000. So 1,000 is the largest ceiling with an
+expected marginal cost of zero. An earlier figure of 8,000 would have been
+roughly $280/month against a stated budget of $10.
+
+**Review the ceiling at** 50, 100, 300, 500, 1000, 5000 active users, and every
+10,000 thereafter. When raising it becomes worthwhile, prefer the
+discovery/enrichment split in
+[`PLACES_COST_PROPOSAL.md`](../stages/03_build/output/supabase/PLACES_COST_PROPOSAL.md)
+over simply buying more calls — it raises coverage per dollar rather than spend.
+
+**The ledger is not the whole bill.** It counts only Google traffic through the
+`places-search` Edge Function. `data-pipeline/src/places.js` calls Google
+directly and is invisible to it, and a full seed run is far larger than 1,000
+requests. "Free" describes the app's automated sweeps, not total project spend.
+
+**Changing the ceiling is a data change, not a migration edit.** Editing an
+already-applied migration does nothing — that is precisely how production came
+to hold 300 while the repository claimed 8,000 (PR #46, corrected 2026-08-23).
+Update the row, or add a migration that does, and
+`places_budget_ceiling.test.sql` will hold the settled value honest.
+
 ## Domain
 
 `cafequiet.com` — purchased by Caelan, confirmed 2026-08-17. DNS fully
