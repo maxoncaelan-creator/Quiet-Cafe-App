@@ -751,3 +751,40 @@ then write a test that could expose a missed transition.
 dispatched-but-unsettled requests charged, added lease tokens to
 claims/completions, and expanded deterministic budget and queue tests before
 opening the PR.
+
+## release-order-doc-not-read-before-deploying
+
+Deployed `ondemand-topup` and `search-assistant` to production without reading
+`COVERAGE_AUTOMATION_SETUP.md`, the release procedure shipped in the very PR
+that had just been reviewed. That file says explicitly not to deploy those two
+functions until the initial gazetteer snapshot has succeeded.
+
+### 2026-08-23 | 03_build | caught: self
+
+Reviewed PR #47's migration, Edge Functions and 42 pgTAP tests in detail, then
+deployed straight from the merge without opening the setup document in the same
+diff. Steps 3-5 of its documented order (set `COVERAGE_AUTOMATION_SECRET`,
+invoke the sync, verify ~4,600 records) were skipped, so the strict resolver
+callers went live against an empty `nsw_suburbs` table.
+
+The result was a live degradation: `resolve_nsw_suburb('Crows Nest')` returned
+nothing, identical to `resolve_nsw_suburb('louder the better')`. The assistant
+could not scope any area query. It failed closed — no spend, no data damage —
+but was worse than the version it replaced. It was caught by checking the
+gazetteer row count *after* deploying, which is the right check in the wrong
+order.
+
+**Standard:** A pull request's release/runbook documentation is part of the
+review, not a reference to consult if something goes wrong. Before deploying
+anything from a merged PR, read every file in that diff that describes
+deployment order or preconditions, and follow it step by step. Reviewing code
+thoroughly is not a substitute for reading the release procedure sitting beside
+it.
+
+**Fix:** Caelan set the automation secret and ran the gazetteer sync manually;
+4,607 records loaded, sync reported `succeeded`. Resolution was then verified in
+both directions — `Crows Nest`, `crows nest` and `crowsnest` each resolve, while
+`louder the better` resolves to nothing in bare and prose form — and Crows Nest
+now reports `eligible: true, never_swept` rather than being frozen at fifteen
+venues.
+
