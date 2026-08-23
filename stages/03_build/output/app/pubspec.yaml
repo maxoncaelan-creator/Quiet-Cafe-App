@@ -25,6 +25,12 @@ dependencies:
   flutter_svg: ^2.0.10+1
   web: ^1.1.0
   geolocator: ^13.0.0
+  # Crash reporting. Inert unless a SENTRY_DSN dart-define is supplied —
+  # see observability_service.dart and SENTRY_SETUP.md.
+  sentry_flutter: ^8.9.0
+  # Added in step 0 as a dependency only; the incremental migration off
+  # setState is step 3. See execution-plan-2026-08-23.md.
+  flutter_riverpod: ^2.5.1
 
 dev_dependencies:
   flutter_test:

@@ -90,6 +90,17 @@ The anon key is safe to keep in plain text like this — it's meant for
 client-side use and RLS is what actually restricts what it can do, not
 secrecy of the key itself.
 
+**Crash reporting** (optional, added 2026-08-23). Add
+`--dart-define=SENTRY_DSN=https://...` to send crashes to Sentry. Without it
+the app runs exactly as before: `ObservabilityService` installs no Sentry zone
+at all when the DSN is empty, so `flutter test`, hosted CI and the standalone
+no-Supabase demo build are unaffected. A DSN is not a secret — it ships inside
+every released binary and only permits *sending* events — but it differs per
+environment, so it stays out of source. Caelan creates the project and supplies
+the value: see
+[`SENTRY_SETUP.md`](../SENTRY_SETUP.md). For the live web app the same value
+goes into the Cloudflare Pages build environment, not just local runs.
+
 **Password policy** (Authentication → Providers → Email → Password
 Requirements, in the same dashboard): currently set to require an
 uppercase letter, a lowercase letter, a number, and a special character —

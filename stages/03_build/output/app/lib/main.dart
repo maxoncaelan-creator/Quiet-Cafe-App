@@ -2,11 +2,13 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_web_plugins/url_strategy.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'router.dart';
 import 'services/download_banner_service.dart';
+import 'services/observability_service.dart';
 import 'services/supabase_service.dart';
 import 'services/theme_service.dart';
 import 'widgets/download_app_banner.dart';
@@ -18,12 +20,21 @@ import 'widgets/download_app_banner.dart';
 const _seedColor = Color(0xFF006874);
 
 void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  if (kIsWeb) usePathUrlStrategy(); // plain /restaurant/abc URLs, not /#/restaurant/abc
-  await SupabaseService.initialize(); // no-op if SUPABASE_URL/SUPABASE_ANON_KEY aren't set — see supabase_service.dart
-  await ThemeService.load();
-  await DownloadBannerService.load();
-  runApp(const QuietRestaurantFinderApp());
+  // Sentry wraps the rest of startup so an error thrown during initialisation
+  // is reported too — those are the ones that leave a tester staring at a
+  // blank screen with nothing to tell us. No-op without a SENTRY_DSN
+  // dart-define, so CI and the standalone build are unaffected.
+  await ObservabilityService.runApp(() async {
+    WidgetsFlutterBinding.ensureInitialized();
+    if (kIsWeb) usePathUrlStrategy(); // plain /restaurant/abc URLs, not /#/restaurant/abc
+    await SupabaseService.initialize(); // no-op if SUPABASE_URL/SUPABASE_ANON_KEY aren't set — see supabase_service.dart
+    await ThemeService.load();
+    await DownloadBannerService.load();
+    // ProviderScope is added here in step 0 so step 3's incremental Riverpod
+    // migration has a root to attach to. Nothing reads from it yet — see
+    // execution-plan-2026-08-23.md.
+    runApp(const ProviderScope(child: QuietRestaurantFinderApp()));
+  });
 }
 
 class QuietRestaurantFinderApp extends StatefulWidget {
