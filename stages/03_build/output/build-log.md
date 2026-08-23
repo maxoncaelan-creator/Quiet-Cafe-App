@@ -542,3 +542,24 @@ The remaining advisor item is leaked-password protection, which is **not
 actionable on the current plan** — see "Requires Caelan or a dashboard
 decision" above. On the free plan the security advisor therefore has no finding
 that can be cleared by implementation work.
+
+## Step 1 draft — NSW coverage automation (2026-08-23)
+
+[PR #47](https://github.com/maxoncaelan-creator/Quiet-Cafe-App/pull/47) is a
+draft only: it is not merged, deployed, secret-configured, or scheduled. It
+adds the official NSW gazetteer sync, conservative canonical resolver,
+freshness-based demand queue and worker, plus a global 8,000-request
+UTC-month Places gate at the sole Google proxy.
+
+The proxy now fails closed if its dispatch-marker migration is not available,
+so the release runbook deploys that proxy before applying the migration. This
+prevents both an unguarded Google-call window and a stranded pre-migration
+budget reservation. Returned locality aliases are persisted under their
+official canonical label, and worker completion requires a lease token.
+
+Local verification passed Deno type checks, five focused Deno tests,
+`git diff --check`, and static confirmation that the 42 pgTAP assertions match
+the declared plan. The database suite could not run locally because Docker,
+Podman and the Supabase CLI stack are unavailable here; hosted Supabase CI is
+therefore a required review gate. The pricing proposal is documented but no
+ceiling change was made; Caelan must approve any paid scheduled work.

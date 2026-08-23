@@ -51,6 +51,11 @@ jobs:
       - uses: denoland/setup-deno@v2
       - run: deno check supabase/functions/search-assistant/index.ts
       - run: deno check supabase/functions/ondemand-topup/index.ts
+      - run: deno check supabase/functions/places-search/index.ts
+      - run: deno check supabase/functions/sync-nsw-gazetteer/index.ts
+      - run: deno check supabase/functions/coverage-automation-worker/index.ts
       - run: deno check supabase/functions/recompute-restaurant-score/index.ts
+      - run: deno test supabase/functions/places-search/budgeted_request_test.ts
+      - run: deno test supabase/functions/canonicalise_claimed_suburb_test.ts
       - run: supabase start
       - run: supabase test db

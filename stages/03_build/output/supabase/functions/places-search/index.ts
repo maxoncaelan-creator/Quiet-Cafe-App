@@ -16,8 +16,22 @@
 
 // Named GOOGLE_PLACES_KEY (not _API_KEY) in Supabase's Function secrets —
 // matches what Caelan actually set, confirmed 2026-08-17.
+import { createClient } from 'npm:@supabase/supabase-js@2';
+
+import {
+  runBudgetedProviderRequest,
+  type BudgetedProviderResult,
+  type PlacesBudgetClaim,
+} from './budgeted_request.ts';
+
 const GOOGLE_PLACES_API_KEY = Deno.env.get('GOOGLE_PLACES_KEY');
 const PIPELINE_SHARED_SECRET = Deno.env.get('PIPELINE_SHARED_SECRET');
+const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
+// Auto-injected by Supabase. This is used only for the server-only monthly
+// Places ledger; browser and pipeline callers never receive this credential.
+const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+let dispatchMarkerAvailable = false;
 
 const FIELD_MASK = [
   'places.id',
@@ -42,6 +56,50 @@ function jsonResponse(body: unknown, status = 200) {
     status,
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   });
+}
+
+async function claimPlacesBudget(purpose: string): Promise<PlacesBudgetClaim> {
+  const { data, error } = await supabaseAdmin
+    .rpc('claim_places_request_budget', { p_count: 1, p_purpose: purpose })
+    .single();
+  if (error || !data) {
+    throw new Error(`Could not reserve Places budget: ${error?.message ?? 'No result returned'}`);
+  }
+  return data as PlacesBudgetClaim;
+}
+
+async function markPlacesBudgetDispatched(reservationId: string) {
+  const { data, error } = await supabaseAdmin.rpc('mark_places_request_budget_dispatched', {
+    p_reservation_id: reservationId,
+  });
+  if (error || data !== true) {
+    throw new Error(`Could not mark Places request as dispatched: ${error?.message ?? 'No dispatch marker written'}`);
+  }
+  return true;
+}
+
+async function verifyPlacesDispatchBoundary() {
+  if (dispatchMarkerAvailable) return;
+
+  // Probe the marker before reserving capacity. This lets the Function deploy
+  // ahead of the migration and fail closed during that brief transition: no
+  // reservation is left pending and no Google request is made until the marker
+  // RPC is present and callable. A random id cannot match a real reservation.
+  const { error } = await supabaseAdmin.rpc('mark_places_request_budget_dispatched', {
+    p_reservation_id: crypto.randomUUID(),
+  });
+  if (error) {
+    throw new Error(`Places dispatch marker is not ready: ${error.message}`);
+  }
+  dispatchMarkerAvailable = true;
+}
+
+async function settlePlacesBudget(reservationId: string, actualCount: number) {
+  const { error } = await supabaseAdmin.rpc('settle_places_request_budget', {
+    p_reservation_id: reservationId,
+    p_actual_count: actualCount,
+  });
+  if (error) console.error('Could not settle Places budget:', error.message);
 }
 
 Deno.serve(async (req) => {
@@ -135,16 +193,46 @@ Deno.serve(async (req) => {
       }
     : { textQuery: query, ...(pageToken ? { pageToken } : {}) };
 
-  const placesRes = await fetch(requestUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Goog-Api-Key': GOOGLE_PLACES_API_KEY,
-      'X-Goog-FieldMask': fieldMask,
-    },
-    body: JSON.stringify(requestBody),
-  });
+  // This is the only code path that reaches Google Places: both the Node seed
+  // pipeline and every Edge Function call this proxy. Reserving here rather
+  // than in callers makes the 8,000-call ceiling genuinely global, including
+  // retries that become a second proxy invocation. Never include a user query
+  // in the ledger purpose.
+  let budgetResult: BudgetedProviderResult<Response>;
+  try {
+    budgetResult = await runBudgetedProviderRequest<Response>(
+      verifyPlacesDispatchBoundary,
+      () => claimPlacesBudget(
+        hasNearbySearch
+          ? 'places-search:nearby'
+          : pageToken
+            ? 'places-search:text_page'
+            : 'places-search:text',
+      ),
+      markPlacesBudgetDispatched,
+      settlePlacesBudget,
+      () => fetch(requestUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Goog-Api-Key': GOOGLE_PLACES_API_KEY,
+          'X-Goog-FieldMask': fieldMask,
+        },
+        body: JSON.stringify(requestBody),
+      }),
+    );
+  } catch (error) {
+    console.error('Places API request threw or budget could not be claimed:', error);
+    return jsonResponse({ error: 'Places API request failed' }, 502);
+  }
+  if (budgetResult.kind === 'denied') {
+    return jsonResponse({
+      error: 'monthly_places_budget_reached',
+      remaining: budgetResult.remaining,
+    }, 429);
+  }
 
+  const placesRes = budgetResult.value;
   if (!placesRes.ok) {
     const detail = await placesRes.text();
     return jsonResponse({ error: 'Places API request failed', detail }, 502);

@@ -8,3 +8,12 @@
 # nested beneath the repository root. The root directory would silently skip
 # these migrations while reporting that production is up to date.
 project_id = "quiet-restaurant-finder"
+
+# These jobs are invoked only by pg_net with a separate internal secret checked
+# inside each function. They cannot use a browser JWT because cron runs in the
+# database, not in an authenticated app session.
+[functions.coverage-automation-worker]
+verify_jwt = false
+
+[functions.sync-nsw-gazetteer]
+verify_jwt = false

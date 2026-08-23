@@ -132,40 +132,36 @@ async function loadRecentLocation(userId: string): Promise<UserLocation | null> 
     : null;
 }
 
-function extractAreaQuery(text: string): string | null {
-  // The assistant only needs an explicit place phrase, not a full natural-
-  // language parser. This catches "in Leppington", "near Leppington" and
-  // "around Leppington" deterministically before it decides whether to call
-  // Places; any unknown name simply yields no Google results, never a made-up
-  // venue. Conversation history is checked by the caller for follow-up turns.
-  const match = text.match(
-    /\b(?:in|near|around|at)\s+([a-z][a-z' -]{1,60}?)(?=\s+(?:for|with|that|which|tonight|today|tomorrow|please)\b|[?.!,]|$)/i,
-  );
-  // People often type only a suburb, including in lower case ("crows nest").
-  // Keep ordinary food searches in the regular conversation path instead.
-  const bareCandidate = text.trim().replace(/\s+/g, ' ');
-  const areaWords = bareCandidate.toLowerCase().split(' ');
-  const nonAreaWords = new Set([
-    'food', 'restaurant', 'restaurants', 'cafe', 'cafes', 'venue', 'venues',
-    'quiet', 'normal', 'loud', 'very', 'near', 'nearby', 'place', 'places',
-    'find', 'search', 'show', 'all', 'italian', 'thai', 'japanese', 'chinese',
-  ]);
-  const bareArea =
-    /^[a-z][a-z' -]{1,60}$/i.test(bareCandidate) &&
-      areaWords.length <= 4 &&
-      !areaWords.some((word) => nonAreaWords.has(word))
-      ? bareCandidate
-      : null;
-  if (!match && !bareArea) return null;
-  const area = (match?.[1] ?? bareArea!).trim().replace(/\s+/g, ' ');
-  if (!area || /^(?:me|here|my location|nearby)$/i.test(area)) return null;
-  return area;
+type ResolvedSuburbText = {
+  canonical_name: string;
+  is_active: boolean;
+};
+
+async function findRequestedArea(message: string, history: ChatMessage[]) {
+  // The database owns locality recognition. Unlike the retired regex and
+  // stopword list, it can only return an official NSW alias and never turns an
+  // arbitrary fragment of prose into a Places authorisation.
+  const messages = [message, ...history
+    .filter((turn) => turn.role === 'user')
+    .reverse()
+    .map((turn) => turn.content)];
+  for (const text of messages) {
+    const { data, error } = await supabaseAdmin
+      .rpc('resolve_nsw_suburb_in_text', { p_text: text })
+      .maybeSingle();
+    if (error) throw new Error(`Could not resolve requested suburb: ${error.message}`);
+    const result = data as ResolvedSuburbText | null;
+    if (result?.is_active) return result.canonical_name;
+  }
+  return null;
 }
 
-function findRequestedArea(message: string, history: ChatMessage[]) {
-  return [message, ...history.filter((turn) => turn.role === 'user').reverse().map((turn) => turn.content)]
-    .map(extractAreaQuery)
-    .find((area): area is string => area != null);
+async function resolveNswSuburb(areaQuery: string): Promise<ResolvedSuburbText | null> {
+  const { data, error } = await supabaseAdmin
+    .rpc('resolve_nsw_suburb', { p_query: areaQuery })
+    .maybeSingle();
+  if (error) throw new Error(`Could not resolve requested suburb: ${error.message}`);
+  return data as ResolvedSuburbText | null;
 }
 
 type VenueRequest = { name: string; suburb: string };
@@ -285,7 +281,7 @@ async function findVenue(name: string, suburb: string) {
   const { data, error } = await supabaseAnon
     .from('restaurants')
     .select('place_id, name, suburb, address, cuisine, google_rating, lat, lng')
-    .ilike('suburb', `%${suburb}%`)
+    .ilike('suburb', suburb)
     .limit(100);
   if (error) throw new Error(`Could not look up venue: ${error.message}`);
   return rankVenueCandidates(name, (data ?? []) as VenueCandidate[]);
@@ -454,10 +450,10 @@ async function settleAssistantBudget(
 
 async function refreshThinCoverage(token: string, scope: Exclude<SearchScope, null>): Promise<CoverageRefresh[]> {
   const refreshBodies = scope.kind === 'area'
-    ? [{ areaQuery: scope.areaQuery }]
+    ? [{ areaQuery: scope.areaQuery, requestSource: 'assistant' }]
     : [
-        { location: scope.location },
-        { location: scope.location, coverageMode: 'nearby' },
+        { location: scope.location, requestSource: 'assistant' },
+        { location: scope.location, coverageMode: 'nearby', requestSource: 'assistant' },
       ];
 
   const results: CoverageRefresh[] = [];
@@ -501,7 +497,12 @@ async function refreshVenueCoverage(token: string, name: string, suburb: string)
         Authorization: `Bearer ${token}`,
         apikey: SUPABASE_ANON_KEY,
       },
-      body: JSON.stringify({ areaQuery: suburb, venueName: name, previewOnly: true }),
+      body: JSON.stringify({
+        areaQuery: suburb,
+        venueName: name,
+        previewOnly: true,
+        requestSource: 'assistant',
+      }),
     });
     if (!response.ok) {
       console.error(`Venue lookup returned ${response.status}:`, await response.text());
@@ -529,7 +530,7 @@ async function loadRestaurantContext(scope: SearchScope) {
   let query = supabaseAnon.from('restaurants').select(fields).order('quietness_score', { ascending: false, nullsFirst: false });
 
   if (scope?.kind === 'area') {
-    query = query.ilike('suburb', `%${scope.areaQuery}%`).limit(50);
+    query = query.ilike('suburb', scope.areaQuery).limit(50);
   } else if (scope?.kind === 'location') {
     const latitudeDelta = LOCATION_RADIUS_METERS / 111000;
     const longitudeDelta = LOCATION_RADIUS_METERS / (111000 * Math.max(Math.cos((scope.location.latitude * Math.PI) / 180), 0.01));
@@ -629,7 +630,12 @@ Deno.serve(async (req) => {
     const currentLocation = suppliedLocation ?? (await loadRecentLocation(userId));
     const venueRequest = extractVenueRequest(message);
     if (venueRequest) {
-      const localMatches = await findVenue(venueRequest.name, venueRequest.suburb);
+      const resolvedVenueSuburb = await resolveNswSuburb(venueRequest.suburb);
+      if (!resolvedVenueSuburb?.is_active) {
+        return jsonResponse({ reply: 'I could not recognise that NSW suburb. Please check the name.' });
+      }
+      const canonicalVenueSuburb = resolvedVenueSuburb.canonical_name;
+      const localMatches = await findVenue(venueRequest.name, canonicalVenueSuburb);
       const localExact = localMatches.find((venue) => normaliseName(venue.name) === normaliseName(venueRequest.name));
       if (localExact) {
         return jsonResponse({ reply: `I found ${localExact.name} in ${localExact.suburb}.` });
@@ -639,36 +645,36 @@ Deno.serve(async (req) => {
       // meant. Search Google for the requested name before offering a match.
       const googleMatches = rankVenueCandidates(
         venueRequest.name,
-        await refreshVenueCoverage(token, venueRequest.name, venueRequest.suburb),
+        await refreshVenueCoverage(token, venueRequest.name, canonicalVenueSuburb),
       );
       if (googleMatches.length > 0) {
         const exact = googleMatches.find((venue) => normaliseName(venue.name) === normaliseName(venueRequest.name));
         if (exact) {
           await addGoogleVenue(exact);
-          return jsonResponse({ reply: `I found ${exact.name} in ${exact.suburb ?? venueRequest.suburb}.` });
+          return jsonResponse({ reply: `I found ${exact.name} in ${exact.suburb ?? canonicalVenueSuburb}.` });
         }
         const candidate = googleMatches[0];
         await saveVenueDraft(userId, {
           state: 'confirm_google_match',
           requested_name: venueRequest.name,
-          requested_suburb: venueRequest.suburb,
+          requested_suburb: canonicalVenueSuburb,
           candidate,
         });
         return jsonResponse({
-          reply: `I found ${candidate.name} in ${candidate.suburb ?? venueRequest.suburb}. Is that right? Say yes or no.`,
+          reply: `I found ${candidate.name} in ${candidate.suburb ?? canonicalVenueSuburb}. Is that right? Say yes or no.`,
         });
       }
       await saveVenueDraft(userId, {
         state: 'ask_address',
         requested_name: venueRequest.name,
-        requested_suburb: venueRequest.suburb,
+        requested_suburb: canonicalVenueSuburb,
         venue_name: venueRequest.name,
-        suburb: venueRequest.suburb,
+        suburb: canonicalVenueSuburb,
         address: null,
       });
       return jsonResponse({ reply: `I cannot find ${venueRequest.name}. What street is it on? You can say skip.` });
     }
-    const requestedArea = findRequestedArea(message, history);
+    const requestedArea = await findRequestedArea(message, history);
     const scope: SearchScope = requestedArea
       ? { kind: 'area', areaQuery: requestedArea }
       : currentLocation

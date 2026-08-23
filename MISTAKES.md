@@ -698,7 +698,7 @@ Tried to delete and add the retired function in one patch; the patch tool reject
 
 ## production-migration-history-not-preflighted
 
-### 2026-08-22 | 03_build | caught: release verification
+### 2026-08-22 | 03_build | caught: gate
 Enabled the Supabase GitHub integration with the repository root as its working
 directory even though the Supabase project is nested. Correcting that setting
 then exposed a second, older problem: manual production changes had been
@@ -714,7 +714,7 @@ the resulting deployment, and applied the two genuinely missing migrations.
 
 ## trigger-function-grants-not-tested
 
-### 2026-08-22 | 03_build | caught: Supabase security advisor
+### 2026-08-22 | 03_build | caught: gate
 New trigger-only `SECURITY DEFINER` functions revoked `PUBLIC` execution but
 did not revoke the project's explicit `anon` and `authenticated` grants. They
 could therefore be called directly through the RPC API even though they are
@@ -725,3 +725,29 @@ advisor after deployment.
 **Fix:** PR #43 adds explicit role revocations, fixes the separate mutable
 search-path warning, and adds pgTAP coverage before the source change can be
 merged.
+
+## incorrect-pr-link
+
+Gave PR #44 as the Step 0 merge link without verifying its branch and state; the user showed that #44 is an already-merged documentation/security-sync PR.
+
+### 2026-08-23 | 03_build | caught: user
+Gave PR #44 as the Step 0 merge link without verifying its branch and state; the user showed that #44 is an already-merged documentation/security-sync PR.
+**Standard:** Verify a pull request's source branch and current state before presenting it as the merge target for a specific work item.
+**Fix:** Use the repository's PR metadata to identify the PR whose head is step0/instrumentation-and-guardrails before sharing a merge link.
+
+## step1-invariants-not-preflighted
+
+Initial Step 1 implementation allowed a dispatched Google request to be
+released after a crash, and did not bind sweep completion to a lease token;
+both were only caught during the required independent review.
+
+### 2026-08-23 | 03_build | caught: self
+
+**Standard:** Before treating a backend automation path as ready, model the
+durable provider-dispatch boundary and ownership of every expiring worker lease,
+then write a test that could expose a missed transition.
+
+**Fix:** Added a durable `dispatched_at` marker before Google fetches, kept
+dispatched-but-unsettled requests charged, added lease tokens to
+claims/completions, and expanded deterministic budget and queue tests before
+opening the PR.
