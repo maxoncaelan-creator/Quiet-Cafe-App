@@ -563,3 +563,55 @@ the declared plan. The database suite could not run locally because Docker,
 Podman and the Supabase CLI stack are unavailable here; hosted Supabase CI is
 therefore a required review gate. The pricing proposal is documented but no
 ceiling change was made; Caelan must approve any paid scheduled work.
+
+## Step 1 backend release — verified live 2026-08-23
+
+The suburb coverage automation ([PR #47](https://github.com/maxoncaelan-creator/Quiet-Cafe-App/pull/47))
+is merged, deployed and verified against production. The original defect Caelan
+reported — the Search Assistant unable to find venues he could find on Google —
+is fixed at the source.
+
+**Migrations.** Production and the repository match, ending at
+`20260823110000_free_tier_places_ceiling`.
+
+**Edge Functions.** `places-search` 12, `ondemand-topup` 11,
+`search-assistant` 14, plus new `sync-nsw-gazetteer` 1 and
+`coverage-automation-worker` 1. All `ACTIVE`, `verify_jwt` unchanged.
+The Supabase GitHub integration deployed only the two *new* functions and
+silently skipped all three *modified* ones; they were deployed with the CLI
+afterwards. **Do not treat the integration as sufficient for modified
+functions** — check versions every time, which is now the second distinct way
+this project's backend has drifted while reporting success.
+
+**Gazetteer.** 4,607 official NSW records loaded from NSW Spatial Services,
+sync `succeeded`, no errors. Refresh is capped at once per 30 days by a `CHECK`
+constraint, not by convention.
+
+**Resolution verified in both directions.** `Crows Nest`, `crows nest` and
+`crowsnest` each resolve to one locality; `louder the better` resolves to
+nothing, bare and inside prose. That second case is the phrase that in August
+parsed as a suburb and inserted 19 venues against a place that does not exist.
+
+**The freeze is gone.** `suburb_sweep_eligibility` for Crows Nest returns
+`eligible: true, never_swept`. Eligibility is freshness-based; a suburb holding
+fifteen venues is no longer locked out. 77 suburbs were previously frozen,
+holding 91% of the catalogue.
+
+**Budget.** The ceiling is 1,000 Places requests per UTC month — Google's free
+allowance for the Enterprise + Atmosphere SKU the field mask lands in. Enforced
+per request inside `places-search`, so it covers every caller including the Node
+pipeline. See `_config/decisions.md`, "Google Places spend".
+
+**Not yet true, and worth stating plainly:** `coverage_automation_config.enabled`
+is still `false`. Nothing sweeps on a schedule, no Google request has been made
+through the new path, and coverage has not actually grown. Crows Nest still
+holds fifteen venues. Enabling scheduled work is a separate decision requiring
+the worker URL and the automation secret in Vault — see
+`supabase/COVERAGE_AUTOMATION_SETUP.md`.
+
+**Release-order incident.** `ondemand-topup` and `search-assistant` were
+deployed before the gazetteer snapshot, contrary to the documented order in that
+same setup file, leaving the resolver live against an empty table until Caelan
+ran the sync. Recorded in `MISTAKES.md` as
+`release-order-doc-not-read-before-deploying`.
+
