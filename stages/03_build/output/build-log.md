@@ -326,9 +326,17 @@ device behaviour.
 - `app.cafequiet.com` is live. Keep its Cloudflare Pages build configuration
   and public Supabase environment values verified when the web build changes;
   a successful static deployment does not deploy Supabase backend changes.
-- Enable Supabase Auth **leaked-password protection** (HaveIBeenPwned check). The
-  security advisor reports it disabled; it is a dashboard toggle, not a
-  migration.
+- **Leaked-password protection is Pro-plan gated — not a quick toggle.** The
+  security advisor reports it disabled, but the organisation
+  (`maxoncaelan-creator's Org`, `ydfsbvijlrzwcdqygcwz`) is on the **free**
+  plan and Supabase gates the HaveIBeenPwned check to Pro and above. It cannot
+  be enabled without an upgrade, which is Caelan's spending decision, not
+  implementation work. Expect this advisor line to persist until then; do not
+  re-file it each session as an easy dashboard win.
+  Available on free in the meantime, same Auth → Providers → Email screen:
+  raise the **minimum password length** past 8 and require digits, lower, upper
+  and symbols. That covers weak passwords, though not credential stuffing with
+  already-breached ones.
 - Decide whether to add an admin view of outstanding/redeemed beta codes.
 - Create iOS OAuth credentials and run an iOS build/device test. Facebook
   remains hidden until its Supabase provider is configured.
@@ -510,5 +518,7 @@ live project (`aesorixtfasfuvcqrvem`) rather than inferred from the merge.
   role, never from the browser. This is the same "no browser read access"
   property PR #37 added a regression test for.
 
-The one genuinely open advisor item is leaked-password protection, listed under
-"Requires Caelan or a dashboard decision" above.
+The remaining advisor item is leaked-password protection, which is **not
+actionable on the current plan** — see "Requires Caelan or a dashboard
+decision" above. On the free plan the security advisor therefore has no finding
+that can be cleared by implementation work.
