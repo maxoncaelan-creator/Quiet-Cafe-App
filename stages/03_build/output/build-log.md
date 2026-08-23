@@ -333,10 +333,30 @@ device behaviour.
   be enabled without an upgrade, which is Caelan's spending decision, not
   implementation work. Expect this advisor line to persist until then; do not
   re-file it each session as an easy dashboard win.
-  Available on free in the meantime, same Auth → Providers → Email screen:
-  raise the **minimum password length** past 8 and require digits, lower, upper
-  and symbols. That covers weak passwords, though not credential stuffing with
-  already-breached ones.
+  The password-strength settings on that screen are already tightened: minimum
+  length is 8 and requirements are already the strongest option (lowercase,
+  uppercase, digits and symbols). Raising the length past 8 is the only free
+  change left there, and it is marginal.
+- **Do not enable `Secure password change` or `Require current password when
+  updating` yet — both would break the app as written.** Checked against the
+  code on 2026-08-23:
+  - `Require current password when updating` makes the server demand
+    `current_password`, but `SupabaseService.updatePassword()` calls
+    `updateUser(UserAttributes(password: newPassword))` with nothing else. The
+    Dart SDK does support `UserAttributes.currentPassword` (gotrue 2.27.2) and
+    `change_password_screen.dart` already collects the current password, so the
+    app change is small — it would also let that screen drop its client-side
+    re-sign-in check in favour of real server enforcement. **Unresolved first:**
+    the Supabase docs state no exemption for recovery sessions, and
+    `reset_password_screen.dart` deliberately never asks for the old password
+    because the user has forgotten it. Test recovery on a throwaway account
+    before enabling, or password reset may break for exactly the users who need
+    it.
+  - `Secure password change` requires reauthentication when the session is over
+    24 hours old, via a nonce from `reauthenticate()`. The app implements
+    neither `reauthenticate()` nor `nonce` anywhere. Sessions persist across
+    restarts, so most beta users would simply be unable to change their
+    password. Needs the reauthentication flow built first.
 - Decide whether to add an admin view of outstanding/redeemed beta codes.
 - Create iOS OAuth credentials and run an iOS build/device test. Facebook
   remains hidden until its Supabase provider is configured.
