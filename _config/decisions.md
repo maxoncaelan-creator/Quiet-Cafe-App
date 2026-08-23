@@ -136,10 +136,17 @@ discovery/enrichment split in
 [`PLACES_COST_PROPOSAL.md`](../stages/03_build/output/supabase/PLACES_COST_PROPOSAL.md)
 over simply buying more calls — it raises coverage per dollar rather than spend.
 
-**The ledger is not the whole bill.** It counts only Google traffic through the
-`places-search` Edge Function. `data-pipeline/src/places.js` calls Google
-directly and is invisible to it, and a full seed run is far larger than 1,000
-requests. "Free" describes the app's automated sweeps, not total project spend.
+**No further full seed runs are planned** — confirmed with Caelan 2026-08-23.
+Coverage grows through automated sweeps only. This matters because it is what
+makes "stay free" achievable: the ledger counts Google traffic through the
+`places-search` Edge Function, while `data-pipeline/src/places.js` calls Google
+directly and is invisible to it. A full seed run is far larger than 1,000
+requests and would blow the free allowance on its own. With seeding retired,
+the ledger is in practice the whole bill.
+
+If a seed run is ever needed again — a new region, a rebuild — treat it as a
+deliberate, budgeted exception rather than routine work, and expect it to
+exceed the free tier regardless of what the ceiling says.
 
 **Changing the ceiling is a data change, not a migration edit.** Editing an
 already-applied migration does nothing — that is precisely how production came

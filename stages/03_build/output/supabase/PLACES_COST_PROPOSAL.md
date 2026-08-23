@@ -79,9 +79,11 @@ carries `on conflict do nothing`. The new migration uses an unconditional
 `places_budget_ceiling.test.sql` now asserts the settled value so the same
 silent divergence fails a test instead of going unnoticed.
 
-**The ledger does not see the whole bill.** It governs only Google traffic
-routed through the `places-search` Edge Function. `data-pipeline/src/places.js`
-calls Google directly and is not counted, so a pipeline run consumes the same
-free allowance invisibly — and a full seed run is far larger than 1,000
-requests. Until the pipeline is brought under the same ledger, "free" describes
-the app's automated sweeps, not total project spend.
+**The ledger does not see the whole bill — but in practice it now does.** It
+governs only Google traffic routed through the `places-search` Edge Function;
+`data-pipeline/src/places.js` calls Google directly and is not counted.
+Caelan confirmed on 2026-08-23 that **no further full seed runs are planned** —
+coverage grows through automated sweeps only. That retires the gap
+operationally rather than closing it in code. Bringing the pipeline under the
+same ledger is therefore not urgent, but a future seed run would exceed the
+free allowance on its own and must be treated as a budgeted exception.
