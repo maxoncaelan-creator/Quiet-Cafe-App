@@ -9,8 +9,8 @@ updates its own status block here when it finishes.
 
 | Step | Owner | Scope | Status |
 |---|---|---|---|
-| 0 | Claude Opus 5 (Claude Code) | Instrumentation, extensions, budget guard, dependencies | **Done — PR open, awaiting review** |
-| 1 | ChatGPT Terra 5.6 | Backend automation: gazetteer, sweep freshness, cron, queue | Not started |
+| 0 | Claude Opus 5 (Claude Code) | Instrumentation, extensions, budget guard, dependencies | **Done — merged PRs #45 and #46** |
+| 1 | ChatGPT Terra 5.6 | Backend automation: gazetteer, sweep freshness, cron, queue | **Draft PR #47 open — awaiting hosted Supabase CI and Caelan review** |
 | 2 | Claude Opus 5 (Claude Code) | Full-stack assistant rewire | Not started |
 | 3 | Anthropic Sonnet 5 | Frontend: Riverpod migration, score refresh propagation | Not started |
 | 4 | Claude Opus 5 (Claude Code) | Beta hardening, PostHog, launch work | Not started |
