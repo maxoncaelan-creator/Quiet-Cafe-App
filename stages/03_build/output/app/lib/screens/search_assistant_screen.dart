@@ -26,7 +26,28 @@ import '../widgets/app_drawer.dart';
 class _ChatMessage {
   final String role; // 'user' | 'assistant'
   final String content;
-  const _ChatMessage({required this.role, required this.content});
+
+  /// A short backend-state line shown under the bubble — currently only
+  /// coverage. Deliberately separate from [content]: the history sent back to
+  /// the assistant is built from role/content alone, so a note never becomes
+  /// part of the conversation the model sees.
+  final String? note;
+
+  const _ChatMessage({required this.role, required this.content, this.note});
+}
+
+/// Turns coverage state into one plain sentence, or null when there is nothing
+/// worth saying. "Up to date" is deliberately silent: telling someone their
+/// results are current on every single answer is noise.
+String? _coverageNote(AssistantCoverage? coverage) {
+  if (coverage == null) return null;
+  return switch (coverage.status) {
+    AssistantCoverageStatus.refreshQueued =>
+      'Looking for more places in ${coverage.suburb}. Check back soon.',
+    AssistantCoverageStatus.refreshPending =>
+      'Already looking for more places in ${coverage.suburb}.',
+    AssistantCoverageStatus.upToDate => null,
+  };
 }
 
 class SearchAssistantScreen extends StatefulWidget {
@@ -209,7 +230,7 @@ class _SearchAssistantScreenState extends State<SearchAssistantScreen> {
 
     try {
       final position = await _positionForAssistant();
-      final reply = await _supabaseService.askSearchAssistant(
+      final answer = await _supabaseService.askSearchAssistant(
         text,
         history,
         latitude: position?.latitude,
@@ -217,8 +238,11 @@ class _SearchAssistantScreenState extends State<SearchAssistantScreen> {
         accuracyMeters: position?.accuracy,
       );
       if (!mounted) return;
-      setState(
-          () => _messages.add(_ChatMessage(role: 'assistant', content: reply)));
+      setState(() => _messages.add(_ChatMessage(
+            role: 'assistant',
+            content: answer.reply,
+            note: _coverageNote(answer.coverage),
+          )));
     } on SearchAssistantRateLimited catch (e) {
       if (!mounted) return;
       setState(() => _rateLimitedUntil = e.resetAt);
@@ -492,7 +516,7 @@ class _MessageList extends StatelessWidget {
         final message = messages[index];
         return message.role == 'user'
             ? _UserBubble(text: message.content)
-            : _AssistantMessage(text: message.content);
+            : _AssistantMessage(text: message.content, note: message.note);
       },
     );
   }
@@ -500,11 +524,13 @@ class _MessageList extends StatelessWidget {
 
 class _AssistantMessage extends StatelessWidget {
   final String text;
-  const _AssistantMessage({required this.text});
+  final String? note;
+  const _AssistantMessage({required this.text, this.note});
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -515,7 +541,33 @@ class _AssistantMessage extends StatelessWidget {
         ),
         const SizedBox(width: 10),
         Expanded(
-            child: Text(text, style: Theme.of(context).textTheme.bodyLarge)),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(text, style: theme.textTheme.bodyLarge),
+              if (note != null) ...[
+                const SizedBox(height: 6),
+                // Quieter than the answer on purpose: this is backend state,
+                // not part of what the assistant said.
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.travel_explore,
+                        size: 14, color: scheme.onSurfaceVariant),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        note!,
+                        style: theme.textTheme.bodySmall
+                            ?.copyWith(color: scheme.onSurfaceVariant),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
       ],
     );
   }

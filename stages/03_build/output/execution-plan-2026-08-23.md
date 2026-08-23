@@ -11,7 +11,7 @@ updates its own status block here when it finishes.
 |---|---|---|---|
 | 0 | Claude Opus 5 (Claude Code) | Instrumentation, extensions, budget guard, dependencies | **Done — merged PRs #45 and #46** |
 | 1 | ChatGPT Terra 5.6 | Backend automation: gazetteer, sweep freshness, cron, queue | **Reviewed and merged — automation ships disabled** |
-| 2 | Claude Opus 5 (Claude Code) | Full-stack assistant rewire | Not started |
+| 2 | Claude Opus 5 (Claude Code) | Full-stack assistant rewire | **2a in progress; 2b blocked on scheduled sweeps being enabled** |
 | 3 | Anthropic Sonnet 5 | Frontend: Riverpod migration, score refresh propagation | Not started |
 | 4 | Claude Opus 5 (Claude Code) | Beta hardening, PostHog, launch work | Not started |
 
@@ -227,23 +227,64 @@ unasked — it changes the scoring pipeline's inputs.
 
 # Step 2 — Assistant rewire
 
-**Owner: Claude Opus 5. Begins only after Step 1 clears both gates.**
+**Owner: Claude Opus 5. Re-scoped 2026-08-23 against what Step 1 actually
+shipped, rather than what this plan assumed before it existed.**
 
-Full stack. App and backend must ship in the right order: **the app must
-understand the new response states before the backend starts sending them**, or
-older installs break.
+### What Step 1 already did, so Step 2 does not
 
-- New assistant response states: answered, `stale_refresh_queued`,
-  `not_found_searching`.
-- The assistant stops making billed calls for area queries; it reads and enqueues.
-- **One narrow exception is retained, per Caelan's decision:** a specific named
-  venue may still trigger a single bounded Places lookup. This is the case where
-  "check back later" is most annoying, and `refreshVenueCoverage` already exists.
-  Everything else goes to the queue.
-- Honest empty states in the UI — a missing venue must be distinguishable from a
-  venue that does not exist.
+Terra replaced the assistant's *resolution* layer: `extractAreaQuery()`'s regex
+and stopword list are gone, and `findRequestedArea()` now calls
+`resolve_nsw_suburb_in_text`. The `louder the better` class of bug is already
+fixed at the source, and `search-assistant` v14 is live with it.
 
----
+### What Step 1 did NOT do, and Step 2 must
+
+Reading the merged code rather than the plan:
+
+- **The assistant still makes the billed call inline.** `refreshThinCoverage()`
+  still `fetch`es `ondemand-topup` synchronously inside the user's request. The
+  queue, worker and cron all exist and nothing in the assistant touches them.
+- **Nothing durably queues a sweep from the assistant.** Demand *is* already
+  recorded — `ondemand-topup` calls `record_nsw_suburb_coverage_demand`, and
+  `queue_nsw_suburb_sweep` records it internally too (an earlier draft of this
+  section claimed demand had no callers at all; that was wrong). What is missing
+  is the durable queue entry: an inline refresh that is rate-limited or
+  ineligible simply evaporates, leaving nothing for the scheduled worker to pick
+  up later.
+- **The app contract is unchanged.** The Function returns `{ reply }` and
+  `askSearchAssistant` returns a bare `String`. A missing venue is still
+  indistinguishable from a venue that does not exist.
+
+### Step 2a — this PR
+
+- Thread the resolved `suburb_id` through instead of discarding it for the name.
+- Call `queue_nsw_suburb_sweep` on every resolved area question. Free, no
+  Google, and it records demand as a side effect — calling
+  `record_nsw_suburb_coverage_demand` separately would double-count the same
+  question in the priority ordering. Source must be `'assistant'`; the database
+  raises `Unknown suburb demand source` for anything outside its four-value
+  allowlist.
+- Add an **additive** `coverage` object to the response —
+  `refresh_queued` / `refresh_pending` / `up_to_date`. `reply` is always still
+  present, so this Function and the app can deploy in either order without
+  breaking an in-flight build. Parsing is total: an unknown status yields null
+  rather than throwing.
+- Show it in the chat as a quiet line under the answer, held in a `note` field
+  that is deliberately excluded from the history sent back to the model.
+- Keep the named-venue narrow case exactly as is, per Caelan's decision.
+
+### Step 2a deliberately KEEPS the inline refresh
+
+Removing `refreshThinCoverage()` is the obvious reading of the original plan and
+it would be wrong right now. `coverage_automation_config.enabled` is `false`, so
+nothing drains the queue. Deleting the inline path today would mean coverage
+could never grow at all — strictly worse than the bug we set out to fix.
+
+### Step 2b — blocked on enabling scheduled sweeps
+
+Remove the inline billed refresh, leaving the assistant a pure reader. **Do not
+start this until `enabled = true` and a sweep has demonstrably run.** Until
+then the queue is write-only.
 
 # Step 3 — Frontend state
 

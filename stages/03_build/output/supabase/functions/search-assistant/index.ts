@@ -66,9 +66,17 @@ type UserLocation = {
 };
 
 type SearchScope =
-  | { kind: 'area'; areaQuery: string }
+  | { kind: 'area'; areaQuery: string; suburbId: string }
   | { kind: 'location'; location: UserLocation }
   | null;
+
+// Reported to the app alongside the reply so a thin suburb can say so honestly
+// instead of looking like the venue does not exist. Additive: `reply` is still
+// always present, so an older build that reads only `reply` is unaffected.
+type CoverageStatus =
+  | { status: 'refresh_queued'; suburb: string; nextEligibleAt: string | null }
+  | { status: 'refresh_pending'; suburb: string; nextEligibleAt: string | null }
+  | { status: 'up_to_date'; suburb: string };
 
 const LOCATION_RADIUS_METERS = 5000;
 const LOCATION_STATE_MAX_AGE_MS = 6 * 60 * 60 * 1000;
@@ -133,14 +141,20 @@ async function loadRecentLocation(userId: string): Promise<UserLocation | null> 
 }
 
 type ResolvedSuburbText = {
+  suburb_id: string;
   canonical_name: string;
   is_active: boolean;
+  match_kind: string;
 };
 
 async function findRequestedArea(message: string, history: ChatMessage[]) {
   // The database owns locality recognition. Unlike the retired regex and
   // stopword list, it can only return an official NSW alias and never turns an
   // arbitrary fragment of prose into a Places authorisation.
+  //
+  // Returns the whole resolved row rather than just the name: the suburb id is
+  // what records demand and queues a sweep, and re-resolving the name later
+  // would be a second database round trip for something already known.
   const messages = [message, ...history
     .filter((turn) => turn.role === 'user')
     .reverse()
@@ -151,9 +165,66 @@ async function findRequestedArea(message: string, history: ChatMessage[]) {
       .maybeSingle();
     if (error) throw new Error(`Could not resolve requested suburb: ${error.message}`);
     const result = data as ResolvedSuburbText | null;
-    if (result?.is_active) return result.canonical_name;
+    if (result?.is_active) return result;
   }
   return null;
+}
+
+/// Queues a durable sweep for a suburb someone just asked about.
+///
+/// Free — it touches Postgres only, never Google — so it runs on every resolved
+/// area question regardless of how well covered the suburb already is. What it
+/// adds over the existing inline refresh is durability: the scheduled worker
+/// drains this queue later, whereas an inline refresh that is rate-limited or
+/// ineligible simply evaporates.
+///
+/// Demand is recorded as a side effect: `queue_nsw_suburb_sweep` calls
+/// `record_nsw_suburb_coverage_demand` itself, so calling it here as well would
+/// double-count the same question in the priority ordering.
+///
+/// Never throws. A failure here must not turn a working answer into an error —
+/// the user asked about restaurants, not about coverage bookkeeping.
+async function queueSuburbSweep(
+  suburbId: string,
+  canonicalName: string,
+): Promise<CoverageStatus | null> {
+  try {
+    // 'assistant' is one of the four sources the database allows; anything else
+    // raises 'Unknown suburb demand source'.
+    const { data, error } = await supabaseAdmin
+      .rpc('queue_nsw_suburb_sweep', { p_suburb_id: suburbId, p_source: 'assistant' })
+      .maybeSingle();
+    if (error) {
+      console.error('Could not queue suburb sweep:', error.message);
+      return null;
+    }
+
+    const result = data as { outcome: string; next_eligible_at: string | null } | null;
+    if (!result) return null;
+
+    // Outcomes come from queue_nsw_suburb_sweep: 'queued' (newly queued, or an
+    // existing pending job), 'sweep_in_progress' (one is running), or an
+    // ineligibility reason from suburb_sweep_eligibility — 'fresh' or
+    // 'retired_or_unknown_suburb'.
+    switch (result.outcome) {
+      case 'queued':
+        return { status: 'refresh_queued', suburb: canonicalName, nextEligibleAt: result.next_eligible_at };
+      case 'sweep_in_progress':
+        return { status: 'refresh_pending', suburb: canonicalName, nextEligibleAt: result.next_eligible_at };
+      case 'fresh':
+        // Genuinely swept recently. Claiming a refresh was queued would be a
+        // lie, and the user would wait for something that is not coming.
+        return { status: 'up_to_date', suburb: canonicalName };
+      default:
+        // 'retired_or_unknown_suburb' should be unreachable — the suburb was
+        // just resolved as active — and anything the database adds later is
+        // not ours to interpret. Say nothing rather than guess.
+        return null;
+    }
+  } catch (error) {
+    console.error('Could not queue suburb sweep:', error);
+    return null;
+  }
 }
 
 async function resolveNswSuburb(areaQuery: string): Promise<ResolvedSuburbText | null> {
@@ -676,14 +747,29 @@ Deno.serve(async (req) => {
     }
     const requestedArea = await findRequestedArea(message, history);
     const scope: SearchScope = requestedArea
-      ? { kind: 'area', areaQuery: requestedArea }
+      ? { kind: 'area', areaQuery: requestedArea.canonical_name, suburbId: requestedArea.suburb_id }
       : currentLocation
         ? { kind: 'location', location: currentLocation }
         : null;
 
+    // Queue a durable sweep before anything else. Free, no Google call, and it
+    // records demand as a side effect so the scheduled worker's priority
+    // ordering sees what people actually ask for. Deliberately unconditional: a
+    // well-covered suburb still signals interest, and the call returns 'fresh'
+    // rather than queueing anything.
+    const coverage = requestedArea
+      ? await queueSuburbSweep(requestedArea.suburb_id, requestedArea.canonical_name)
+      : null;
+
     // This must happen before loading the assistant context. A named suburb
     // with zero stored venues therefore asks Google Places, inserts safe new
     // rows, then gives Haiku the refreshed rows in this same answer.
+    //
+    // Deliberately retained for now even though the sweep above is the intended
+    // long-term path. `coverage_automation_config.enabled` is still false, so
+    // nothing drains the queue — removing this would mean coverage could never
+    // grow at all. Step 2b removes it once scheduled sweeps are switched on.
+    // See execution-plan-2026-08-23.md.
     const coverageRefreshes = scope ? await refreshThinCoverage(token, scope) : [];
 
     let restaurants: Awaited<ReturnType<typeof loadRestaurantContext>>;
@@ -704,6 +790,7 @@ Deno.serve(async (req) => {
     ) {
       return jsonResponse({
         reply: `I couldn't check Google for cafes in ${scope.areaQuery} just now. Please try again in a moment.`,
+        ...(coverage ? { coverage } : {}),
       });
     }
 
@@ -764,7 +851,10 @@ ${restaurantContext || '(none loaded yet)'}`;
     await settleAssistantBudget(userId, budgetClaim, tokensThisCall);
     budgetSettled = true;
 
-    return jsonResponse({ reply });
+    // `coverage` is additive. An older app build reads only `reply` and is
+    // unaffected, so this Function and the Flutter change can deploy in either
+    // order without breaking anyone mid-release.
+    return jsonResponse({ reply, ...(coverage ? { coverage } : {}) });
   } finally {
     if (!budgetSettled) {
       // Once a provider request is dispatched, retain the conservative
