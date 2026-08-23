@@ -981,7 +981,7 @@ begin
 
   insert into public.nsw_suburb_sweep_state (suburb_id, last_attempt_at, updated_at)
   values (v_job.suburb_id, now(), now())
-  on conflict (suburb_id) do update
+  on conflict on constraint nsw_suburb_sweep_state_pkey do update
   set last_attempt_at = excluded.last_attempt_at, updated_at = excluded.updated_at;
 
   return query
