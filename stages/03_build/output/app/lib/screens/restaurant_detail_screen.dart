@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../models/restaurant.dart';
+import '../providers/favourites_provider.dart';
 import '../services/supabase_service.dart';
 import '../widgets/confidence_indicator.dart';
 import '../widgets/loudness_vote_buttons.dart';
@@ -9,16 +11,18 @@ import '../widgets/max_width_content.dart';
 import '../widgets/noise_level_bar.dart';
 import '../widgets/venue_loudness_capture.dart';
 
-class RestaurantDetailScreen extends StatefulWidget {
+class RestaurantDetailScreen extends ConsumerStatefulWidget {
   final Restaurant restaurant;
 
   const RestaurantDetailScreen({super.key, required this.restaurant});
 
   @override
-  State<RestaurantDetailScreen> createState() => _RestaurantDetailScreenState();
+  ConsumerState<RestaurantDetailScreen> createState() =>
+      _RestaurantDetailScreenState();
 }
 
-class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
+class _RestaurantDetailScreenState
+    extends ConsumerState<RestaurantDetailScreen> {
   final _supabaseService = SupabaseService();
 
   // Mutable (not just widget.restaurant) since 2026-08-20: a vote or mic
@@ -29,14 +33,16 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
   late Restaurant _restaurant = widget.restaurant;
   Restaurant get restaurant => _restaurant;
 
-  bool _isFavorite = false;
   bool _favoriteBusy = false;
   bool _captureInProgress = false;
 
   @override
   void initState() {
     super.initState();
-    _loadFavoriteStatus();
+    // Favourite status is no longer fetched here. It comes from
+    // favouriteIdsProvider, which loads the set once and shares it — the old
+    // code fetched every favourite the user had, on every detail screen open,
+    // purely to answer whether this one venue was among them.
   }
 
   /// Re-fetches this restaurant and updates the displayed score/confidence.
@@ -53,33 +59,20 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
     }
   }
 
-  Future<void> _loadFavoriteStatus() async {
-    if (!_supabaseService.isSignedIn) return;
-    // No dedicated "is this one favorited" check yet — fetches the whole
-    // set, same as the List screen. Fine at today's scale; worth a
-    // dedicated query later if a user's favorites list gets large.
-    final ids = await _supabaseService.fetchFavoritePlaceIds();
-    if (mounted) setState(() => _isFavorite = ids.contains(restaurant.placeId));
-  }
 
   Future<void> _toggleFavorite() async {
     if (!_supabaseService.isSignedIn) {
       final signedIn = await context.push<bool>('/sign-in');
       if (signedIn != true || !mounted) return;
     }
-    setState(() {
-      _isFavorite = !_isFavorite;
-      _favoriteBusy = true;
-    });
+    setState(() => _favoriteBusy = true);
     try {
-      if (_isFavorite) {
-        await _supabaseService.addFavorite(restaurant.placeId);
-      } else {
-        await _supabaseService.removeFavorite(restaurant.placeId);
-      }
+      // The provider owns the optimistic flip and the revert, so this screen no
+      // longer keeps its own copy of the answer — which is what let the
+      // favourites list go stale after unstarring from here.
+      await ref.read(favouriteIdsProvider.notifier).toggle(restaurant.placeId);
     } catch (_) {
       if (!mounted) return;
-      setState(() => _isFavorite = !_isFavorite); // revert on failure
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Could not update favorite — try again.')),
       );
@@ -99,6 +92,10 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Watching the family provider means this screen rebuilds when *this*
+    // venue's favourite state changes, not on every change to the whole set.
+    final isFavourite = ref.watch(isFavouriteProvider(restaurant.placeId));
+
     // A 10-second sample has value only as a complete window. Blocking back
     // navigation prevents an accidental partial capture; Postgres separately
     // rejects any client that still tries to insert one.
@@ -111,8 +108,8 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
             if (SupabaseService.isConfigured)
               IconButton(
                 icon: Icon(
-                  _isFavorite ? Icons.star_rounded : Icons.star_border_rounded,
-                  color: _isFavorite ? Colors.amber.shade700 : null,
+                  isFavourite ? Icons.star_rounded : Icons.star_border_rounded,
+                  color: isFavourite ? Colors.amber.shade700 : null,
                 ),
                 onPressed: _favoriteBusy || _captureInProgress ? null : _toggleFavorite,
               ),

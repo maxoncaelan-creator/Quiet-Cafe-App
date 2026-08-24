@@ -12,7 +12,7 @@ updates its own status block here when it finishes.
 | 0 | Claude Opus 5 (Claude Code) | Instrumentation, extensions, budget guard, dependencies | **Done — merged PRs #45 and #46** |
 | 1 | ChatGPT Terra 5.6 | Backend automation: gazetteer, sweep freshness, cron, queue | **Live and verified 2026-08-24 — Crows Nest 15 → 39 venues** |
 | 2 | Claude Opus 5 (Claude Code) | Full-stack assistant rewire | **Done — 2a and 2b complete** |
-| 3 | Anthropic Sonnet 5 | Frontend: Riverpod migration, score refresh propagation | Not started |
+| 3 | Anthropic Sonnet 5 (3a done by Opus 5) | Frontend: Riverpod migration | **3a done — favourites slice; 3b not started** |
 | 4 | Claude Opus 5 (Claude Code) | Beta hardening, PostHog, launch work | Not started |
 
 ## The review gate — every step, without exception
@@ -309,20 +309,64 @@ through `places-search` and the shared monthly ledger.
 
 # Step 3 — Frontend state
 
-**Owner: Anthropic Sonnet 5. Begins only after Step 2 clears both gates.**
+**Owner: Anthropic Sonnet 5 in the original plan; started by Claude Opus 5 on
+2026-08-24 at Caelan's direction. Re-scoped against the code.**
 
-Flutter only.
+### The premise of this step was wrong
 
-- Incremental Riverpod migration. **Not a rewrite.** Order: auth and beta status
-  first, then favourites, then venue scores.
-- Close the score-refresh gap: the database trigger already recomputes on a vote
-  or mic reading, but nothing propagates to a mounted detail screen. This is why
-  "submit a vote, does the noise bar update?" is still unanswered.
-- 16 screens and 11 services currently share state through `setState` alone.
-  Migrating all of them is out of scope; migrating what genuinely crosses screens
-  is the goal.
+This plan claimed the database recomputes a score on a vote or mic reading "but
+nothing propagates to a mounted detail screen." **That is false, and it was my
+error.** The triggers in `20260822154500_server_owned_contribution_scores.sql`
+are `after insert ... for each row`, so the recompute completes before the insert
+returns, and `RestaurantDetailScreen` already calls `_refreshRestaurant()` from
+both `onVoted` and `onSubmitted`.
 
----
+The build log entry — "submit a loudness vote and a mic reading, then confirm the
+detail view refreshes" — was a **verification** task. I read it as a defect
+without opening the file. There is no score-refresh code to write; it needs a
+device test, which belongs in step 4's batch.
+
+### The real bug, found by looking
+
+`FavouritesScreen` loads once in `initState()` and never again, while
+`RestaurantDetailScreen` kept a separate `_isFavorite` flag. Unstar a venue from
+the detail screen and go back: it is **still listed**, because `go_router`'s pop
+does not re-run `initState`. Two screens owning two copies of one fact.
+
+That is the genuine case for shared state, and it is what step 3a fixes.
+
+### Step 3a — done
+
+- `favouriteIdsProvider` (`AsyncNotifier<Set<String>>`) owns the set; both
+  screens read it. `isFavouriteProvider` is a `Provider.family` so a detail
+  screen rebuilds only when *its* venue changes.
+- Optimistic toggle with revert on failure, owned by the provider rather than
+  duplicated in each screen.
+- Removes a redundant round trip: the detail screen used to fetch every
+  favourite the user had, on every open, to answer one boolean.
+- **Hazard closed:** caching the set means one account's favourites could
+  survive a sign-out into the next account's session — something per-screen
+  fetching never risked. The provider invalidates itself on sign-in and
+  sign-out.
+
+### Known gap: the provider has no unit test
+
+`SupabaseService` is constructed directly inside the notifier and is not
+injectable, and the existing suite is entirely pure-function tests that never
+touch Supabase. Testing this properly needs a DI seam — a `supabaseServiceProvider`
+the tests can override — which is a real refactor rather than a test to bolt on.
+
+So step 3a is verified by `flutter analyze` and the existing 33 tests only. **The
+cross-screen behaviour it fixes is not covered by any automated test** and needs
+a device check: favourite from the list, unfavourite from the detail screen, and
+confirm the favourites list updates without a restart.
+
+Adding that seam is the first task of step 3b, before more screens move.
+
+### Step 3b — not started
+
+Remaining incremental slices: auth/beta status (currently a hand-rolled
+`BetaGateNotifier`), and restaurant list caching. Do the DI seam first.
 
 # Step 4 — Hardening and launch
 

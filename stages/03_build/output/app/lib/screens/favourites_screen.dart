@@ -1,25 +1,27 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/restaurant.dart';
+import '../providers/favourites_provider.dart';
 import '../services/restaurant_repository.dart';
 import '../services/supabase_service.dart';
 import '../widgets/app_drawer.dart';
 import '../widgets/restaurant_tile.dart';
 import '../widgets/skeleton_loader.dart';
 
-class FavouritesScreen extends StatefulWidget {
+class FavouritesScreen extends ConsumerStatefulWidget {
   const FavouritesScreen({super.key});
 
   @override
-  State<FavouritesScreen> createState() => _FavouritesScreenState();
+  ConsumerState<FavouritesScreen> createState() => _FavouritesScreenState();
 }
 
-class _FavouritesScreenState extends State<FavouritesScreen> {
+class _FavouritesScreenState extends ConsumerState<FavouritesScreen> {
   final _repository = RestaurantRepository();
   final _supabaseService = SupabaseService();
 
   bool _loading = true;
-  List<Restaurant> _favorites = [];
+  List<Restaurant> _allRestaurants = [];
 
   @override
   void initState() {
@@ -33,25 +35,28 @@ class _FavouritesScreenState extends State<FavouritesScreen> {
       return;
     }
     // No dedicated "fetch my favorited restaurants" query — loads
-    // everything (same as the List screen) and filters by the favorited
-    // id set client-side. Fine at today's single-city scale.
-    final ids = await _supabaseService.fetchFavoritePlaceIds();
+    // everything (same as the List screen) and filters by the favourited
+    // id set at build time. Fine at today's single-city scale.
+    //
+    // The id set deliberately is NOT stored here any more. It lives in
+    // favouriteIdsProvider, so unfavouriting from the detail screen updates
+    // this list immediately instead of leaving a stale row until the screen
+    // is rebuilt from scratch.
     final all = await _repository.loadAll();
     if (!mounted) return;
     setState(() {
-      _favorites = all.where((r) => ids.contains(r.placeId)).toList();
+      _allRestaurants = all;
       _loading = false;
     });
   }
 
   Future<void> _removeFavorite(Restaurant restaurant) async {
-    setState(
-        () => _favorites.removeWhere((r) => r.placeId == restaurant.placeId));
+    // The provider updates optimistically and restores itself on failure, so
+    // this no longer keeps its own copy to revert.
     try {
-      await _supabaseService.removeFavorite(restaurant.placeId);
+      await ref.read(favouriteIdsProvider.notifier).toggle(restaurant.placeId);
     } catch (_) {
       if (!mounted) return;
-      setState(() => _favorites.add(restaurant));
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Could not remove favorite — try again.')),
       );
@@ -79,7 +84,14 @@ class _FavouritesScreenState extends State<FavouritesScreen> {
             'Favouriting a restaurant needs an account, same as submitting a noise reading.',
       );
     }
-    if (_favorites.isEmpty) {
+    // Derived at build time from the shared set, so a change made anywhere —
+    // including the detail screen — is reflected here without a reload.
+    final favouriteIds = ref.watch(favouriteIdsProvider).valueOrNull ?? const <String>{};
+    final favourites = _allRestaurants
+        .where((r) => favouriteIds.contains(r.placeId))
+        .toList();
+
+    if (favourites.isEmpty) {
       return const _EmptyFavourites(
         icon: Icons.star_border_rounded,
         title: 'No favourites yet',
@@ -87,10 +99,10 @@ class _FavouritesScreenState extends State<FavouritesScreen> {
       );
     }
     return ListView.separated(
-      itemCount: _favorites.length,
+      itemCount: favourites.length,
       separatorBuilder: (_, __) => const Divider(height: 1),
       itemBuilder: (context, index) {
-        final restaurant = _favorites[index];
+        final restaurant = favourites[index];
         return RestaurantTile(
           restaurant: restaurant,
           isFavorite: true,
