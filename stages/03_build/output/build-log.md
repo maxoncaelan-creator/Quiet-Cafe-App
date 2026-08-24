@@ -615,3 +615,59 @@ same setup file, leaving the resolver live against an empty table until Caelan
 ran the sync. Recorded in `MISTAKES.md` as
 `release-order-doc-not-read-before-deploying`.
 
+## Scheduled sweeps are live — verified 2026-08-24
+
+Coverage automation is enabled and a real sweep has run end to end. **The defect
+Caelan originally reported is fixed and demonstrated, not merely deployed.**
+
+**Crows Nest went from 15 venues to 39.** The sweep reported `completed`, 24
+places found across 5 pages, no error. All 24 new rows carry `first_seen_at` and
+`discovered_via`, so the step 0 provenance columns work as intended.
+
+**Cost per sweep is 5 billed Places requests**, at the low end of the 5-8
+estimate. The month's usage after this sweep was 16 of 1,000.
+
+### The default schedule was re-paced before enabling
+
+The migration shipped a worker tick every 15 minutes plus another on the hourly
+enqueue job — roughly 120 ticks/day. At one sweep per tick and ~5 requests each,
+that is 600+ requests **per day** against a **1,000/month** ceiling: the whole
+allowance gone in a day or two, then nothing for the rest of the month. The
+schedule was written against the earlier 8,000 figure, not the free-tier 1,000.
+
+Now:
+
+| Job | Was | Now |
+|---|---|---|
+| `run-nsw-suburb-sweep-worker` | `*/15 * * * *` | `0 */6 * * *` |
+| `enqueue-stale-nsw-suburb-sweeps` | hourly, also triggered a tick | `7 */6 * * *`, enqueue only |
+| `sync-nsw-suburb-gazetteer` | daily | unchanged — free, and guarded to 30 days |
+
+That is 4 sweeps/day, ~20 requests/day, ~600/month, leaving headroom for the
+assistant's inline refreshes which draw on the same ledger.
+
+The honest consequence: at 4 suburbs a day, sweeping all 4,607 NSW localities
+would take years. Demand ordering is what makes that acceptable — suburbs people
+actually ask about are swept first, and a newly requested one is picked up within
+a day rather than waiting for a budget already spent.
+
+### `pg_net` timeouts on the cron are expected, not failures
+
+`request_coverage_automation_worker` fires through `pg_net`, whose default
+timeout is 5 seconds. A sweep making five Google calls takes longer than that, so
+`net._http_response` records `Timeout of 5000 ms reached` **even when the sweep
+succeeds**. The observed run timed out at the HTTP layer at 08:24:31 and the
+sweep still completed at 08:24:54.
+
+Do not treat those timeout rows as errors, and do not "fix" them by shortening
+sweeps. Judge success from `nsw_suburb_sweep_state.last_outcome`, which is
+written by the worker itself. The trade-off is that a genuine worker failure also
+surfaces as a timeout rather than a status code — so sweep state, not
+`net._http_response`, is the monitoring surface.
+
+### Still not true
+
+- The beta gate is **bypassed** in production ([issue #51](https://github.com/maxoncaelan-creator/Quiet-Cafe-App/issues/51)).
+- The server-side assistant gate is open as [PR #52](https://github.com/maxoncaelan-creator/Quiet-Cafe-App/pull/52), unmerged.
+- No device or browser testing has been done on any of this.
+

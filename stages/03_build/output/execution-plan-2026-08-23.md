@@ -10,7 +10,7 @@ updates its own status block here when it finishes.
 | Step | Owner | Scope | Status |
 |---|---|---|---|
 | 0 | Claude Opus 5 (Claude Code) | Instrumentation, extensions, budget guard, dependencies | **Done — merged PRs #45 and #46** |
-| 1 | ChatGPT Terra 5.6 | Backend automation: gazetteer, sweep freshness, cron, queue | **Reviewed and merged — automation ships disabled** |
+| 1 | ChatGPT Terra 5.6 | Backend automation: gazetteer, sweep freshness, cron, queue | **Live and verified 2026-08-24 — Crows Nest 15 → 39 venues** |
 | 2 | Claude Opus 5 (Claude Code) | Full-stack assistant rewire | **2a in progress; 2b blocked on scheduled sweeps being enabled** |
 | 3 | Anthropic Sonnet 5 | Frontend: Riverpod migration, score refresh propagation | Not started |
 | 4 | Claude Opus 5 (Claude Code) | Beta hardening, PostHog, launch work | Not started |
@@ -425,3 +425,20 @@ requests. "Free" describes the app's automated sweeps, not total project spend.
 needs the worker URL and vault secret configured — see
 `COVERAGE_AUTOMATION_SETUP.md`. Nothing has swept, and no live Google request
 has been made through the new path.
+
+### Step 1 — enabled and verified live, 2026-08-24
+
+Scheduled sweeps are on. A real sweep ran: Crows Nest `completed`, 24 places
+found, **15 → 39 venues**, 5 billed Places requests, 16 of 1,000 used this month.
+
+Two things were changed before enabling, and both matter to anyone reading this
+later. The default cron would have spent the entire monthly budget in about a
+day, because it was written against the 8,000 ceiling rather than the free-tier
+1,000 — it is now 4 sweeps/day. And `pg_net`'s 5-second timeout is shorter than a
+sweep, so the cron records a timeout even on success; sweep state is the
+monitoring surface, not `net._http_response`.
+
+**Step 2b is now unblocked.** Scheduled sweeps are enabled and one has
+demonstrably run, which was the stated precondition for removing the assistant's
+inline billed refresh.
+
