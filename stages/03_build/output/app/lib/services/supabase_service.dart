@@ -55,6 +55,18 @@ class SearchAssistantRateLimited implements Exception {
   const SearchAssistantRateLimited(this.resetAt);
 }
 
+/// Thrown when the Search Assistant rejects a caller for not holding a redeemed
+/// beta code.
+///
+/// The router normally prevents this screen being reachable at all, so this is
+/// defence in depth rather than an expected path — it fires if the gate changes
+/// server-side while a session is already open. Distinct from a generic failure
+/// so the user is told what to do instead of seeing a status code.
+class SearchAssistantAccessDenied implements Exception {
+  final String message;
+  const SearchAssistantAccessDenied(this.message);
+}
+
 /// What the backend is doing about a suburb's venue coverage, when the question
 /// named one. Lets a thin suburb say so plainly instead of leaving the user to
 /// conclude the venue does not exist — see the `coverage` field in
@@ -135,6 +147,25 @@ SearchAssistantRateLimited? searchAssistantRateLimitFromResponse(
   if (resetAtValue is! String) return null;
   final resetAt = DateTime.tryParse(resetAtValue);
   return resetAt == null ? null : SearchAssistantRateLimited(resetAt);
+}
+
+/// Recognises the backend's documented 403 for a caller without beta access.
+///
+/// Only a 403 carrying `beta_access_required` counts. Any other 403 stays a
+/// generic failure rather than being mislabelled as a beta-code problem, which
+/// would send someone off to hunt for a code they already have.
+SearchAssistantAccessDenied? searchAssistantAccessDeniedFromResponse(
+  int status,
+  dynamic details,
+) {
+  if (status != 403 || details is! Map) return null;
+  if (details['error'] != 'beta_access_required') return null;
+  final message = details['message'];
+  return SearchAssistantAccessDenied(
+    message is String && message.isNotEmpty
+        ? message
+        : 'Redeem your beta code to use Search Assistant.',
+  );
 }
 
 /// The outcome of a user-requested venue-coverage refresh. The backend is the
@@ -397,12 +428,18 @@ class SupabaseService {
       final rateLimit =
           searchAssistantRateLimitFromResponse(error.status, error.details);
       if (rateLimit != null) throw rateLimit;
+      final denied =
+          searchAssistantAccessDeniedFromResponse(error.status, error.details);
+      if (denied != null) throw denied;
       rethrow;
     }
 
     final rateLimit =
         searchAssistantRateLimitFromResponse(response.status, response.data);
     if (rateLimit != null) throw rateLimit;
+    final denied =
+        searchAssistantAccessDeniedFromResponse(response.status, response.data);
+    if (denied != null) throw denied;
     if (response.status != 200) {
       throw Exception('Search Assistant request failed (${response.status})');
     }

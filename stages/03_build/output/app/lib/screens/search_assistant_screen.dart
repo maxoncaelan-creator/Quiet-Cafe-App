@@ -247,6 +247,13 @@ class _SearchAssistantScreenState extends State<SearchAssistantScreen> {
       if (!mounted) return;
       setState(() => _rateLimitedUntil = e.resetAt);
       _scheduleRateLimitRefresh();
+    } on SearchAssistantAccessDenied catch (e) {
+      // The router normally keeps this screen unreachable without beta access,
+      // so this only fires when the gate changes while a session is already
+      // open. Say what to do rather than showing a generic failure.
+      if (!mounted) return;
+      setState(() => _messages
+          .add(_ChatMessage(role: 'assistant', content: e.message)));
     } catch (e) {
       if (!mounted) return;
       setState(() => _messages.add(const _ChatMessage(

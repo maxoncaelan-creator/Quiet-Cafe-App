@@ -652,6 +652,33 @@ Deno.serve(async (req) => {
   }
   const userId = userData.user.id;
 
+  // Beta gate, enforced server-side. Until 2026-08-24 this was checked only by
+  // the Flutter router, so any signed-in account could reach this Function
+  // directly regardless of whether it held a redeemed code — the UI was the
+  // whole gate. Every other restriction in this app is enforced on the server
+  // (mic-reading auth, vote cooldown, token budget); this one was not.
+  //
+  // Must run as the caller, not the service role: has_beta_access() is built on
+  // auth.uid(), which is null for a service-role client and would therefore
+  // deny everyone. Using the caller's JWT also means this follows whatever the
+  // gate currently says, including a deliberate temporary bypass, instead of
+  // reimplementing the beta_codes lookup and quietly diverging from it.
+  const supabaseCaller = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    global: { headers: { Authorization: `Bearer ${token}` } },
+  });
+  const { data: hasBetaAccess, error: betaAccessError } = await supabaseCaller.rpc('has_beta_access');
+  if (betaAccessError) {
+    // Fail closed. A gate that opens when its own check errors is not a gate.
+    console.error('Could not check beta access:', betaAccessError.message);
+    return jsonResponse({ error: 'beta_access_unavailable' }, 502);
+  }
+  if (hasBetaAccess !== true) {
+    return jsonResponse({
+      error: 'beta_access_required',
+      message: 'Redeem your beta code to use Search Assistant.',
+    }, 403);
+  }
+
   let body: { message?: string; history?: unknown; location?: unknown };
   try {
     body = await req.json();
