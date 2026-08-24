@@ -11,7 +11,7 @@ updates its own status block here when it finishes.
 |---|---|---|---|
 | 0 | Claude Opus 5 (Claude Code) | Instrumentation, extensions, budget guard, dependencies | **Done — merged PRs #45 and #46** |
 | 1 | ChatGPT Terra 5.6 | Backend automation: gazetteer, sweep freshness, cron, queue | **Live and verified 2026-08-24 — Crows Nest 15 → 39 venues** |
-| 2 | Claude Opus 5 (Claude Code) | Full-stack assistant rewire | **2a in progress; 2b blocked on scheduled sweeps being enabled** |
+| 2 | Claude Opus 5 (Claude Code) | Full-stack assistant rewire | **Done — 2a and 2b complete** |
 | 3 | Anthropic Sonnet 5 | Frontend: Riverpod migration, score refresh propagation | Not started |
 | 4 | Claude Opus 5 (Claude Code) | Beta hardening, PostHog, launch work | Not started |
 
@@ -280,11 +280,32 @@ it would be wrong right now. `coverage_automation_config.enabled` is `false`, so
 nothing drains the queue. Deleting the inline path today would mean coverage
 could never grow at all — strictly worse than the bug we set out to fix.
 
-### Step 2b — blocked on enabling scheduled sweeps
+### Step 2b — done 2026-08-24
 
-Remove the inline billed refresh, leaving the assistant a pure reader. **Do not
-start this until `enabled = true` and a sweep has demonstrably run.** Until
-then the queue is write-only.
+Preconditions met: scheduled sweeps enabled and Crows Nest swept 15 → 39.
+
+**Scope corrected while implementing.** "Remove the inline billed refresh" is
+right for *named suburbs* and wrong for *GPS scope*. Coordinates keep the inline
+path, because there is no sweep to queue for them: the queue is keyed on
+gazetteer localities, and the gazetteer is loaded with `returnGeometry=false`, so
+there are no boundary polygons and a latitude/longitude cannot resolve to a
+suburb. Removing it there would leave GPS coverage with no way to grow at all.
+
+- Area questions no longer call `ondemand-topup`. They queue a sweep and answer
+  from the table.
+- `refreshThinCoverage` became `refreshNearbyCoverage`, GPS only.
+- An empty named suburb now says so plainly, and promises a look **only** when a
+  sweep is genuinely queued. Previously it reported a failed Google call, which
+  after this change could never be true for an area.
+- The system prompt claimed "the backend has already made any needed Google
+  check, so never say you cannot search Google." That became false: for a
+  suburb, the backend queued a check rather than making one. Haiku would have
+  asserted it had just searched Google when it had not. Replaced with wording
+  that says coverage is topped up in the background and more places may appear.
+
+**Remaining inline Google spend from the assistant:** the named-venue lookup
+(Caelan's approved narrow case) and the GPS nearby refresh. Both still pass
+through `places-search` and the shared monthly ledger.
 
 # Step 3 — Frontend state
 
