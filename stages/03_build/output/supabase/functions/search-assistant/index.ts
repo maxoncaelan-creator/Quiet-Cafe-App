@@ -519,13 +519,23 @@ async function settleAssistantBudget(
   if (error) console.error('Failed to settle Assistant budget:', error.message);
 }
 
-async function refreshThinCoverage(token: string, scope: Exclude<SearchScope, null>): Promise<CoverageRefresh[]> {
-  const refreshBodies = scope.kind === 'area'
-    ? [{ areaQuery: scope.areaQuery, requestSource: 'assistant' }]
-    : [
-        { location: scope.location, requestSource: 'assistant' },
-        { location: scope.location, coverageMode: 'nearby', requestSource: 'assistant' },
-      ];
+/// Inline, billed coverage refresh for a GPS scope only.
+///
+/// Step 2b removed the equivalent path for *named suburbs*: those are queued as
+/// durable sweeps instead, drained by the scheduled worker, so the assistant no
+/// longer spends money mid-conversation for an area question.
+///
+/// Coordinates deliberately keep the inline path. There is no sweep to queue for
+/// them: the sweep queue is keyed on gazetteer localities, and the gazetteer is
+/// loaded with `returnGeometry=false`, so there are no boundary polygons and a
+/// latitude/longitude cannot be resolved to a suburb. Removing this too would
+/// leave GPS-based coverage with no way to grow at all. Its own 1 km checkpoint
+/// and the shared monthly ledger remain the cost guards.
+async function refreshNearbyCoverage(token: string, location: UserLocation): Promise<CoverageRefresh[]> {
+  const refreshBodies = [
+    { location, requestSource: 'assistant' },
+    { location, coverageMode: 'nearby', requestSource: 'assistant' },
+  ];
 
   const results: CoverageRefresh[] = [];
   for (const body of refreshBodies) {
@@ -797,7 +807,12 @@ Deno.serve(async (req) => {
     // nothing drains the queue — removing this would mean coverage could never
     // grow at all. Step 2b removes it once scheduled sweeps are switched on.
     // See execution-plan-2026-08-23.md.
-    const coverageRefreshes = scope ? await refreshThinCoverage(token, scope) : [];
+    // Named suburbs no longer spend money here — queueSuburbSweep() above has
+    // already queued a durable sweep the scheduled worker will drain. Only a
+    // GPS scope still refreshes inline; see refreshNearbyCoverage().
+    const coverageRefreshes = scope?.kind === 'location'
+      ? await refreshNearbyCoverage(token, scope.location)
+      : [];
 
     let restaurants: Awaited<ReturnType<typeof loadRestaurantContext>>;
     try {
@@ -810,14 +825,30 @@ Deno.serve(async (req) => {
     // If a Google-backed refresh actually failed and there are no local options,
     // be precise with the user. The old flow swallowed the 502 and left Haiku to
     // claim that it had no ability to call Google at all.
+    // An empty named suburb. Since step 2b this is no longer a failed Google
+    // call — nothing was attempted, because area coverage is queued rather than
+    // bought inline. Say that plainly instead of letting Haiku guess from an
+    // empty list, and only promise a look when one is genuinely queued.
+    if (scope?.kind === 'area' && restaurants.length === 0) {
+      const sweepComing = coverage?.status === 'refresh_queued' ||
+        coverage?.status === 'refresh_pending';
+      return jsonResponse({
+        reply: sweepComing
+          ? `I do not have any places in ${scope.areaQuery} yet. I have asked for a look. Please check back soon.`
+          : `I do not have any places in ${scope.areaQuery} yet.`,
+        ...(coverage ? { coverage } : {}),
+      });
+    }
+
+    // A GPS scope can still fail a real Google call. Keep that precise rather
+    // than letting Haiku claim it cannot search Google at all.
     if (
-      scope?.kind === 'area' &&
+      scope?.kind === 'location' &&
       restaurants.length === 0 &&
       coverageRefreshes.some((refresh) => !refresh.succeeded)
     ) {
       return jsonResponse({
-        reply: `I couldn't check Google for cafes in ${scope.areaQuery} just now. Please try again in a moment.`,
-        ...(coverage ? { coverage } : {}),
+        reply: 'I could not check for places near you just now. Please try again in a moment.',
       });
     }
 
@@ -835,7 +866,9 @@ Deno.serve(async (req) => {
 
     const systemPrompt = `You are the Search Assistant inside Quiet Restaurant Finder, an app that ranks Sydney restaurants by how quiet they are. Higher quietness_score means quieter/better.
 
-Help the user find a restaurant that matches what they ask for. Use ONLY the restaurant data below. Never invent a restaurant. The backend has already made any needed Google check, so never say you cannot search Google. For a named suburb with venues, name two or three real options. If there are none, say so simply.
+Help the user find a restaurant that matches what they ask for. Use ONLY the restaurant data below. Never invent a restaurant. For a named suburb with venues, name two or three real options. If there are none, say so simply.
+
+Do not claim to have just searched Google, and do not claim you cannot search at all. The app keeps its own venue list topped up in the background, so a thin suburb may gain more places later. If the list looks short, say what is there and that more may be added — never that you checked and this is everything.
 
 Talk like you are helping a five-year-old: use little words, one or two short sentences, and no long explanations.
 
