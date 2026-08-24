@@ -7,6 +7,8 @@ import 'package:quiet_restaurant_finder/services/supabase_service.dart';
 // an optional field — would break a perfectly good answer.
 
 void main() {
+  _betaAccessTests();
+
   group('assistantCoverageFromResponse', () {
     test('reads a queued refresh with its next-eligible time', () {
       final coverage = assistantCoverageFromResponse({
@@ -89,6 +91,49 @@ void main() {
       expect(coverage, isNotNull);
       expect(coverage!.suburb, 'Kiama');
       expect(coverage.nextEligibleAt, isNull);
+    });
+  });
+}
+
+// The beta gate became a server-side check on 2026-08-24. Before that,
+// search-assistant only verified sign-in, so the Flutter router was the whole
+// gate and any signed-in account could call the Function directly.
+void _betaAccessTests() {
+  group('searchAssistantAccessDeniedFromResponse', () {
+    test('recognises the documented 403 payload', () {
+      final denied = searchAssistantAccessDeniedFromResponse(403, {
+        'error': 'beta_access_required',
+        'message': 'Redeem your beta code to use Search Assistant.',
+      });
+
+      expect(denied, isNotNull);
+      expect(denied!.message, contains('beta code'));
+    });
+
+    test('falls back to a usable message when the backend sends none', () {
+      final denied = searchAssistantAccessDeniedFromResponse(
+          403, {'error': 'beta_access_required'});
+
+      expect(denied, isNotNull);
+      expect(denied!.message, isNotEmpty);
+    });
+
+    test('leaves an unrelated 403 as a generic failure', () {
+      // Mislabelling this would send someone hunting for a code they hold.
+      expect(
+        searchAssistantAccessDeniedFromResponse(403, {'error': 'forbidden'}),
+        isNull,
+      );
+    });
+
+    test('ignores non-403 statuses and malformed bodies', () {
+      expect(
+        searchAssistantAccessDeniedFromResponse(
+            429, {'error': 'beta_access_required'}),
+        isNull,
+      );
+      expect(searchAssistantAccessDeniedFromResponse(403, null), isNull);
+      expect(searchAssistantAccessDeniedFromResponse(403, 'nope'), isNull);
     });
   });
 }
