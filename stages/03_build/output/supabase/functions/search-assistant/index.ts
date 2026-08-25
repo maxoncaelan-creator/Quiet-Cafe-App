@@ -463,7 +463,10 @@ type CoverageRefresh = {
 };
 
 type AssistantBudgetClaim = {
-  outcome: 'granted' | 'rate_limited';
+  // 'rate_limited' is this account's own 5-hour window.
+  // 'global_ceiling_reached' is the app's whole monthly Anthropic ceiling —
+  // nothing the caller did, and nothing they can wait out today.
+  outcome: 'granted' | 'rate_limited' | 'global_ceiling_reached';
   window_start: string;
   reserved_tokens: number;
   reset_at: string;
@@ -721,6 +724,17 @@ Deno.serve(async (req) => {
   } catch (error) {
     console.error('Assistant budget reservation failed:', error);
     return jsonResponse({ error: 'assistant_unavailable' }, 502);
+  }
+  if (budgetClaim.outcome === 'global_ceiling_reached') {
+    // Deliberately NOT reported as 'rate_limited'. Telling someone they have
+    // hit their limit when the app has hit its monthly ceiling is false, and
+    // sends them to check usage they cannot influence. 503 rather than 429 for
+    // the same reason: this is the service being unavailable, not the caller
+    // being throttled. resetAt is the start of next month.
+    return jsonResponse({
+      error: 'assistant_budget_exhausted',
+      resetAt: budgetClaim.reset_at,
+    }, 503);
   }
   if (budgetClaim.outcome !== 'granted') {
     return jsonResponse({ error: 'rate_limited', resetAt: budgetClaim.reset_at }, 429);

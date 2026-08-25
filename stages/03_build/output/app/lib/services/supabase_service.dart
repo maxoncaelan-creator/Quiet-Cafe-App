@@ -55,6 +55,20 @@ class SearchAssistantRateLimited implements Exception {
   const SearchAssistantRateLimited(this.resetAt);
 }
 
+/// Thrown when the Search Assistant is unavailable because the *app* has spent
+/// its monthly Anthropic ceiling.
+///
+/// Deliberately distinct from [SearchAssistantRateLimited]. That one means the
+/// caller's own 5-hour window is spent and tells them when it resets. This one
+/// is nothing they did and nothing they can wait out today, so it must never
+/// borrow that wording — it would send someone to check usage they cannot
+/// influence.
+class SearchAssistantBudgetExhausted implements Exception {
+  /// Start of next UTC month. There is no personal reset.
+  final DateTime resetAt;
+  const SearchAssistantBudgetExhausted(this.resetAt);
+}
+
 /// Thrown when the Search Assistant rejects a caller for not holding a redeemed
 /// beta code.
 ///
@@ -147,6 +161,22 @@ SearchAssistantRateLimited? searchAssistantRateLimitFromResponse(
   if (resetAtValue is! String) return null;
   final resetAt = DateTime.tryParse(resetAtValue);
   return resetAt == null ? null : SearchAssistantRateLimited(resetAt);
+}
+
+/// Recognises the backend's documented 503 for an exhausted monthly ceiling.
+///
+/// Only a 503 carrying `assistant_budget_exhausted` counts; any other 503 stays
+/// a generic failure. Total, like the other parsers here: an unexpected shape
+/// yields null rather than throwing.
+SearchAssistantBudgetExhausted? searchAssistantBudgetExhaustedFromResponse(
+  int status,
+  dynamic details,
+) {
+  if (status != 503 || details is! Map) return null;
+  if (details['error'] != 'assistant_budget_exhausted') return null;
+  final resetAtValue = details['resetAt'];
+  final resetAt = resetAtValue is String ? DateTime.tryParse(resetAtValue) : null;
+  return resetAt == null ? null : SearchAssistantBudgetExhausted(resetAt);
 }
 
 /// Recognises the backend's documented 403 for a caller without beta access.
@@ -440,6 +470,9 @@ class SupabaseService {
       final denied =
           searchAssistantAccessDeniedFromResponse(error.status, error.details);
       if (denied != null) throw denied;
+      final exhausted = searchAssistantBudgetExhaustedFromResponse(
+          error.status, error.details);
+      if (exhausted != null) throw exhausted;
       rethrow;
     }
 
@@ -449,6 +482,9 @@ class SupabaseService {
     final denied =
         searchAssistantAccessDeniedFromResponse(response.status, response.data);
     if (denied != null) throw denied;
+    final exhausted = searchAssistantBudgetExhaustedFromResponse(
+        response.status, response.data);
+    if (exhausted != null) throw exhausted;
     if (response.status != 200) {
       throw Exception('Search Assistant request failed (${response.status})');
     }
