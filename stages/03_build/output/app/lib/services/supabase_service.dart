@@ -243,7 +243,16 @@ class SupabaseService {
 
   /// Fires on sign-in, sign-out, and token refresh — lets the UI show
   /// current auth state live instead of only checking it once at build time.
-  Stream<AuthState> get authStateChanges => _client.auth.onAuthStateChange;
+  /// Auth events, or an empty stream when there is no backend configured.
+  ///
+  /// Previously this reached straight for `Supabase.instance`, which throws if
+  /// `initialize()` was skipped — so every caller had to remember to check
+  /// [isConfigured] first. Returning an empty stream instead makes the
+  /// standalone no-Supabase build safe by construction, and lets callers that
+  /// receive this service through a provider be handed a test double without
+  /// also having to defeat a static.
+  Stream<AuthState> get authStateChanges =>
+      isConfigured ? _client.auth.onAuthStateChange : const Stream.empty();
 
   Future<void> signOut() => _client.auth.signOut();
 

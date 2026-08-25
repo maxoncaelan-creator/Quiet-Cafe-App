@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show AuthChangeEvent;
 
 import '../services/supabase_service.dart';
+import 'supabase_service_provider.dart';
 
 /// The signed-in user's favourited place ids, shared across screens.
 ///
@@ -16,12 +17,17 @@ import '../services/supabase_service.dart';
 /// It also removes a redundant round trip: the detail screen used to fetch the
 /// whole favourites set on open purely to answer "is this one favourited?".
 class FavouriteIds extends AsyncNotifier<Set<String>> {
-  SupabaseService get _service => SupabaseService();
+  // Injected, not constructed here — see supabase_service_provider.dart. This
+  // is what makes the notifier testable at all.
+  SupabaseService get _service => ref.read(supabaseServiceProvider);
 
   @override
   Future<Set<String>> build() async {
-    if (!SupabaseService.isConfigured) return <String>{};
-
+    // No static isConfigured check: authStateChanges yields an empty stream
+    // when there is no backend, and isSignedIn is false, so the unconfigured
+    // build falls through to an empty set without a special case that a test
+    // double could not defeat.
+    //
     // Caching the set introduces a hazard that per-screen fetching did not
     // have: without this, one account's favourites would survive a sign-out and
     // be shown to whoever signs in next. Re-reading on both events also covers

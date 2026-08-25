@@ -12,7 +12,7 @@ updates its own status block here when it finishes.
 | 0 | Claude Opus 5 (Claude Code) | Instrumentation, extensions, budget guard, dependencies | **Done — merged PRs #45 and #46** |
 | 1 | ChatGPT Terra 5.6 | Backend automation: gazetteer, sweep freshness, cron, queue | **Live and verified 2026-08-24 — Crows Nest 15 → 39 venues** |
 | 2 | Claude Opus 5 (Claude Code) | Full-stack assistant rewire | **Done — 2a and 2b complete** |
-| 3 | Anthropic Sonnet 5 (3a done by Opus 5) | Frontend: Riverpod migration | **3a done — favourites slice; 3b not started** |
+| 3 | Anthropic Sonnet 5 (done by Opus 5) | Frontend: Riverpod migration | **3a done; 3b DI seam done, remaining slices open** |
 | 4 | Claude Opus 5 (Claude Code) | Beta hardening, PostHog, launch work | Not started |
 
 ## The review gate — every step, without exception
@@ -363,10 +363,37 @@ confirm the favourites list updates without a restart.
 
 Adding that seam is the first task of step 3b, before more screens move.
 
-### Step 3b — not started
+### Step 3b — DI seam done 2026-08-25
 
-Remaining incremental slices: auth/beta status (currently a hand-rolled
-`BetaGateNotifier`), and restaurant list caching. Do the DI seam first.
+`supabaseServiceProvider` is the injection point every future slice and every
+test uses. `FavouriteIds` now reads it instead of constructing
+`SupabaseService()` in place.
+
+**One obstacle had to be removed first.** `SupabaseService.isConfigured` is
+*static*, and the notifier checked it before doing anything. In a test that
+static is false, so `build()` returned an empty set and never touched the
+service — no test double could defeat it. Rather than work around the static,
+`authStateChanges` now yields an empty stream when there is no backend instead
+of reaching for an uninitialised `Supabase.instance`. The notifier then needs no
+`isConfigured` check at all: an unconfigured build falls through to an empty set
+via `isSignedIn`, and the standalone no-Supabase build is safe by construction
+rather than by every caller remembering to check first.
+
+**The step 3a gap is closed.** Seven tests now cover what was previously
+verifiable only by hand, including the bug that motivated the slice — a toggle
+being visible to every reader at once, with no refetch — and the optimistic
+revert when a write fails.
+
+Still not covered: the widget layer. These tests prove the shared state behaves;
+they do not prove `FavouritesScreen` rebuilds from it. That remains a device
+check.
+
+### Step 3b remaining — not started
+
+- Auth/beta status, currently a hand-rolled `BetaGateNotifier`.
+- Restaurant list caching.
+
+Both now have a seam to build on, and no reason to ship untested.
 
 # Step 4 — Hardening and launch
 
