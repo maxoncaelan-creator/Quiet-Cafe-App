@@ -247,6 +247,18 @@ class _SearchAssistantScreenState extends State<SearchAssistantScreen> {
       if (!mounted) return;
       setState(() => _rateLimitedUntil = e.resetAt);
       _scheduleRateLimitRefresh();
+    } on SearchAssistantBudgetExhausted catch (_) {
+      // The app, not this person, has run out. Say so plainly and give no
+      // personal reset time — there isn't one, and offering the date the ceiling
+      // resets would read as "come back in three weeks", which is worse than
+      // saying the feature is off for now.
+      if (!mounted) return;
+      setState(() => _messages.add(const _ChatMessage(
+            role: 'assistant',
+            content:
+                'The search helper is having a rest. It will be back soon. '
+                'You can still browse and search the list.',
+          )));
     } on SearchAssistantAccessDenied catch (e) {
       // The router normally keeps this screen unreachable without beta access,
       // so this only fires when the gate changes while a session is already

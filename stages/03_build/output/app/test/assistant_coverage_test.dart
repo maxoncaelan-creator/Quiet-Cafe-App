@@ -8,6 +8,7 @@ import 'package:quiet_restaurant_finder/services/supabase_service.dart';
 
 void main() {
   _betaAccessTests();
+  _budgetExhaustedTests();
 
   group('assistantCoverageFromResponse', () {
     test('reads a queued refresh with its next-eligible time', () {
@@ -134,6 +135,56 @@ void _betaAccessTests() {
       );
       expect(searchAssistantAccessDeniedFromResponse(403, null), isNull);
       expect(searchAssistantAccessDeniedFromResponse(403, 'nope'), isNull);
+    });
+  });
+}
+
+// A global ceiling must never borrow the per-account rate-limit wording. The
+// two mean different things to the person reading them.
+void _budgetExhaustedTests() {
+  group('searchAssistantBudgetExhaustedFromResponse', () {
+    test('recognises the documented 503 payload', () {
+      final exhausted = searchAssistantBudgetExhaustedFromResponse(503, {
+        'error': 'assistant_budget_exhausted',
+        'resetAt': '2026-09-01T00:00:00.000Z',
+      });
+
+      expect(exhausted, isNotNull);
+      expect(exhausted!.resetAt, DateTime.parse('2026-09-01T00:00:00.000Z'));
+    });
+
+    test('leaves an unrelated 503 as a generic failure', () {
+      expect(
+        searchAssistantBudgetExhaustedFromResponse(503, {'error': 'upstream'}),
+        isNull,
+      );
+    });
+
+    test('does not fire on the per-account 429', () {
+      // The two must stay separate: 429 is "you", 503 is "the app".
+      expect(
+        searchAssistantBudgetExhaustedFromResponse(
+            429, {'error': 'rate_limited', 'resetAt': '2026-09-01T00:00:00.000Z'}),
+        isNull,
+      );
+    });
+
+    test('returns null without a usable resetAt', () {
+      expect(
+        searchAssistantBudgetExhaustedFromResponse(
+            503, {'error': 'assistant_budget_exhausted'}),
+        isNull,
+      );
+      expect(
+        searchAssistantBudgetExhaustedFromResponse(503,
+            {'error': 'assistant_budget_exhausted', 'resetAt': 'not-a-date'}),
+        isNull,
+      );
+    });
+
+    test('survives malformed shapes', () {
+      expect(searchAssistantBudgetExhaustedFromResponse(503, null), isNull);
+      expect(searchAssistantBudgetExhaustedFromResponse(503, 'nope'), isNull);
     });
   });
 }

@@ -1,6 +1,20 @@
 # Global Anthropic ceiling — proposal
 
-**Status:** Proposal. Nothing here is implemented.
+**Status:** Implemented 2026-08-25 in
+`20260825090000_anthropic_monthly_ceiling.sql`. Kept as the design record.
+
+**One thing this document got wrong.** It described checking the global ceiling
+"first, before the per-account window." Done literally, a request that passes the
+global check and then fails the per-account one leaves the month charged for a
+request that never ran — and reversing the order just mirrors the bug. The
+implementation evaluates **both limits before writing either**, so there is no
+partial reservation in either direction.
+
+**The ceiling was set from measurement, not estimate**, as this document
+insisted. At 2026-08-25 only two accounts had ever used the assistant and the
+busiest 5-hour window was 6,864 tokens. 5,000,000 tokens/month is about 2,250
+questions, ~75 a day across all users. Confirm the dollar value in the Anthropic
+console and change the row, never the migration.
 
 ## The problem
 
