@@ -3,60 +3,23 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/restaurant.dart';
 import '../providers/favourites_provider.dart';
-import '../services/restaurant_repository.dart';
+import '../providers/restaurant_list_provider.dart';
 import '../services/supabase_service.dart';
 import '../widgets/app_drawer.dart';
 import '../widgets/restaurant_tile.dart';
 import '../widgets/skeleton_loader.dart';
 
-class FavouritesScreen extends ConsumerStatefulWidget {
+class FavouritesScreen extends ConsumerWidget {
   const FavouritesScreen({super.key});
 
-  @override
-  ConsumerState<FavouritesScreen> createState() => _FavouritesScreenState();
-}
-
-class _FavouritesScreenState extends ConsumerState<FavouritesScreen> {
-  final _repository = RestaurantRepository();
-  final _supabaseService = SupabaseService();
-
-  bool _loading = true;
-  List<Restaurant> _allRestaurants = [];
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    if (!_supabaseService.isSignedIn) {
-      setState(() => _loading = false);
-      return;
-    }
-    // No dedicated "fetch my favorited restaurants" query — loads
-    // everything (same as the List screen) and filters by the favourited
-    // id set at build time. Fine at today's single-city scale.
-    //
-    // The id set deliberately is NOT stored here any more. It lives in
-    // favouriteIdsProvider, so unfavouriting from the detail screen updates
-    // this list immediately instead of leaving a stale row until the screen
-    // is rebuilt from scratch.
-    final all = await _repository.loadAll();
-    if (!mounted) return;
-    setState(() {
-      _allRestaurants = all;
-      _loading = false;
-    });
-  }
-
-  Future<void> _removeFavorite(Restaurant restaurant) async {
+  Future<void> _removeFavorite(
+      BuildContext context, WidgetRef ref, Restaurant restaurant) async {
     // The provider updates optimistically and restores itself on failure, so
     // this no longer keeps its own copy to revert.
     try {
       await ref.read(favouriteIdsProvider.notifier).toggle(restaurant.placeId);
     } catch (_) {
-      if (!mounted) return;
+      if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Could not remove favorite — try again.')),
       );
@@ -64,19 +27,21 @@ class _FavouritesScreenState extends ConsumerState<FavouritesScreen> {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return Scaffold(
       appBar: AppBar(title: const Text('Favourites')),
       drawer: const AppDrawer(currentRoute: AppRoute.favourites),
-      body: _buildBody(),
+      body: _buildBody(context, ref),
     );
   }
 
-  Widget _buildBody() {
-    if (_loading) {
-      return const PageSkeleton(itemCount: 3);
-    }
-    if (!_supabaseService.isSignedIn) {
+  Widget _buildBody(BuildContext context, WidgetRef ref) {
+    // Checked before watching anything below — a signed-out visitor has no
+    // favourites by definition, so this must not force the (possibly
+    // uncached) full restaurant list to fetch just to prove that. Same
+    // early-out the old per-screen _load() had; only how the rest of this
+    // screen gets its data has changed.
+    if (!SupabaseService().isSignedIn) {
       return const _EmptyFavourites(
         icon: Icons.login,
         title: 'Sign in to save favourites',
@@ -84,29 +49,43 @@ class _FavouritesScreenState extends ConsumerState<FavouritesScreen> {
             'Favouriting a restaurant needs an account, same as submitting a noise reading.',
       );
     }
-    // Derived at build time from the shared set, so a change made anywhere —
-    // including the detail screen — is reflected here without a reload.
-    final favouriteIds = ref.watch(favouriteIdsProvider).valueOrNull ?? const <String>{};
-    final favourites = _allRestaurants
-        .where((r) => favouriteIds.contains(r.placeId))
-        .toList();
 
-    if (favourites.isEmpty) {
-      return const _EmptyFavourites(
-        icon: Icons.star_border_rounded,
-        title: 'No favourites yet',
-        message: 'Tap the star on any restaurant to save it here.',
-      );
-    }
-    return ListView.separated(
-      itemCount: favourites.length,
-      separatorBuilder: (_, __) => const Divider(height: 1),
-      itemBuilder: (context, index) {
-        final restaurant = favourites[index];
-        return RestaurantTile(
-          restaurant: restaurant,
-          isFavorite: true,
-          onToggleFavorite: () => _removeFavorite(restaurant),
+    // Both providers are shared with HomeScreen/RestaurantDetailScreen, so
+    // this screen no longer runs its own fetch for either — it reads
+    // whatever is already cached (or triggers the first load, if this is the
+    // first screen visited) and reflects a change from any of those screens
+    // immediately.
+    final restaurantsAsync = ref.watch(restaurantListProvider);
+    final favouriteIds =
+        ref.watch(favouriteIdsProvider).valueOrNull ?? const <String>{};
+
+    return restaurantsAsync.when(
+      loading: () => const PageSkeleton(itemCount: 3),
+      error: (error, _) =>
+          Center(child: Text('Could not load favourites: $error')),
+      data: (all) {
+        final favourites =
+            all.where((r) => favouriteIds.contains(r.placeId)).toList();
+
+        if (favourites.isEmpty) {
+          return const _EmptyFavourites(
+            icon: Icons.star_border_rounded,
+            title: 'No favourites yet',
+            message: 'Tap the star on any restaurant to save it here.',
+          );
+        }
+        return ListView.separated(
+          itemCount: favourites.length,
+          separatorBuilder: (_, __) => const Divider(height: 1),
+          itemBuilder: (context, index) {
+            final restaurant = favourites[index];
+            return RestaurantTile(
+              restaurant: restaurant,
+              isFavorite: true,
+              onToggleFavorite: () =>
+                  _removeFavorite(context, ref, restaurant),
+            );
+          },
         );
       },
     );

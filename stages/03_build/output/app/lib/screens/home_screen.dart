@@ -1,11 +1,13 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../models/restaurant.dart';
+import '../providers/favourites_provider.dart';
+import '../providers/restaurant_list_provider.dart';
 import '../services/location_service.dart';
-import '../services/restaurant_repository.dart';
 import '../services/supabase_service.dart';
 import '../widgets/app_drawer.dart';
 import '../widgets/filter_drawer.dart';
@@ -15,20 +17,18 @@ import '../widgets/searchable_suburb_picker.dart';
 import '../widgets/skeleton_loader.dart';
 import '../widgets/voice_search_bar.dart';
 
-class HomeScreen extends StatefulWidget {
+class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
 
   @override
-  State<HomeScreen> createState() => _HomeScreenState();
+  ConsumerState<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
-  final _repository = RestaurantRepository();
+class _HomeScreenState extends ConsumerState<HomeScreen> {
   final _locationService = LocationService();
   final _supabaseService = SupabaseService();
   final _scaffoldKey = GlobalKey<ScaffoldState>();
 
-  List<Restaurant> _all = [];
   String? _suburbFilter;
   bool _showAll = false;
   String? _cuisineFilter;
@@ -36,38 +36,36 @@ class _HomeScreenState extends State<HomeScreen> {
   double? _minRatingFilter;
   SortOption _sortBy = SortOption.quietestFirst;
   String _searchQuery = '';
-  bool _loading = true;
   bool _refreshingCoverage = false;
-  Object? _error;
 
   StreamSubscription? _authSubscription;
   String? _signedInEmail;
-  Set<String> _favoritePlaceIds = {};
 
   @override
   void initState() {
     super.initState();
-    _load();
     // Reflects sign-in state live in the app bar — the previous UI never
     // showed this anywhere, which is easy to mistake for "sessions don't
     // persist" even when they actually do (supabase_flutter persists by
     // default; nothing in this app overrides that).
+    //
+    // This used to also re-fetch favourites on every sign-in/out here. That
+    // is now favouriteIdsProvider's own job (it invalidates itself on the
+    // same two events — see favourites_provider.dart) so this listener only
+    // has one thing left to do.
     if (SupabaseService.isConfigured) {
       _signedInEmail = _supabaseService.currentUserEmail;
-      _loadFavorites();
       _authSubscription = _supabaseService.authStateChanges.listen((_) {
         if (!mounted) return;
         setState(() => _signedInEmail = _supabaseService.currentUserEmail);
-        _loadFavorites(); // re-fetch on sign-in/out — favorites are empty while signed out
       });
     }
   }
 
-  Future<void> _loadFavorites() async {
-    final ids = await _supabaseService.fetchFavoritePlaceIds();
-    if (mounted) setState(() => _favoritePlaceIds = ids);
-  }
-
+  /// Toggles the shared favourite set. No local optimistic flip or revert
+  /// here any more — favouriteIdsProvider owns both (see toggle() there),
+  /// which is what makes a star tapped here show correctly on the detail
+  /// screen and vice versa without either screen refetching.
   Future<void> _toggleFavorite(Restaurant restaurant) async {
     if (!_supabaseService.isSignedIn) {
       // Same point-of-need prompt as "Take a reading here" — browsing and
@@ -76,31 +74,10 @@ class _HomeScreenState extends State<HomeScreen> {
       if (signedIn != true || !mounted) return;
     }
 
-    final placeId = restaurant.placeId;
-    final wasFavorite = _favoritePlaceIds.contains(placeId);
-    setState(() {
-      // Optimistic — flips immediately, corrected below only if the write fails.
-      if (wasFavorite) {
-        _favoritePlaceIds.remove(placeId);
-      } else {
-        _favoritePlaceIds.add(placeId);
-      }
-    });
     try {
-      if (wasFavorite) {
-        await _supabaseService.removeFavorite(placeId);
-      } else {
-        await _supabaseService.addFavorite(placeId);
-      }
+      await ref.read(favouriteIdsProvider.notifier).toggle(restaurant.placeId);
     } catch (_) {
       if (!mounted) return;
-      setState(() {
-        if (wasFavorite) {
-          _favoritePlaceIds.add(placeId);
-        } else {
-          _favoritePlaceIds.remove(placeId);
-        }
-      });
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Could not update favorite — try again.')),
       );
@@ -118,24 +95,9 @@ class _HomeScreenState extends State<HomeScreen> {
         .push(_signedInEmail != null ? '/settings/account' : '/sign-in');
   }
 
-  Future<void> _load() async {
-    try {
-      final restaurants = await _repository.loadAll();
-      setState(() {
-        _all = restaurants;
-        _loading = false;
-      });
-    } catch (error) {
-      setState(() {
-        _error = error;
-        _loading = false;
-      });
-    }
-  }
-
-  List<Restaurant> get _filtered {
+  List<Restaurant> _filtered(List<Restaurant> all) {
     final query = _searchQuery.trim().toLowerCase();
-    return _all.where((r) {
+    return all.where((r) {
       if (_suburbFilter != null && r.suburb != _suburbFilter) return false;
       if (_cuisineFilter != null && r.cuisine != _cuisineFilter) return false;
       if (_loudnessFilterIndex != null &&
@@ -163,8 +125,10 @@ class _HomeScreenState extends State<HomeScreen> {
   /// different Sort By option is selected — Loudest First is just that same
   /// list reversed, Rating sorts push restaurants with no rating yet to the
   /// end regardless of direction rather than clumping them at the top.
-  List<Restaurant> get _sortedRanked {
-    final quietestFirst = _repository.rankedByQuietness(_filtered);
+  List<Restaurant> _sortedRanked(List<Restaurant> all) {
+    final quietestFirst = ref
+        .read(restaurantRepositoryProvider)
+        .rankedByQuietness(_filtered(all));
     switch (_sortBy) {
       case SortOption.quietestFirst:
         return quietestFirst;
@@ -257,7 +221,12 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       final refresh = await _supabaseService.refreshVenueCoverage(area);
       if (!mounted) return;
-      await _load();
+      // The cached list is only worth caching if there's an explicit way to
+      // bust it when the underlying data legitimately changed — a coverage
+      // refresh that actually added rows is exactly that case, so this reads
+      // through the cache rather than trusting refresh.triggered/placesFound
+      // to imply nothing more needs fetching.
+      await ref.read(restaurantListProvider.notifier).reload();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(_coverageRefreshMessage(refresh, area))),
@@ -305,7 +274,10 @@ class _HomeScreenState extends State<HomeScreen> {
         position.longitude,
       );
       if (!mounted) return;
-      await _load();
+      // Same reasoning as _findMoreVenues: a nearby check can add rows, so
+      // the cache must be explicitly busted rather than left to whatever it
+      // last held.
+      await ref.read(restaurantListProvider.notifier).reload();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(_nearbyCoverageRefreshMessage(refresh))),
@@ -371,20 +343,33 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) {
-      return const Scaffold(body: PageSkeleton());
-    }
-    if (_error != null) {
-      return Scaffold(
-          body: Center(child: Text('Could not load restaurants: $_error')));
-    }
+    // restaurantListProvider replaces this screen's own initState() fetch —
+    // see restaurant_list_provider.dart for why a shared AsyncNotifier
+    // rather than a per-screen field. AsyncValue.when covers the three
+    // states the old _loading/_error fields tracked by hand.
+    final restaurantsAsync = ref.watch(restaurantListProvider);
+    return restaurantsAsync.when(
+      loading: () => const Scaffold(body: PageSkeleton()),
+      error: (error, _) => Scaffold(
+        body: Center(child: Text('Could not load restaurants: $error')),
+      ),
+      data: (all) => _buildLoaded(context, all),
+    );
+  }
 
-    final ranked = _sortedRanked;
-    final needsData = _repository.withoutEnoughData(_filtered);
+  Widget _buildLoaded(BuildContext context, List<Restaurant> all) {
+    // Derived from the shared set at build time, same as FavouritesScreen
+    // and RestaurantDetailScreen — a toggle from either of those screens is
+    // visible here with no refetch of its own.
+    final favouriteIds =
+        ref.watch(favouriteIdsProvider).valueOrNull ?? const <String>{};
+    final ranked = _sortedRanked(all);
+    final needsData =
+        ref.read(restaurantRepositoryProvider).withoutEnoughData(_filtered(all));
     final suburbs =
-        _all.map((r) => r.suburb).whereType<String>().toSet().toList()..sort();
+        all.map((r) => r.suburb).whereType<String>().toSet().toList()..sort();
     final cuisines =
-        _all.map((r) => r.cuisine).whereType<String>().toSet().toList()..sort();
+        all.map((r) => r.cuisine).whereType<String>().toSet().toList()..sort();
     final hasActiveFilters = _suburbFilter != null ||
         _cuisineFilter != null ||
         _loudnessFilterIndex != null ||
@@ -474,14 +459,14 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
                 Expanded(
-                  child: _all.isEmpty
+                  child: all.isEmpty
                       ? const _EmptyState()
                       : ListView(
                           children: [
                             for (final restaurant in ranked)
                               RestaurantTile(
                                 restaurant: restaurant,
-                                isFavorite: _favoritePlaceIds
+                                isFavorite: favouriteIds
                                     .contains(restaurant.placeId),
                                 onToggleFavorite: () =>
                                     _toggleFavorite(restaurant),
@@ -497,7 +482,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               for (final restaurant in needsData)
                                 RestaurantTile(
                                   restaurant: restaurant,
-                                  isFavorite: _favoritePlaceIds
+                                  isFavorite: favouriteIds
                                       .contains(restaurant.placeId),
                                   onToggleFavorite: () =>
                                       _toggleFavorite(restaurant),
