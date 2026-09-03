@@ -51,6 +51,10 @@ class _FakeSupabaseService extends SupabaseService {
   void emit(AuthChangeEvent event) =>
       _authController.add(AuthState(event, null));
 
+  /// Supabase puts network and token-refresh failures on this same stream,
+  /// not just auth events — simulates one.
+  void emitError(Object error) => _authController.addError(error);
+
   void disposeController() => _authController.close();
 }
 
@@ -135,6 +139,37 @@ void main() {
       expect(await container.read(betaAccessProvider.future), isFalse);
     });
 
+    // valueOrNull alone is NOT "still checking" on a re-check, only on the
+    // very first build — confirmed here before relying on it anywhere.
+    // Riverpod's invalidateSelf-triggered rebuild sets state via
+    // AsyncLoading().copyWithPrevious(previous, isRefresh: true), and
+    // AsyncLoading.copyWithPrevious folds a previously-resolved value into
+    // an AsyncData with isLoading: true rather than clearing it — so
+    // valueOrNull reads the STALE prior answer here, not null, even though a
+    // real check is genuinely in flight. isLoading is true in both cases
+    // (first build and re-check), which is why asGateAccess (below, and in
+    // beta_gate_provider.dart) reads that instead.
+    test(
+        'a re-check retains the previous value — valueOrNull is not '
+        '"checking" on its own, only isLoading is', () async {
+      final fake = _FakeSupabaseService(signedIn: false);
+      final container = _containerWith(fake);
+      expect(await container.read(betaAccessProvider.future), isFalse);
+
+      fake.signedIn = true;
+      fake.holdAccessCheck = true;
+      fake.emit(AuthChangeEvent.signedIn);
+      await Future<void>.delayed(Duration.zero);
+
+      final state = container.read(betaAccessProvider);
+      expect(state.isLoading, isTrue);
+      expect(state.valueOrNull, isFalse); // stale — NOT the "checking" null
+      expect(state.asGateAccess, isNull); // what router.dart actually reads
+
+      fake.resolveNextAccessCheck(true);
+      expect(await container.read(betaAccessProvider.future), isTrue);
+    });
+
     // The race BetaGateNotifier's `_refreshGeneration` counter used to
     // guard against: a slow hasBetaAccess() RPC for an account that has
     // since signed out must not overwrite the correct signed-out state once
@@ -165,6 +200,27 @@ void main() {
       fake.resolveNextAccessCheck(true);
       await Future<void>.delayed(Duration.zero);
 
+      expect(container.read(betaAccessProvider).valueOrNull, isFalse);
+    });
+
+    // BetaGateNotifier's authStateChanges.listen() carried an onError that
+    // did nothing but exist — Supabase puts network and token-refresh
+    // failures on this stream too, not just auth events, and an unhandled
+    // error on a stream this class owns would otherwise crash the app
+    // rather than just leaving betaAccessProvider showing its last-known
+    // answer until the next auth event or app launch retries the check.
+    test('a stream error on authStateChanges does not crash the provider',
+        () async {
+      final fake = _FakeSupabaseService(signedIn: false);
+      final container = _containerWith(fake);
+      expect(await container.read(betaAccessProvider.future), isFalse);
+
+      fake.emitError(Exception('network blip'));
+      await Future<void>.delayed(Duration.zero);
+
+      // Still readable afterwards — the error did not propagate as an
+      // unhandled Zone error and take the provider (or, in the real app,
+      // everything else on this Zone) down with it.
       expect(container.read(betaAccessProvider).valueOrNull, isFalse);
     });
   });

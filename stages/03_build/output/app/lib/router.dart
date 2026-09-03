@@ -3,7 +3,6 @@
 // screen, not just the 5 top-level ones. See PLATFORM_SETUP.md's "Web"
 // section for the route table in prose form.
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'models/restaurant.dart';
@@ -80,7 +79,10 @@ String? _gateRedirect(BuildContext context, GoRouterState state) {
 
   if (_passwordRecoveryPaths.contains(loc)) return null;
 
-  final hasAccess = providerContainer.read(betaAccessProvider).valueOrNull;
+  // .asGateAccess, not plain .valueOrNull — see beta_gate_provider.dart for
+  // why a re-check needs that: valueOrNull retains the previous answer
+  // while a check is in flight, not just the very first one.
+  final hasAccess = providerContainer.read(betaAccessProvider).asGateAccess;
   if (hasAccess == null) {
     return loc == '/checking-access' ? null : '/checking-access';
   }
