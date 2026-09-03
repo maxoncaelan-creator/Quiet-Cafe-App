@@ -76,6 +76,13 @@ quiet-restaurant-finder/
   and the limits on what may be claimed about score accuracy; writing copy
   here bypasses all three.
 
+  That workspace was rebuilt 2026-08-25 and its `stages/04_finalize/output/`
+  is empty until it runs. The copy currently built into the site is in
+  `quiet-restaurant-finder-marketing-archive/stages/05_finalize/output/final.md`
+  — retired, not deleted. The site itself is still undeployed, so nothing there
+  is public yet. Read the archive for the wording the page was built with, and
+  ask the rebuilt workspace for anything new.
+
 - **Choose the auth/integration flow per platform before writing code.** When
   a hosted provider (Supabase here) offers both a vendor client-SDK flow and
   its own server-side redirect flow, those are different mechanisms with
