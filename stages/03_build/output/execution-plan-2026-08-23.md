@@ -388,12 +388,22 @@ Still not covered: the widget layer. These tests prove the shared state behaves;
 they do not prove `FavouritesScreen` rebuilds from it. That remains a device
 check.
 
-### Step 3b remaining — not started
+### Step 3c — beta gate onto Riverpod, PR open 2026-09-03
 
-- Auth/beta status, currently a hand-rolled `BetaGateNotifier`.
-- Restaurant list caching.
+[PR #60](https://github.com/maxoncaelan-creator/Quiet-Cafe-App/pull/60), branched
+off `main`, **not merged**. `BetaGateNotifier` is deleted rather than left
+dormant; `betaAccessProvider` replaces it, reading the step 3b seam.
 
-Both now have a seam to build on, and no reason to ship untested.
+The obstacle this slice had to solve: `appRouter` is a top-level global built at
+import time and GoRouter's `redirect` runs outside the widget tree, so it has no
+`BuildContext` to trust and no `ref.watch` to call. A single global
+`ProviderContainer` is now handed to `UncontrolledProviderScope` instead of
+letting `ProviderScope` build its own, so the widget tree and the router read one
+state rather than two diverging copies.
+
+### Step 3 remaining — restaurant list caching
+
+The last slice. It has the seam and the container to build on.
 
 # Step 4 — Hardening and launch
 
@@ -534,3 +544,41 @@ monitoring surface, not `net._http_response`.
 demonstrably run, which was the stated precondition for removing the assistant's
 inline billed refresh.
 
+
+### Step 3c — Anthropic Sonnet 5, reviewed by Claude Opus 5, 2026-09-03
+
+**PR open, not merged.** The beta gate moved off `BetaGateNotifier` onto
+`betaAccessProvider`. Eight files, all under `app/`; the old notifier is
+deleted, not left alongside the new one.
+
+**Verified independently rather than accepted from the report.** `flutter
+analyze --no-pub` clean and `flutter test --no-pub` 53/53 passing, both re-run
+on the branch — 47 before, six new tests in `beta_gate_provider_test.dart`.
+
+**The load-bearing decision is the removed race guard, and it holds up.** The
+old `_refreshGeneration` counter stopped a slow `hasBetaAccess()` RPC from
+overwriting a newer sign-in/out. It was not reimplemented. The argument is that
+`AsyncNotifier` already provides the property: `invalidateSelf()` synchronously
+runs `runOnDispose()`, flipping a flag the in-flight build closed over, so a
+stale answer is discarded when it arrives.
+
+That claim was checked rather than taken on trust, because getting it wrong
+means showing one account the access state of another. The test behind it is
+genuinely capable of failing: it holds an RPC open, signs out, asserts `false`,
+then resolves the stale RPC with `true` and asserts the state is *still*
+`false`. An unguarded implementation fails that test.
+
+**A pre-existing defect was found and correctly left alone.**
+`FavouriteIds.reload()` — merged in step 3b, not touched by this slice — calls
+`build()` directly, which opens a second `authStateChanges` subscription
+without cancelling the first. Filed as
+[issue #61](https://github.com/maxoncaelan-creator/Quiet-Cafe-App/issues/61)
+rather than fixed here. It is latent: `reload()` has no callers yet, so nothing
+triggers it today. Fixing it before the first caller lands is the point.
+
+**What this PR does not prove**, stated plainly because a green suite is not a
+device test: nothing exercises GoRouter's real redirect re-evaluation, or
+confirms `BetaGateScreen` actually leaves the screen on redemption in a running
+app. The provider tests use a fake `SupabaseService`, so app-versus-backend
+contract drift would not surface. The standalone no-Supabase build was reasoned
+about from the `SupabaseService` getters, not run.
