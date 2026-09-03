@@ -671,3 +671,100 @@ surfaces as a timeout rather than a status code — so sweep state, not
 - The server-side assistant gate is open as [PR #52](https://github.com/maxoncaelan-creator/Quiet-Cafe-App/pull/52), unmerged.
 - No device or browser testing has been done on any of this.
 
+
+## Frontend state and the Anthropic ceiling — 2026-08-25, verified 2026-09-03
+
+Four merged PRs went unrecorded here for a week. Anyone resuming from this log
+would have thought the project stopped at "scheduled sweeps are live"; it did
+not. Recorded now, with the backend half re-verified against production rather
+than taken from the PR descriptions.
+
+### Step 3a — favourites became shared state ([#55](https://github.com/maxoncaelan-creator/Quiet-Cafe-App/pull/55))
+
+`favouriteIdsProvider` (an `AsyncNotifier<Set<String>>`) now owns the signed-in
+user's favourites; `FavouritesScreen` and `RestaurantDetailScreen` both read it
+instead of each keeping a copy. The bug this fixes was real and user-visible:
+unstar a venue from the detail screen, go back, and it was still listed, because
+`go_router`'s pop does not re-run `initState`.
+
+It also closed a hazard that per-screen fetching never had — a cached set could
+survive a sign-out into the next account's session — by invalidating on sign-in
+and sign-out.
+
+**The step's original premise was wrong.** The plan claimed a vote or mic reading
+did not propagate to a mounted detail screen. The contribution-score triggers are
+`after insert ... for each row`, so the recompute completes before the insert
+returns, and the detail screen already refreshed from both callbacks. That build
+log line was a *verification* task misread as a defect. It still needs a device
+check; it never needed code.
+
+### Step 3b — the DI seam ([#57](https://github.com/maxoncaelan-creator/Quiet-Cafe-App/pull/57))
+
+`supabaseServiceProvider` is the injection point every later slice and every test
+uses. Step 3a had shipped with **no unit test at all**, because the notifier
+constructed its own `SupabaseService()` and nothing could stand in for it.
+
+The obstacle was `SupabaseService.isConfigured` being *static*: in a test it is
+false, so `build()` returned an empty set without ever touching the service, and
+no test double could get past it. Rather than add a second instance-level flag
+for tests, the need was removed — `authStateChanges` yields an empty stream when
+there is no backend, so the unconfigured build is safe by construction instead of
+by every caller remembering to check. Seven tests now cover the shared-state
+behaviour and the optimistic revert.
+
+Still uncovered: the widget layer. These tests prove the state behaves; they do
+not prove `FavouritesScreen` rebuilds from it.
+
+### The one unbounded cost is now capped ([#56](https://github.com/maxoncaelan-creator/Quiet-Cafe-App/pull/56) proposal, [#58](https://github.com/maxoncaelan-creator/Quiet-Cafe-App/pull/58) implementation)
+
+Search Assistant spend was capped per account (10,000 tokens per rolling 5-hour
+window) with **no ceiling across accounts**, and sign-up is open — so total
+Anthropic spend was bounded only by how many accounts existed. Google Places had
+a global ceiling; Anthropic did not.
+
+The ceiling was measured, not guessed, because the Places ledger had shipped with
+a plausible placeholder that was wrong by 26x: only two accounts had ever used
+the assistant, and the busiest 5-hour window was 6,864 tokens. The ceiling is
+**5,000,000 tokens per UTC month**, roughly 2,250 questions.
+
+### Verified live against production — 2026-09-03
+
+Checked directly, not inferred from the merge, because this project has twice
+reported a successful deploy that had not happened:
+
+- **Migration** `20260825090000_anthropic_monthly_ceiling` is applied in
+  production and is the newest there. The full applied list matches the
+  repository's migration files one-to-one — no drift.
+- **`search-assistant` is at version 20**, updated 2026-08-25 07:21:14 UTC, 61
+  seconds after the PR merged. The *deployed source* was read rather than the
+  version number trusted, and it contains the new `global_ceiling_reached`
+  outcome and the 503 `assistant_budget_exhausted` response. This is the failure
+  mode the runbook warns about — the GitHub integration deploys new Functions and
+  silently skips modified ones — so it was checked by content.
+- **The config row is real:** `monthly_token_ceiling = 5000000`, matching the
+  migration verbatim. August usage was 770 tokens.
+- **The ceiling is genuinely global.** Read from the deployed function body, not
+  the PR description: `claim_search_assistant_budget` compares the config ceiling
+  against usage summed across all users for the month, keyed only by
+  `month_start` with no `user_id`, separately from the per-account window check.
+- **Grants are correct:** only `service_role` and `postgres` may execute the
+  claim/settle functions. No `anon`, `authenticated` or `PUBLIC`.
+
+For once, everything checked out live on the first pass.
+
+### Still not true
+
+- **The beta gate is still bypassed in production.** `has_beta_access()` reads
+  `return auth.uid() is not null;` as of 2026-09-03
+  ([issue #51](https://github.com/maxoncaelan-creator/Quiet-Cafe-App/issues/51)).
+  That issue's stated rationale — uncapped Anthropic spend, unlike capped Places
+  — **is now out of date and has not been updated.** The spend exposure is closed
+  by #58; the gate is a separate question about who reaches the app at all, and
+  should be decided on those grounds rather than on cost.
+- The previous "still not true" list said the server-side assistant gate was
+  open as PR #52, unmerged. **It merged on 2026-08-24** (`ff6ed66`). That entry
+  was stale, not accurate.
+- **No device or browser testing has been done on any of this.** Unchanged, and
+  now covering four more merged PRs than when it was last written.
+- Step 3's remaining slices — the beta/auth gate off its hand-rolled
+  `ChangeNotifier`, and restaurant list caching — are open. Step 4 has not begun.

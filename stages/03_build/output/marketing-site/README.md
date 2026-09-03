@@ -12,14 +12,26 @@ The app is Flutter, so building this in Flutter would have been the obvious
 consistency play. It would also have defeated the point. Flutter web renders
 to a canvas: crawlers get almost nothing, and this page's entire job is to
 be found by search and quoted by AI assistants (see the marketing
-workspace's `04_seo-aeo` stage). A static page also loads faster and needs
-no build toolchain to change a word of copy.
+workspace's `03_optimize` stage, `04_seo-aeo` in the retired version). A
+static page also loads faster and needs no build toolchain to change a word of
+copy.
 
 ## Where the copy comes from
 
 **Every user-visible string on this page is owned by the
-`quiet-restaurant-finder-marketing` workspace**, in
-`stages/05_finalize/output/final.md`. Take strings from there verbatim.
+`quiet-restaurant-finder-marketing` workspace.** Take strings from there
+verbatim.
+
+That workspace was rebuilt on 2026-08-25, so there are two places to look:
+
+- **The wording currently on this page** came from
+  `quiet-restaurant-finder-marketing-archive/stages/05_finalize/output/final.md`.
+  The archive is retired but not deleted, and until the rebuilt workspace runs
+  it holds the only finished version. This site is not deployed, so that
+  wording is built, not published.
+- **New or changed strings** come from the rebuilt workspace's
+  `stages/04_finalize/output/`, one file per piece (`homepage.md`). Ask for a
+  string there rather than editing one here.
 
 If a new string is needed, ask that workspace for it rather than writing one
 here. The wording carries a reading-level standard, positioning, and hard

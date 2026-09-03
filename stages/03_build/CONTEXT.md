@@ -9,7 +9,8 @@ Workspace: [[quiet-restaurant-finder/AGENTS|Quiet Restaurant Finder]]
 | ../02_ranking-design/output/prd.md | 4 | product framing the build follows |
 | ../02_ranking-design/output/ranking-spec.md | 4 | the scoring formula the pipeline implements |
 | ../02_ranking-design/output/data-schema.md | 4 | the schema the pipeline and app share |
-| `quiet-restaurant-finder-marketing/stages/05_finalize/output/final.md` (cross-workspace) | 4 | the marketing site's copy — read when building the site, never written here. Falls back to that workspace's `03_draft`/`04_seo-aeo` output while a piece is still in flight |
+| `quiet-restaurant-finder-marketing-archive/stages/05_finalize/output/final.md` (cross-workspace) | 4 | the marketing site's copy **as currently built into the page** — read when building the site, never written here. The site is not deployed, so this is the finished wording, not published wording. The marketing workspace was rebuilt 2026-08-25; this retired folder is where that wording still lives |
+| `quiet-restaurant-finder-marketing/stages/04_finalize/output/<slug>.md` (cross-workspace) | 4 | new and revised site copy from the rebuilt marketing workspace, one file per piece (`homepage.md`, `faq-page.md`). This is the source of record going forward; it is empty until that workspace runs, which is why the row above still applies |
 
 ## Process
 
