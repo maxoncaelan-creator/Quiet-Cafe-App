@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_web_plugins/url_strategy.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'providers/provider_container.dart';
 import 'router.dart';
 import 'services/download_banner_service.dart';
 import 'services/observability_service.dart';
@@ -30,10 +31,19 @@ void main() async {
     await SupabaseService.initialize(); // no-op if SUPABASE_URL/SUPABASE_ANON_KEY aren't set — see supabase_service.dart
     await ThemeService.load();
     await DownloadBannerService.load();
-    // ProviderScope is added here in step 0 so step 3's incremental Riverpod
-    // migration has a root to attach to. Nothing reads from it yet — see
-    // execution-plan-2026-08-23.md.
-    runApp(const ProviderScope(child: QuietRestaurantFinderApp()));
+    // UncontrolledProviderScope, not ProviderScope, hands the widget tree
+    // the same providerContainer router.dart already reads from — see
+    // provider_container.dart's doc comment. A plain ProviderScope would
+    // build its own container instead, and the router's redirect (which
+    // runs outside the widget tree and can't reach whatever container
+    // ProviderScope made) would end up watching a state the UI never
+    // actually shares.
+    runApp(
+      UncontrolledProviderScope(
+        container: providerContainer,
+        child: const QuietRestaurantFinderApp(),
+      ),
+    );
   });
 }
 
