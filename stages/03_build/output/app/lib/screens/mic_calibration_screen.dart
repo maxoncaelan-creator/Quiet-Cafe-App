@@ -15,10 +15,13 @@
 // due-ness check will surface it again next time it's evaluated — flagged
 // as a judgment call, not an explicit instruction either way.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../models/mic_reading.dart';
 import '../services/mic_service.dart';
+import '../services/observability_service.dart';
 import '../services/supabase_service.dart';
 import '../widgets/max_width_content.dart';
 
@@ -69,7 +72,9 @@ class _MicCalibrationScreenState extends State<MicCalibrationScreen> {
       setState(() => _listening = true);
     } on MicPermissionDenied {
       setState(() => _error = 'Microphone permission is needed to calibrate.');
-    } catch (error) {
+    } catch (error, st) {
+      unawaited(ObservabilityService.captureError(error, st,
+          context: 'mic_calibration.start'));
       setState(() => _error = 'Could not start the microphone: $error');
     }
   }
@@ -90,7 +95,9 @@ class _MicCalibrationScreenState extends State<MicCalibrationScreen> {
       await _supabaseService.submitMicCalibration(average, MicReading.capturePlatform());
       if (!mounted) return;
       Navigator.of(context).pop();
-    } catch (error) {
+    } catch (error, st) {
+      unawaited(ObservabilityService.captureError(error, st,
+          context: 'mic_calibration.submit'));
       if (!mounted) return;
       setState(() {
         _error = 'Could not save calibration: $error';

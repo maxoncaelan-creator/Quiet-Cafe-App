@@ -7,8 +7,12 @@
 // local "don't ask again for 30 minutes" cooldown after the user says no.
 // Not a general-purpose location API.
 
+import 'dart:async';
+
 import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import 'observability_service.dart';
 
 class LocationService {
   static const _dismissedAtPrefsKey = 'venue_guess_dismissed_at';
@@ -43,7 +47,16 @@ class LocationService {
       return await Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(accuracy: LocationAccuracy.medium, timeLimit: Duration(seconds: 8)),
       ).timeout(const Duration(seconds: 10));
-    } catch (_) {
+    } on TimeoutException {
+      // A slow or absent GPS fix is routine (weak signal, indoors) — not a
+      // bug worth reporting, just this convenience feature not working out.
+      return null;
+    } catch (e, st) {
+      // Anything else here — a platform channel throwing, an unexpected
+      // Geolocator failure — is not the routine case above. Fire-and-forget:
+      // this must not make a GPS-fix failure also block on a Sentry POST.
+      unawaited(ObservabilityService.captureError(e, st,
+          context: 'location.get_current_position'));
       return null;
     }
   }

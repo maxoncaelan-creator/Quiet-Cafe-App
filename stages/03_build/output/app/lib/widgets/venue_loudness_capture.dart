@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/mic_reading.dart';
 import '../services/mic_service.dart';
+import '../services/observability_service.dart';
 import '../services/supabase_service.dart';
 import 'skeleton_loader.dart';
 
@@ -85,7 +86,9 @@ class _VenueLoudnessCaptureState extends State<VenueLoudnessCapture> {
         );
       }
       return;
-    } catch (error) {
+    } catch (error, st) {
+      unawaited(ObservabilityService.captureError(error, st,
+          context: 'venue_loudness_capture.start'));
       if (mounted) {
         setState(() {
           _starting = false;
@@ -175,13 +178,24 @@ class _VenueLoudnessCaptureState extends State<VenueLoudnessCapture> {
           content: Text('Thanks — your 10-second reading was submitted.'),
         ),
       );
-    } on PostgrestException catch (error) {
+    } on PostgrestException catch (error, st) {
+      final isRateLimited = error.message.startsWith('rate_limited:');
+      if (!isRateLimited) {
+        // A rate-limited submission is the server's mic-reading throttle
+        // doing its job, same as a search-assistant rate limit — expected,
+        // not reported. Anything else here (an RLS rejection, a constraint
+        // failure, an unanticipated Postgrest error) is not.
+        unawaited(ObservabilityService.captureError(error, st,
+            context: 'venue_loudness_capture.submit'));
+      }
       if (!mounted) return;
-      final message = error.message.startsWith('rate_limited:')
+      final message = isRateLimited
           ? error.message.replaceFirst('rate_limited: ', '')
           : 'Could not submit reading: ${error.message}';
       setState(() => _error = message);
-    } catch (error) {
+    } catch (error, st) {
+      unawaited(ObservabilityService.captureError(error, st,
+          context: 'venue_loudness_capture.submit'));
       if (mounted) setState(() => _error = 'Could not submit reading: $error');
     } finally {
       if (mounted) setState(() => _saving = false);

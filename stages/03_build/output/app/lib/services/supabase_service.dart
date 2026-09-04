@@ -6,10 +6,13 @@
 // separately, as its own scoped `pipeline_service` role
 // (0002_pipeline_role.sql), not this anon key and not a service-role bypass.
 
+import 'dart:async';
+
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/mic_reading.dart';
 import '../models/restaurant.dart';
+import 'observability_service.dart';
 
 // Passed at build/run time via --dart-define, not hardcoded, since these
 // differ per environment (dev/prod) and the anon key shouldn't be committed
@@ -305,7 +308,14 @@ class SupabaseService {
         'already_redeemed' => BetaCodeResult.alreadyRedeemed,
         _ => BetaCodeResult.invalid,
       };
-    } catch (_) {
+    } catch (e, st) {
+      // The RPC's own documented outcomes (invalid/expired/already-redeemed)
+      // come back above as plain strings, not exceptions — this only catches
+      // a genuine failure to reach or execute the RPC (network, RLS, an
+      // unexpected server error), which is worth knowing about.
+      // Fire-and-forget — this must not delay the beta-gate result.
+      unawaited(ObservabilityService.captureError(e, st,
+          context: 'supabase.redeem_beta_code'));
       return BetaCodeResult.error;
     }
   }
@@ -320,7 +330,9 @@ class SupabaseService {
     try {
       final result = await _client.rpc('has_beta_access');
       return result == true;
-    } catch (_) {
+    } catch (e, st) {
+      unawaited(ObservabilityService.captureError(e, st,
+          context: 'supabase.has_beta_access'));
       return false;
     }
   }

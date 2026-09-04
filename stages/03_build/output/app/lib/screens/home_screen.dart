@@ -8,6 +8,7 @@ import '../models/restaurant.dart';
 import '../providers/favourites_provider.dart';
 import '../providers/restaurant_list_provider.dart';
 import '../services/location_service.dart';
+import '../services/observability_service.dart';
 import '../services/supabase_service.dart';
 import '../widgets/app_drawer.dart';
 import '../widgets/filter_drawer.dart';
@@ -282,7 +283,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(_nearbyCoverageRefreshMessage(refresh))),
       );
-    } catch (_) {
+    } catch (e, st) {
+      unawaited(ObservabilityService.captureError(e, st,
+          context: 'home.check_nearby_venues'));
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(

@@ -6,10 +6,13 @@
 // sign-in call — otherwise anyone with the device unlocked and this app
 // already signed in could change the password without knowing it.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../services/observability_service.dart';
 import '../services/supabase_service.dart';
 import '../utils/friendly_auth_error.dart';
 import '../widgets/centered_scroll_form.dart';
@@ -69,10 +72,16 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
       // the actual new-password update.
       await _client.auth.signInWithPassword(email: email, password: currentPassword);
     } on AuthException {
+      // Wrong current password — the person re-entering it incorrectly, not
+      // a bug.
       if (mounted) setState(() => _error = 'Current password is incorrect.');
       if (mounted) setState(() => _submitting = false);
       return;
-    } catch (e) {
+    } catch (e, st) {
+      // Not Supabase's own auth-rejection type, so this is a genuine failure
+      // (network, unexpected error) verifying the password, not a wrong one.
+      unawaited(ObservabilityService.captureError(e, st,
+          context: 'change_password.verify_current'));
       if (mounted) setState(() => _error = 'Could not verify current password: $e');
       if (mounted) setState(() => _submitting = false);
       return;
@@ -83,7 +92,14 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Password updated.')));
       context.pop();
-    } catch (e) {
+    } catch (e, st) {
+      // AuthException here is Supabase's own password-policy rejection
+      // (friendlyPasswordPolicyError's case) or a similar business-rule
+      // response — expected. Anything else is not.
+      if (e is! AuthException) {
+        unawaited(ObservabilityService.captureError(e, st,
+            context: 'change_password.update'));
+      }
       if (!mounted) return;
       setState(() => _error = friendlyPasswordPolicyError(e) ?? 'Could not update password: $e');
     } finally {

@@ -4,10 +4,13 @@
 // the fields themselves live here, one tap away, rather than crowding the
 // chooser screen.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../services/observability_service.dart';
 import '../widgets/centered_scroll_form.dart';
 import '../widgets/password_field.dart';
 
@@ -38,8 +41,11 @@ class _SignInEmailScreenState extends State<SignInEmailScreen> {
       );
       if (mounted) context.pop(true);
     } on AuthException catch (e) {
+      // Wrong email/password — the app working correctly, not a bug.
       setState(() => _error = e.message);
-    } catch (e) {
+    } catch (e, st) {
+      unawaited(ObservabilityService.captureError(e, st,
+          context: 'auth.sign_in_email'));
       setState(() => _error = 'Something went wrong: $e');
     } finally {
       if (mounted) setState(() => _submitting = false);
