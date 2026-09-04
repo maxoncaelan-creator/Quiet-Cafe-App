@@ -6,7 +6,9 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import 'models/restaurant.dart';
-import 'services/beta_gate_notifier.dart';
+import 'providers/beta_gate_provider.dart';
+import 'providers/beta_gate_router_refresh.dart';
+import 'providers/provider_container.dart';
 import 'services/supabase_service.dart';
 import 'screens/account_screen.dart';
 import 'screens/auth_screen.dart';
@@ -32,10 +34,12 @@ import 'screens/sign_in_email_screen.dart';
 import 'widgets/app_shell.dart';
 import 'widgets/skeleton_loader.dart';
 
-// Single source of truth for router.dart's own gate redirect below —
-// also handed to BetaGateScreen so a successful redemption can trigger a
-// recheck. See beta_gate_notifier.dart.
-final betaGateNotifier = BetaGateNotifier();
+// Lets refreshListenable (a plain Listenable) react to betaAccessProvider
+// (a Riverpod provider) — see beta_gate_router_refresh.dart. Reading
+// providerContainer.read(betaAccessProvider) directly below is what's
+// actually used for the redirect decision; this is only the notification
+// side of it.
+final betaGateRouterRefresh = BetaGateRouterRefresh(providerContainer);
 
 // Auth routes remain available while signed out. Once an ordinary sign-in or
 // email-confirmation callback installs a session, the gate owns navigation so
@@ -75,7 +79,10 @@ String? _gateRedirect(BuildContext context, GoRouterState state) {
 
   if (_passwordRecoveryPaths.contains(loc)) return null;
 
-  final hasAccess = betaGateNotifier.hasAccess;
+  // .asGateAccess, not plain .valueOrNull — see beta_gate_provider.dart for
+  // why a re-check needs that: valueOrNull retains the previous answer
+  // while a check is in flight, not just the very first one.
+  final hasAccess = providerContainer.read(betaAccessProvider).asGateAccess;
   if (hasAccess == null) {
     return loc == '/checking-access' ? null : '/checking-access';
   }
@@ -91,7 +98,7 @@ String? _gateRedirect(BuildContext context, GoRouterState state) {
 
 final GoRouter appRouter = GoRouter(
   initialLocation: '/',
-  refreshListenable: betaGateNotifier,
+  refreshListenable: betaGateRouterRefresh,
   redirect: _gateRedirect,
   routes: [
     ShellRoute(
@@ -145,8 +152,7 @@ final GoRouter appRouter = GoRouter(
         ),
         GoRoute(
           path: '/beta-gate',
-          builder: (context, state) =>
-              BetaGateScreen(gateNotifier: betaGateNotifier),
+          builder: (context, state) => const BetaGateScreen(),
         ),
         GoRoute(
           path: '/checking-access',
