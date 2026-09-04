@@ -40,6 +40,15 @@ class _SignInEmailScreenState extends State<SignInEmailScreen> {
         password: _passwordController.text,
       );
       if (mounted) context.pop(true);
+    } on AuthRetryableFetchException catch (e, st) {
+      // A transport failure (no connection, DNS, TLS, Supabase unreachable),
+      // not a wrong password. gotrue throws this from its fetch layer and it
+      // *extends* AuthException, so without this branch ahead of the one
+      // below it is swallowed as an expected credential error and never
+      // reported — the exact inversion issue #69 describes.
+      unawaited(ObservabilityService.captureError(e, st,
+          context: 'auth.sign_in_email'));
+      setState(() => _error = e.message);
     } on AuthException catch (e) {
       // Wrong email/password — the app working correctly, not a bug.
       setState(() => _error = e.message);
