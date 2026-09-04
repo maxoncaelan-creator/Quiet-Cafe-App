@@ -12,8 +12,8 @@ updates its own status block here when it finishes.
 | 0 | Claude Opus 5 (Claude Code) | Instrumentation, extensions, budget guard, dependencies | **Done — merged PRs #45 and #46** |
 | 1 | ChatGPT Terra 5.6 | Backend automation: gazetteer, sweep freshness, cron, queue | **Live and verified 2026-08-24 — Crows Nest 15 → 39 venues** |
 | 2 | Claude Opus 5 (Claude Code) | Full-stack assistant rewire | **Done — 2a and 2b complete** |
-| 3 | Anthropic Sonnet 5 (done by Opus 5) | Frontend: Riverpod migration | **3a done; 3b DI seam done, remaining slices open** |
-| 4 | Claude Opus 5 (Claude Code) | Beta hardening, PostHog, launch work | Not started |
+| 3 | Anthropic Sonnet 5 (done by Opus 5) | Frontend: Riverpod migration | **Complete — 3a-3d merged 2026-09-03, 62/62 tests on main** |
+| 4 | Claude Opus 5 (Claude Code) | Beta hardening, PostHog, launch work | Open — step 3 has cleared both gates |
 
 ## The review gate — every step, without exception
 

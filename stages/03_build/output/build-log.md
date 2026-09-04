@@ -768,3 +768,87 @@ For once, everything checked out live on the first pass.
   now covering four more merged PRs than when it was last written.
 - Step 3's remaining slices — the beta/auth gate off its hand-rolled
   `ChangeNotifier`, and restaurant list caching — are open. Step 4 has not begun.
+
+## Step 3 complete — the Riverpod migration landed 2026-09-03
+
+Steps 3c and 3d merged ([#60](https://github.com/maxoncaelan-creator/Quiet-Cafe-App/pull/60),
+[#62](https://github.com/maxoncaelan-creator/Quiet-Cafe-App/pull/62)). Verified on
+merged `main`, not on the branches: `flutter analyze --no-pub` clean and
+`flutter test --no-pub` **62/62 passing**, up from 47 when step 3 began.
+
+### Step 3c — the beta gate
+
+`BetaGateNotifier` is deleted. `betaAccessProvider` replaces it, reading step
+3b's DI seam. The obstacle worth remembering: `appRouter` is a top-level global
+built at import time and GoRouter's `redirect` runs outside the widget tree, so
+it has no `BuildContext` to trust and no `ref.watch` to call. A single global
+`ProviderContainer` is now handed to `UncontrolledProviderScope` instead of
+letting `ProviderScope` build its own, so the router and the widget tree read
+one state rather than two diverging copies.
+
+**Two review findings were sent back and fixed before merge.**
+
+The migration had dropped the `onError` handler on `authStateChanges`. The
+deleted notifier carried one deliberately, with a comment explaining that
+Supabase emits network and token-refresh failures on that stream. Restoring it
+mattered more than it first appeared: the notifier being deleted was the *only*
+place in the app handling errors on that stream. The other four call sites are
+[issue #63](https://github.com/maxoncaelan-creator/Quiet-Cafe-App/issues/63).
+
+The second finding was subtler and is worth recording because the PR originally
+claimed the opposite. Reading access via `.valueOrNull` reproduces the old
+three-state contract on a *cold start* only. On a re-check, Riverpod rebuilds
+with `AsyncLoading().copyWithPrevious(previous, isRefresh: true)`, which folds
+the previously resolved value into an `AsyncData` carrying `isLoading: true`
+rather than clearing it — so `valueOrNull` returns the **stale** answer while
+the new check runs. Someone signing in after a sign-out would flash
+`/beta-gate` instead of `/checking-access`, exactly the flicker the old code
+avoided by setting `hasAccess = null` before *every* check. Fixed with an
+`asGateAccess` extension reading `isLoading` instead.
+
+That was confirmed empirically before the code was touched — the state was
+printed mid-refresh and read `isLoading=true valueOrNull=false hasValue=true` —
+rather than argued from the documentation. The sign-out direction needs no
+guard, because `_gateRedirect` tests `isSignedIn` before ever reading access.
+
+### Step 3d — the list, and the screen step 3a missed
+
+`HomeScreen` was never converted in step 3a. It still held its own
+`_favoritePlaceIds`, its own `_loadFavorites()`, and its own hand-rolled
+optimistic toggle — so **the bug step 3a existed to fix was still live on the
+main list screen**: unstar a venue from the detail screen, go back, still
+starred. Step 3a's record described the fix as done; it covered two of the
+three screens. Worth remembering as a case where a green suite and a merged PR
+did not mean the bug was gone.
+
+`restaurantListProvider` now shares the list between `HomeScreen` and
+`FavouritesScreen`, with `RestaurantRepository` taking an injected
+`SupabaseService`. That injection forced one real change: the bundled-asset
+fallback can no longer test the static `SupabaseService.isConfigured`, so it
+catches the typed `SupabaseNotConfigured` instead. Checked rather than assumed —
+that exception is raised only at `if (!isConfigured)` guards, never for query or
+network failures, so a broken live backend still surfaces instead of silently
+serving stale sample data.
+
+The cache is deliberately **not** invalidated on auth change. The restaurant
+list is public, unscoped data, unlike favourites; `reload()` is wired only to
+the two coverage-refresh paths that can actually add venues.
+
+### Still not true
+
+- **The beta gate is still bypassed in production** ([issue #51](https://github.com/maxoncaelan-creator/Quiet-Cafe-App/issues/51)).
+  Unchanged by any of this.
+- **No device or browser testing has been done on any of step 3.** Every check
+  above is `analyze`, a unit suite, and hosted CI. Nothing has proven that
+  GoRouter's redirect re-evaluates on a real device, that the gate screen exits
+  on redemption, or that the favourites bug 3d fixed is actually fixed in the
+  running app. That is step 4's device batch, and it is now the largest
+  unverified surface in the project.
+- Three defects found during review are filed and unfixed:
+  [#61](https://github.com/maxoncaelan-creator/Quiet-Cafe-App/issues/61) (a
+  subscription leak in `FavouriteIds.reload()`, latent — no callers yet),
+  [#63](https://github.com/maxoncaelan-creator/Quiet-Cafe-App/issues/63) (the
+  four missing `onError` handlers) and
+  [#64](https://github.com/maxoncaelan-creator/Quiet-Cafe-App/issues/64) (a
+  failed access check strands the user on `/checking-access` with no retry —
+  pre-existing, not introduced by step 3).
