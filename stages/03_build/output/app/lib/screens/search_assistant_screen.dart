@@ -19,6 +19,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 
 import '../services/location_service.dart';
+import '../services/observability_service.dart';
 import '../services/speech_recognition_service.dart';
 import '../services/supabase_service.dart';
 import '../widgets/app_drawer.dart';
@@ -135,7 +136,9 @@ class _SearchAssistantScreenState extends State<SearchAssistantScreen> {
     try {
       nearest = await _supabaseService.findNearestRestaurant(
           position.latitude, position.longitude);
-    } catch (_) {
+    } catch (e, st) {
+      await ObservabilityService.captureError(e, st,
+          context: 'search_assistant.guess_venue');
       return;
     }
     if (nearest != null && mounted) {
@@ -259,14 +262,20 @@ class _SearchAssistantScreenState extends State<SearchAssistantScreen> {
                 'The search helper is having a rest. It will be back soon. '
                 'You can still browse and search the list.',
           )));
-    } on SearchAssistantAccessDenied catch (e) {
+    } on SearchAssistantAccessDenied catch (e, st) {
       // The router normally keeps this screen unreachable without beta access,
       // so this only fires when the gate changes while a session is already
-      // open. Say what to do rather than showing a generic failure.
+      // open — SearchAssistantAccessDenied's own doc comment calls this
+      // "defence in depth rather than an expected path", so it's worth
+      // knowing about. Say what to do rather than showing a generic failure.
+      await ObservabilityService.captureError(e, st,
+          context: 'search_assistant.access_denied');
       if (!mounted) return;
       setState(() => _messages
           .add(_ChatMessage(role: 'assistant', content: e.message)));
-    } catch (e) {
+    } catch (e, st) {
+      await ObservabilityService.captureError(e, st,
+          context: 'search_assistant.send_message');
       if (!mounted) return;
       setState(() => _messages.add(const _ChatMessage(
             role: 'assistant',

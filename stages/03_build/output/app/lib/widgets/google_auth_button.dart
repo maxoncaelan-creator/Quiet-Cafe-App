@@ -10,8 +10,10 @@
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 
 import '../services/oauth_service.dart';
+import '../services/observability_service.dart';
 import 'google_sign_in_button.dart';
 
 class GoogleAuthButton extends StatelessWidget {
@@ -42,7 +44,15 @@ class GoogleAuthButton extends StatelessWidget {
         await OAuthService.signInWithGoogle();
         onSignedIn();
       }
-    } catch (e) {
+    } catch (e, st) {
+      // A user backing out of Google's account picker throws a typed
+      // cancellation on native — that's them declining, not a failure.
+      final isUserCancelled =
+          e is GoogleSignInException && e.code == GoogleSignInExceptionCode.canceled;
+      if (!isUserCancelled) {
+        await ObservabilityService.captureError(e, st,
+            context: 'auth.google_sign_in');
+      }
       onError(e);
     }
   }

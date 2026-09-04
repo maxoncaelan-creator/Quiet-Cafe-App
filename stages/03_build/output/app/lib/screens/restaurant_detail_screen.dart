@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../models/restaurant.dart';
 import '../providers/favourites_provider.dart';
+import '../services/observability_service.dart';
 import '../services/supabase_service.dart';
 import '../widgets/confidence_indicator.dart';
 import '../widgets/loudness_vote_buttons.dart';
@@ -54,8 +55,12 @@ class _RestaurantDetailScreenState
     try {
       final updated = await _supabaseService.fetchRestaurantByPlaceId(restaurant.placeId);
       if (mounted) setState(() => _restaurant = updated);
-    } catch (_) {
-      // Non-fatal — see doc comment above.
+    } catch (e, st) {
+      // Non-fatal to the screen — see doc comment above — but still worth
+      // knowing about: this exercises the same row-parsing path
+      // (_restaurantFromRow) as the rest of the live schema.
+      await ObservabilityService.captureError(e, st,
+          context: 'restaurant_detail.refresh_after_vote');
     }
   }
 

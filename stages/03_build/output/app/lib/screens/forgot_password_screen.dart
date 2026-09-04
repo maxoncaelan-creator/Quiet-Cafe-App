@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../services/oauth_service.dart' show oauthRedirectUrl;
+import '../services/observability_service.dart';
 import '../widgets/centered_scroll_form.dart';
 
 const _skeletonDuration = Duration(milliseconds: 500);
@@ -65,7 +66,13 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       await _client.auth.resetPasswordForEmail(email, redirectTo: kIsWeb ? null : oauthRedirectUrl);
       if (!mounted) return;
       setState(() => _info = 'If $email has an account, a password reset link is on its way.');
-    } catch (e) {
+    } catch (e, st) {
+      // AuthException here is Supabase's own rejection (e.g. its send-rate
+      // limit) — expected. Anything else (network, etc.) is not.
+      if (e is! AuthException) {
+        await ObservabilityService.captureError(e, st,
+            context: 'forgot_password.reset_request');
+      }
       if (!mounted) return;
       setState(() => _error = 'Could not send reset link: $e');
     } finally {

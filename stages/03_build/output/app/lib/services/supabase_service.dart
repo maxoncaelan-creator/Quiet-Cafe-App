@@ -10,6 +10,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/mic_reading.dart';
 import '../models/restaurant.dart';
+import 'observability_service.dart';
 
 // Passed at build/run time via --dart-define, not hardcoded, since these
 // differ per environment (dev/prod) and the anon key shouldn't be committed
@@ -305,7 +306,13 @@ class SupabaseService {
         'already_redeemed' => BetaCodeResult.alreadyRedeemed,
         _ => BetaCodeResult.invalid,
       };
-    } catch (_) {
+    } catch (e, st) {
+      // The RPC's own documented outcomes (invalid/expired/already-redeemed)
+      // come back above as plain strings, not exceptions — this only catches
+      // a genuine failure to reach or execute the RPC (network, RLS, an
+      // unexpected server error), which is worth knowing about.
+      await ObservabilityService.captureError(e, st,
+          context: 'supabase.redeem_beta_code');
       return BetaCodeResult.error;
     }
   }
@@ -320,7 +327,9 @@ class SupabaseService {
     try {
       final result = await _client.rpc('has_beta_access');
       return result == true;
-    } catch (_) {
+    } catch (e, st) {
+      await ObservabilityService.captureError(e, st,
+          context: 'supabase.has_beta_access');
       return false;
     }
   }

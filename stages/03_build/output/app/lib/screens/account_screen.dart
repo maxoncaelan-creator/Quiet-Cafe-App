@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../models/mic_reading.dart';
+import '../services/observability_service.dart';
 import '../services/supabase_service.dart';
 import '../widgets/max_width_content.dart';
 import '../widgets/skeleton_loader.dart';
@@ -36,7 +37,9 @@ class _AccountScreenState extends State<AccountScreen> {
     try {
       final readings = await _supabaseService.fetchMyReadings();
       if (mounted) setState(() => _readings = readings);
-    } catch (e) {
+    } catch (e, st) {
+      await ObservabilityService.captureError(e, st,
+          context: 'account.fetch_readings');
       if (mounted) setState(() => _readingsError = e);
     }
   }

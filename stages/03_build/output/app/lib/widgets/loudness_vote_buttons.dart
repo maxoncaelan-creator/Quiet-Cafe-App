@@ -19,6 +19,7 @@
 
 import 'package:flutter/material.dart';
 
+import '../services/observability_service.dart';
 import '../services/supabase_service.dart';
 
 class LoudnessVoteButtons extends StatefulWidget {
@@ -67,7 +68,9 @@ class _LoudnessVoteButtonsState extends State<LoudnessVoteButtons> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Thanks for your vote!')),
       );
-    } catch (e) {
+    } catch (e, st) {
+      await ObservabilityService.captureError(e, st,
+          context: 'loudness_vote.submit');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Could not record your vote: $e')),

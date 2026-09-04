@@ -6,6 +6,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show AuthChangeEvent;
 
+import '../services/observability_service.dart';
 import '../services/supabase_service.dart';
 import 'supabase_service_provider.dart';
 
@@ -83,7 +84,12 @@ class BetaAccess extends AsyncNotifier<bool> {
       // error here becomes an unhandled Zone error and crashes the app,
       // rather than just leaving betaAccessProvider showing its last-known
       // answer until the next auth event or app launch retries the check.
-      onError: (_, __) {},
+      // Genuinely unexpected (a network blip or token-refresh failure, not
+      // anything the user did), so worth knowing about.
+      onError: (error, stackTrace) {
+        ObservabilityService.captureError(error, stackTrace,
+            context: 'beta_gate.auth_state_stream');
+      },
     );
     ref.onDispose(subscription.cancel);
 

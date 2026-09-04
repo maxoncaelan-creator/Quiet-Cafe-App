@@ -28,6 +28,7 @@ import 'package:go_router/go_router.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
 import '../services/oauth_service.dart';
+import '../services/observability_service.dart';
 import '../widgets/centered_scroll_form.dart';
 import '../widgets/email_option_button.dart';
 import '../widgets/google_auth_button.dart';
@@ -68,7 +69,17 @@ class _AuthScreenState extends State<AuthScreen> {
     try {
       await signIn();
       if (popOnSuccess) _completeSignIn();
-    } catch (e) {
+    } catch (e, st) {
+      // Shared by Apple and Facebook. Apple's SDK throws a typed cancellation
+      // when the user backs out of the system sheet — that's the person
+      // declining, not a failure. Facebook has no such case here: this only
+      // launches the redirect, so anything it throws is a real problem.
+      final isUserCancelled = e is SignInWithAppleAuthorizationException &&
+          e.code == AuthorizationErrorCode.canceled;
+      if (!isUserCancelled) {
+        await ObservabilityService.captureError(e, st,
+            context: 'auth.oauth_sign_in');
+      }
       setState(() => _error = 'Sign-in failed: $e');
     } finally {
       if (mounted) setState(() => _submitting = false);

@@ -15,6 +15,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../services/oauth_service.dart';
+import '../services/observability_service.dart';
 import '../widgets/centered_scroll_form.dart';
 import '../widgets/email_option_button.dart';
 import '../widgets/google_auth_button.dart';
@@ -44,7 +45,12 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
     try {
       await signIn();
       if (popOnSuccess && mounted) context.pop(true);
-    } catch (e) {
+    } catch (e, st) {
+      // Only Facebook reaches this (Google has its own GoogleAuthButton
+      // path) — signInWithFacebook only launches the redirect, so anything
+      // it throws here is a real failure, not a user cancelling.
+      await ObservabilityService.captureError(e, st,
+          context: 'create_account.facebook_oauth');
       setState(() => _error = 'Sign-in failed: $e');
     } finally {
       if (mounted) setState(() => _submitting = false);
