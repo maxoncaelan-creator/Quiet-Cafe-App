@@ -34,7 +34,7 @@ void main() {
       // The other half of the distinction: an ordinary credential rejection
       // must NOT match the retryable branch, or every wrong password would
       // start reporting to Sentry — the noise issue #67 set out to avoid.
-      expect(AuthException('Invalid login credentials'),
+      expect(const AuthException('Invalid login credentials'),
           isNot(isA<AuthRetryableFetchException>()));
     });
   });
