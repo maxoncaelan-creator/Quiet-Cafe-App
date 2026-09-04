@@ -92,6 +92,22 @@ secrecy of the key itself.
 
 **Crash reporting** (optional, added 2026-08-23). Add
 `--dart-define=SENTRY_DSN=https://...` to send crashes to Sentry. Without it
+
+### Supplying the defines from a file instead
+
+Typing four `--dart-define` flags per run is how the Google client ID came to be
+forgotten in CI once (see `MISTAKES.md`). For local work, put them in
+`dart-defines.local.json` and pass one flag:
+
+```
+flutter run --dart-define-from-file=dart-defines.local.json
+```
+
+That file is **gitignored** — it holds the real values and must never be
+committed. `dart-defines.example.json` is the committed template showing which
+keys are expected. The deployed web build does not use this file; it passes the
+same values from GitHub Actions secrets in `deploy-web.yml`.
+
 the app runs exactly as before: `ObservabilityService` installs no Sentry zone
 at all when the DSN is empty, so `flutter test`, hosted CI and the standalone
 no-Supabase demo build are unaffected. A DSN is not a secret — it ships inside
