@@ -53,9 +53,10 @@ class LocationService {
       return null;
     } catch (e, st) {
       // Anything else here — a platform channel throwing, an unexpected
-      // Geolocator failure — is not the routine case above.
-      await ObservabilityService.captureError(e, st,
-          context: 'location.get_current_position');
+      // Geolocator failure — is not the routine case above. Fire-and-forget:
+      // this must not make a GPS-fix failure also block on a Sentry POST.
+      unawaited(ObservabilityService.captureError(e, st,
+          context: 'location.get_current_position'));
       return null;
     }
   }

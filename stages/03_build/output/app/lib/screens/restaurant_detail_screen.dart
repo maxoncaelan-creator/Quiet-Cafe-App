@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -59,8 +61,8 @@ class _RestaurantDetailScreenState
       // Non-fatal to the screen — see doc comment above — but still worth
       // knowing about: this exercises the same row-parsing path
       // (_restaurantFromRow) as the rest of the live schema.
-      await ObservabilityService.captureError(e, st,
-          context: 'restaurant_detail.refresh_after_vote');
+      unawaited(ObservabilityService.captureError(e, st,
+          context: 'restaurant_detail.refresh_after_vote'));
     }
   }
 

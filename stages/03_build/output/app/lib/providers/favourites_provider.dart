@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show AuthChangeEvent;
 
@@ -70,8 +72,11 @@ class FavouriteIds extends AsyncNotifier<Set<String>> {
       // that call toggle() (HomeScreen, FavouritesScreen,
       // RestaurantDetailScreen) each catch this rethrow only to show a
       // snackbar, so reporting again there would double up the same event.
-      await ObservabilityService.captureError(e, st,
-          context: 'favourites.toggle');
+      // Fire-and-forget: the dispatch below happens synchronously up to its
+      // first await, before this function rethrows, so it isn't lost — but
+      // it must not make a favourite toggle wait on a Sentry POST.
+      unawaited(ObservabilityService.captureError(e, st,
+          context: 'favourites.toggle'));
       state = AsyncData(current);
       rethrow;
     }

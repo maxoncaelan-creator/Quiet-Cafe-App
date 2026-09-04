@@ -8,6 +8,8 @@
 // web-specific SDK involved here anymore, so one widget covers both
 // platforms: same pill button, different OAuthService call underneath.
 
+import 'dart:async';
+
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
@@ -50,8 +52,8 @@ class GoogleAuthButton extends StatelessWidget {
       final isUserCancelled =
           e is GoogleSignInException && e.code == GoogleSignInExceptionCode.canceled;
       if (!isUserCancelled) {
-        await ObservabilityService.captureError(e, st,
-            context: 'auth.google_sign_in');
+        unawaited(ObservabilityService.captureError(e, st,
+            context: 'auth.google_sign_in'));
       }
       onError(e);
     }

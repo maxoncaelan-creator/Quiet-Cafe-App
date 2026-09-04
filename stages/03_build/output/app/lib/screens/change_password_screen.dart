@@ -6,6 +6,8 @@
 // sign-in call — otherwise anyone with the device unlocked and this app
 // already signed in could change the password without knowing it.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -78,8 +80,8 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
     } catch (e, st) {
       // Not Supabase's own auth-rejection type, so this is a genuine failure
       // (network, unexpected error) verifying the password, not a wrong one.
-      await ObservabilityService.captureError(e, st,
-          context: 'change_password.verify_current');
+      unawaited(ObservabilityService.captureError(e, st,
+          context: 'change_password.verify_current'));
       if (mounted) setState(() => _error = 'Could not verify current password: $e');
       if (mounted) setState(() => _submitting = false);
       return;
@@ -95,8 +97,8 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
       // (friendlyPasswordPolicyError's case) or a similar business-rule
       // response — expected. Anything else is not.
       if (e is! AuthException) {
-        await ObservabilityService.captureError(e, st,
-            context: 'change_password.update');
+        unawaited(ObservabilityService.captureError(e, st,
+            context: 'change_password.update'));
       }
       if (!mounted) return;
       setState(() => _error = friendlyPasswordPolicyError(e) ?? 'Could not update password: $e');

@@ -6,6 +6,8 @@
 // for or checked here, which is how Supabase's recovery flow is designed
 // to work (the emailed link itself is the proof of ownership).
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show AuthException;
@@ -66,8 +68,8 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
       // AuthException is Supabase's own rejection (weak password, etc.) —
       // expected. Anything else is not.
       if (e is! AuthException) {
-        await ObservabilityService.captureError(e, st,
-            context: 'reset_password.update');
+        unawaited(ObservabilityService.captureError(e, st,
+            context: 'reset_password.update'));
       }
       if (!mounted) return;
       setState(() => _error = friendlyPasswordPolicyError(e) ?? 'Could not update password: $e');

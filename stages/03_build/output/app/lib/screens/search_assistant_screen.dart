@@ -137,8 +137,8 @@ class _SearchAssistantScreenState extends State<SearchAssistantScreen> {
       nearest = await _supabaseService.findNearestRestaurant(
           position.latitude, position.longitude);
     } catch (e, st) {
-      await ObservabilityService.captureError(e, st,
-          context: 'search_assistant.guess_venue');
+      unawaited(ObservabilityService.captureError(e, st,
+          context: 'search_assistant.guess_venue'));
       return;
     }
     if (nearest != null && mounted) {
@@ -268,14 +268,14 @@ class _SearchAssistantScreenState extends State<SearchAssistantScreen> {
       // open — SearchAssistantAccessDenied's own doc comment calls this
       // "defence in depth rather than an expected path", so it's worth
       // knowing about. Say what to do rather than showing a generic failure.
-      await ObservabilityService.captureError(e, st,
-          context: 'search_assistant.access_denied');
+      unawaited(ObservabilityService.captureError(e, st,
+          context: 'search_assistant.access_denied'));
       if (!mounted) return;
       setState(() => _messages
           .add(_ChatMessage(role: 'assistant', content: e.message)));
     } catch (e, st) {
-      await ObservabilityService.captureError(e, st,
-          context: 'search_assistant.send_message');
+      unawaited(ObservabilityService.captureError(e, st,
+          context: 'search_assistant.send_message'));
       if (!mounted) return;
       setState(() => _messages.add(const _ChatMessage(
             role: 'assistant',

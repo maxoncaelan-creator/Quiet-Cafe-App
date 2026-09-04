@@ -3,6 +3,8 @@
 // ChangeNotifier constructed `SupabaseService()` itself and gated on the
 // static `SupabaseService.isConfigured`, so no test double could ever stand
 // in for it and the closed-beta gate shipped with zero coverage.
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show AuthChangeEvent;
 
@@ -87,8 +89,8 @@ class BetaAccess extends AsyncNotifier<bool> {
       // Genuinely unexpected (a network blip or token-refresh failure, not
       // anything the user did), so worth knowing about.
       onError: (error, stackTrace) {
-        ObservabilityService.captureError(error, stackTrace,
-            context: 'beta_gate.auth_state_stream');
+        unawaited(ObservabilityService.captureError(error, stackTrace,
+            context: 'beta_gate.auth_state_stream'));
       },
     );
     ref.onDispose(subscription.cancel);

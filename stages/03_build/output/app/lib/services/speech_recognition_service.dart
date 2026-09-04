@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:speech_to_text/speech_recognition_error.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
@@ -60,9 +62,10 @@ class SpeechRecognitionService extends ChangeNotifier {
     } catch (e, st) {
       // initialize() returning false already covers "this device has no
       // speech support" without throwing — reaching here means the platform
-      // channel itself threw, which is the unanticipated case.
-      await ObservabilityService.captureError(e, st,
-          context: 'speech_recognition.initialize');
+      // channel itself threw, which is the unanticipated case. Fire-and-forget
+      // — this must not delay voice search reporting itself unavailable.
+      unawaited(ObservabilityService.captureError(e, st,
+          context: 'speech_recognition.initialize'));
       _available = false;
       _lastError = 'Voice search could not start. Please try again.';
     }
@@ -96,8 +99,8 @@ class SpeechRecognitionService extends ChangeNotifier {
       });
       return true;
     } catch (e, st) {
-      await ObservabilityService.captureError(e, st,
-          context: 'speech_recognition.start');
+      unawaited(ObservabilityService.captureError(e, st,
+          context: 'speech_recognition.start'));
       _lastError = 'Voice search could not listen. Please try again.';
       _listening = false;
       notifyListeners();

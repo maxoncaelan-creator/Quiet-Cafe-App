@@ -6,6 +6,8 @@
 // email and their own submitted mic readings — not invented profile fields
 // this app has no data for.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -38,8 +40,8 @@ class _AccountScreenState extends State<AccountScreen> {
       final readings = await _supabaseService.fetchMyReadings();
       if (mounted) setState(() => _readings = readings);
     } catch (e, st) {
-      await ObservabilityService.captureError(e, st,
-          context: 'account.fetch_readings');
+      unawaited(ObservabilityService.captureError(e, st,
+          context: 'account.fetch_readings'));
       if (mounted) setState(() => _readingsError = e);
     }
   }

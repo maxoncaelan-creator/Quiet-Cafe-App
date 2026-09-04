@@ -17,6 +17,8 @@
 // a vote landed correctly in loudness_votes but the visible score/
 // confidence on screen never changed, which is what Caelan reported.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../services/observability_service.dart';
@@ -69,8 +71,8 @@ class _LoudnessVoteButtonsState extends State<LoudnessVoteButtons> {
         const SnackBar(content: Text('Thanks for your vote!')),
       );
     } catch (e, st) {
-      await ObservabilityService.captureError(e, st,
-          context: 'loudness_vote.submit');
+      unawaited(ObservabilityService.captureError(e, st,
+          context: 'loudness_vote.submit'));
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Could not record your vote: $e')),

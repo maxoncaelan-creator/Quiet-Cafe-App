@@ -20,6 +20,7 @@
 // turned on, rather than showing a button that would just error — see
 // oauth_service.dart for the specifics of each flag.
 
+import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -77,8 +78,8 @@ class _AuthScreenState extends State<AuthScreen> {
       final isUserCancelled = e is SignInWithAppleAuthorizationException &&
           e.code == AuthorizationErrorCode.canceled;
       if (!isUserCancelled) {
-        await ObservabilityService.captureError(e, st,
-            context: 'auth.oauth_sign_in');
+        unawaited(ObservabilityService.captureError(e, st,
+            context: 'auth.oauth_sign_in'));
       }
       setState(() => _error = 'Sign-in failed: $e');
     } finally {

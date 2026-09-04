@@ -3,6 +3,8 @@
 // Supabase's signUp. Kept as its own screen rather than folded back into
 // CreateAccountScreen so the email step stays a single field, per Caelan.
 
+import 'dart:async';
+
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -80,8 +82,8 @@ class _CreateAccountPasswordScreenState extends State<CreateAccountPasswordScree
       // registered, etc. Expected, user-facing, not a bug.
       setState(() => _error = friendlyPasswordPolicyError(e) ?? e.message);
     } catch (e, st) {
-      await ObservabilityService.captureError(e, st,
-          context: 'create_account.sign_up');
+      unawaited(ObservabilityService.captureError(e, st,
+          context: 'create_account.sign_up'));
       setState(() => _error = 'Something went wrong: $e');
     } finally {
       if (mounted) setState(() => _submitting = false);

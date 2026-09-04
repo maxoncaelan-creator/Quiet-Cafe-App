@@ -284,8 +284,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         SnackBar(content: Text(_nearbyCoverageRefreshMessage(refresh))),
       );
     } catch (e, st) {
-      await ObservabilityService.captureError(e, st,
-          context: 'home.check_nearby_venues');
+      unawaited(ObservabilityService.captureError(e, st,
+          context: 'home.check_nearby_venues'));
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(

@@ -87,8 +87,8 @@ class _VenueLoudnessCaptureState extends State<VenueLoudnessCapture> {
       }
       return;
     } catch (error, st) {
-      await ObservabilityService.captureError(error, st,
-          context: 'venue_loudness_capture.start');
+      unawaited(ObservabilityService.captureError(error, st,
+          context: 'venue_loudness_capture.start'));
       if (mounted) {
         setState(() {
           _starting = false;
@@ -185,8 +185,8 @@ class _VenueLoudnessCaptureState extends State<VenueLoudnessCapture> {
         // doing its job, same as a search-assistant rate limit — expected,
         // not reported. Anything else here (an RLS rejection, a constraint
         // failure, an unanticipated Postgrest error) is not.
-        await ObservabilityService.captureError(error, st,
-            context: 'venue_loudness_capture.submit');
+        unawaited(ObservabilityService.captureError(error, st,
+            context: 'venue_loudness_capture.submit'));
       }
       if (!mounted) return;
       final message = isRateLimited
@@ -194,8 +194,8 @@ class _VenueLoudnessCaptureState extends State<VenueLoudnessCapture> {
           : 'Could not submit reading: ${error.message}';
       setState(() => _error = message);
     } catch (error, st) {
-      await ObservabilityService.captureError(error, st,
-          context: 'venue_loudness_capture.submit');
+      unawaited(ObservabilityService.captureError(error, st,
+          context: 'venue_loudness_capture.submit'));
       if (mounted) setState(() => _error = 'Could not submit reading: $error');
     } finally {
       if (mounted) setState(() => _saving = false);

@@ -5,6 +5,8 @@
 // there's no real data being fetched here, so the delay is cosmetic, not
 // masking latency.
 
+import 'dart:async';
+
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -70,8 +72,8 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       // AuthException here is Supabase's own rejection (e.g. its send-rate
       // limit) — expected. Anything else (network, etc.) is not.
       if (e is! AuthException) {
-        await ObservabilityService.captureError(e, st,
-            context: 'forgot_password.reset_request');
+        unawaited(ObservabilityService.captureError(e, st,
+            context: 'forgot_password.reset_request'));
       }
       if (!mounted) return;
       setState(() => _error = 'Could not send reset link: $e');

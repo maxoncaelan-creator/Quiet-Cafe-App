@@ -11,6 +11,8 @@
 // Replaces the old design where AuthScreen toggled between a sign-in and a
 // sign-up form sharing one email+password pair.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -49,8 +51,8 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
       // Only Facebook reaches this (Google has its own GoogleAuthButton
       // path) — signInWithFacebook only launches the redirect, so anything
       // it throws here is a real failure, not a user cancelling.
-      await ObservabilityService.captureError(e, st,
-          context: 'create_account.facebook_oauth');
+      unawaited(ObservabilityService.captureError(e, st,
+          context: 'create_account.facebook_oauth'));
       setState(() => _error = 'Sign-in failed: $e');
     } finally {
       if (mounted) setState(() => _submitting = false);
