@@ -90,3 +90,43 @@ free quota fast.
 include what someone searched for. It does not need their email, and I will
 configure it not to send one. If you later add Privacy Policy text, crash
 reporting is worth a sentence in it.
+
+---
+
+## Done — wired 2026-09-04
+
+Caelan supplied the DSN. Here is exactly where it went, and what is still
+manual.
+
+| Where | State |
+|---|---|
+| GitHub Actions secret `SENTRY_DSN` | **Set.** This is what the live web deploy reads. |
+| `deploy-web.yml` build step | **Passes `--dart-define=SENTRY_DSN`.** Both halves are required — see below. |
+| `app/dart-defines.local.json` | **Created, gitignored.** Local builds read it via `--dart-define-from-file`. |
+| The repository | **Nothing committed.** The DSN appears in no tracked file. |
+
+**Correction to Part 4 above:** it said the DSN goes into the Cloudflare Pages
+dashboard. That is wrong for how this project actually deploys. The web build
+runs in **GitHub Actions** (`deploy-web.yml`) and Cloudflare only receives the
+already-built output via `wrangler pages deploy`, so a Cloudflare-side
+environment variable would never reach the compiler. The Actions secret is the
+one that matters.
+
+**Why both halves are required, and why forgetting one is silent.** A secret
+with no `--dart-define` reaching the build does nothing; a `--dart-define` with
+no secret set passes an empty string, and `ObservabilityService` treats empty as
+"not configured" and disables itself. Neither case fails the build. This project
+has already shipped exactly that bug once — `deploy-web.yml` omitted
+`GOOGLE_WEB_CLIENT_ID`, which silently removed the Google sign-in button from
+the live site and was caught only from a screenshot. See `MISTAKES.md`.
+
+**Verified locally, not assumed:** a release web build with the DSN supplied
+compiles it into `main.dart.js` — grepped the org id out of the built bundle,
+so `ObservabilityService.isConfigured` is genuinely true rather than presumed.
+
+**Not yet verified:** that a real crash arrives in the Sentry project. That
+needs a deploy plus a deliberate error, and belongs with step 4's device batch.
+Until an event lands, this is wiring that should work, not reporting that does.
+
+**Still worth doing, per the guidance above:** turn session replay off in the
+Sentry project settings if it was enabled at signup.

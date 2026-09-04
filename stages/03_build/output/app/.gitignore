@@ -46,3 +46,7 @@ app.*.map.json
 
 # Widget Preview related
 .widget_preview/
+
+# Local build inputs (DSNs, keys). Real values never committed —
+# see dart-defines.example.json and PLATFORM_SETUP.md.
+dart-defines.local.json

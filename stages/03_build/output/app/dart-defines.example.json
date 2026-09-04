@@ -1,0 +1,5 @@
+{
+  "SENTRY_DSN": "https://<key>@<org>.ingest.us.sentry.io/<project>",
+  "SUPABASE_URL": "https://<project>.supabase.co",
+  "SUPABASE_ANON_KEY": "<anon key>"
+}

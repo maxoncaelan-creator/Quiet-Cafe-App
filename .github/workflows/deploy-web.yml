@@ -44,7 +44,8 @@ jobs:
           flutter build web --release \
             --dart-define=SUPABASE_URL=${{ secrets.SUPABASE_URL }} \
             --dart-define=SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }} \
-            --dart-define=GOOGLE_WEB_CLIENT_ID=335462034836-93k0vrqkqha1kmaf87j5ne05t1vaafvc.apps.googleusercontent.com
+            --dart-define=GOOGLE_WEB_CLIENT_ID=335462034836-93k0vrqkqha1kmaf87j5ne05t1vaafvc.apps.googleusercontent.com \
+            --dart-define=SENTRY_DSN=${{ secrets.SENTRY_DSN }}
 
       # wrangler pages deploy does NOT auto-create the Pages project (despite
       # what earlier docs here assumed, corrected 2026-08-19 after a real
