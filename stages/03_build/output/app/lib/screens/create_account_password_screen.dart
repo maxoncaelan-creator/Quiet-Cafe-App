@@ -77,6 +77,13 @@ class _CreateAccountPasswordScreenState extends State<CreateAccountPasswordScree
       } else {
         context.pop(true);
       }
+    } on AuthRetryableFetchException catch (e, st) {
+      // Transport failure, not a rejected sign-up. Subclasses AuthException,
+      // so it must be caught ahead of the branch below or it is silently
+      // classified as an expected rejection — see issue #69.
+      unawaited(ObservabilityService.captureError(e, st,
+          context: 'create_account.sign_up'));
+      setState(() => _error = friendlyPasswordPolicyError(e) ?? e.message);
     } on AuthException catch (e) {
       // Supabase's own sign-up rejections — weak password, email already
       // registered, etc. Expected, user-facing, not a bug.

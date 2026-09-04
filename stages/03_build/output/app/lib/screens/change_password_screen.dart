@@ -71,6 +71,16 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
       // header. A wrong current password fails right here, before touching
       // the actual new-password update.
       await _client.auth.signInWithPassword(email: email, password: currentPassword);
+    } on AuthRetryableFetchException catch (e, st) {
+      // Was the worst case of issue #69: this subclasses AuthException, so a
+      // network failure fell into the branch below and told the user
+      // "Current password is incorrect." — a false statement about their
+      // input when nothing had reached the server to check it.
+      unawaited(ObservabilityService.captureError(e, st,
+          context: 'change_password.verify_current'));
+      if (mounted) setState(() => _error = 'Could not verify current password: ${e.message}');
+      if (mounted) setState(() => _submitting = false);
+      return;
     } on AuthException {
       // Wrong current password — the person re-entering it incorrectly, not
       // a bug.
